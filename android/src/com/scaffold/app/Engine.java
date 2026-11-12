@@ -463,11 +463,27 @@ public final class Engine {
             if (ev != null) {
                 List<String> drop = new ArrayList<>();
                 Iterator<String> it = ev.keys();
-                while (it.hasNext()) { String k = it.next(); JSONObject e = ev.optJSONObject(k); long end = e == null ? 0 : e.optLong("end", e.optLong("start", 0)); if (end < now - 40L * DAY) drop.add(k); }
+                while (it.hasNext()) { String k = it.next(); JSONObject e = ev.optJSONObject(k); long end = e == null ? 0 : e.optLong("end", e.optLong("start", 0)); if (end < now - 40L * DAY || isPulledCopy(e, now)) drop.add(k); }
                 for (String k : drop) ev.remove(k);
             }
             return s;
         } catch (Exception e) { throw new RuntimeException(e); }
+    }
+
+    /** An old copy of a Google event (or a deletion Google already has): every device pulls Google itself now. */
+    static boolean isPulledCopy(JSONObject e, long now) {
+        if (e == null || e.optString("gid").isEmpty() || !e.has("synced")) return false;
+        long ts = e.optLong("ts", 0);
+        return e.optLong("synced", 0) >= ts && ts < now - 3600_000L;
+    }
+    static int dropPulledCopies(JSONObject state, long now) {
+        JSONObject ev = state.optJSONObject("events");
+        if (ev == null) return 0;
+        List<String> drop = new ArrayList<>();
+        Iterator<String> it = ev.keys();
+        while (it.hasNext()) { String k = it.next(); if (isPulledCopy(ev.optJSONObject(k), now)) drop.add(k); }
+        for (String k : drop) ev.remove(k);
+        return drop.size();
     }
 
     /** Runs the shared fixture (tests/fixture-out.json) and returns mismatches; empty string = all good. */

@@ -131,7 +131,8 @@
     calToday: function () { S.calMonth = null; S.calDay = null; render(); },
     calPick: function (key) { S.calDay = key; render(); },
     editEvent: function (id) {
-      var e = id && S.state.events[id] ? JSON.parse(JSON.stringify(S.state.events[id])) : null;
+      var all = E.eventsFor(S.state), e = id && all[id] ? JSON.parse(JSON.stringify(all[id])) : null;
+      if (e) { delete e.synced; delete e.gupd; }
       if (e && e.ro) return toast('Repeating Google events can only be edited in Google Calendar');
       openEventEditor(e);
     },

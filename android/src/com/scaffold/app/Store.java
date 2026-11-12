@@ -18,11 +18,16 @@ public final class Store {
         if (state == null) {
             try { state = new JSONObject(prefs(c).getString("state", "")); }
             catch (Exception e) { state = Engine.emptyState(); }
+            if (Engine.dropPulledCopies(state, System.currentTimeMillis()) > 0) prefs(c).edit().putString("state", state.toString()).apply();
         }
         return state;
     }
 
-    static synchronized String stateJson(Context c) { return state(c).toString(); }
+    /** The state for the interface, plus this device's own copy of Google Calendar (gev, never synced). */
+    static synchronized String stateJson(Context c) {
+        try { return new JSONObject(state(c).toString()).put("gev", new JSONObject(prefs(c).getString("gev", "{}"))).toString(); }
+        catch (Exception e) { return state(c).toString(); }
+    }
 
     static String deviceId(Context c) {
         SharedPreferences p = prefs(c);
@@ -56,6 +61,7 @@ public final class Store {
                 }
             }
             changed = Engine.merge(state(c), patch);
+            if (changed) Engine.dropPulledCopies(state, System.currentTimeMillis());
             if (changed) prefs(c).edit().putString("state", state.toString()).apply();
         }
         if (publish) Sync.publish(c, patch, false);

@@ -26,12 +26,17 @@ let state, local, tray, mainWin, popupWin, noteWin, waWin, overlays = [], sync =
 function readJSON(f, d) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return d; } }
 function writeJSON(f, v) { try { fs.mkdirSync(DATA, { recursive: true }); fs.writeFileSync(f + '.tmp', JSON.stringify(v)); fs.renameSync(f + '.tmp', f); } catch (e) { console.error(e); } }
 function saveState() { writeJSON(STATE_F, state); }
+// This device's own copy of Google Calendar (never synced; every device pulls it).
+const GEV_F = path.join(DATA, 'gcal.json');
+let gev = {};
 function saveLocal() { writeJSON(LOCAL_F, local); }
 function E_MAPS_FIX() { Engine.MAPS.forEach((m) => { state[m] = state[m] || {}; }); }
 function rec(id) { return (state.tasks || {})[id] || (state.todos || {})[id] || {}; }
 
 function loadAll() {
   state = readJSON(STATE_F, Engine.emptyState());
+  gev = readJSON(GEV_F, {});
+  if (Engine.dropPulledCopies(state, Date.now())) saveState();
   local = Object.assign({
     deviceId: (process.platform === 'darwin' ? 'mac-' : 'pc-') + crypto.randomBytes(4).toString('hex'),
     deviceName: process.platform === 'darwin' ? 'MacBook' : 'PC',
@@ -47,6 +52,7 @@ function loadAll() {
 function applyPatch(patch, publish) {
   const tests = Object.keys(patch.log || {}).filter((k) => patch.log[k].type === 'test-remind' && !(state.log || {})[k] && patch.log[k].ts > Date.now() - 120000);
   const changed = Engine.merge(state, patch);
+  if (changed) Engine.dropPulledCopies(state, Date.now());   // old Google copies from devices on older versions
   if (tests.length) testRemind();
   const rel = Object.keys(patch.log || {}).some((k) => patch.log[k].type === 'release' && !(state.log || {})[k] && patch.log[k].ts > Date.now() - 3600e3 && Updater.newer(patch.log[k].v || '0', app.getVersion()));
   if (rel) setTimeout(runUpdate, 5000 + Math.random() * 20000);   // a new version was just released
@@ -227,13 +233,23 @@ function tickVault(patch) {
 
 // ---------- Google Calendar ----------
 let calBusy = false, calT = null;
-function calSoon() { if (!local.calUrl) return; clearTimeout(calT); calT = setTimeout(runCal, 15000); }
+function calSoon() { if (!relayCfg()) return; clearTimeout(calT); calT = setTimeout(runCal, 15000); }
+let lastPull = 0;
 async function runCal() {
-  if (!local.calUrl || calBusy) return;
+  if (calBusy) return;
+  const cfg = relayCfg();
+  if (!cfg) return;
   calBusy = true;
   try {
-    const status = await Calendar.syncOnce({ url: local.calUrl, secret: local.calSecret, state, local, Engine, by: local.deviceId, apply: (p) => applyPatch(p, true) });
-    local.cal = { status };
+    if (local.calUrl) {   // this computer owns the Google link: pull and push
+      const r = await Calendar.syncOnce({ url: local.calUrl, secret: local.calSecret, state, local, Engine, by: local.deviceId, apply: (p) => applyPatch(p, true) });
+      gev = r.gev; local.cal = { status: r.status };
+    } else if (Date.now() - lastPull > 9 * 60000) {   // others only read Google, every 10 minutes
+      lastPull = Date.now();
+      const g = await Calendar.pull(cfg.url, cfg.secret);
+      gev = Calendar.toGev(g, state.todos || {}); local.cal = { status: 'read ' + new Date().toTimeString().slice(0, 5) + ' · ' + g.length + ' Google events' };
+    }
+    writeJSON(GEV_F, gev);
   } catch (e) { local.cal = { status: 'error: ' + e.message }; }
   calBusy = false; saveLocal(); notifyUI();
 }
@@ -308,7 +324,7 @@ function trayIcon() {
 }
 
 // ---------- IPC for the UI ----------
-ipcMain.on('get-state', (e) => { e.returnValue = JSON.stringify(state); });
+ipcMain.on('get-state', (e) => { e.returnValue = JSON.stringify(Object.assign({}, state, { gev })); });
 ipcMain.on('get-local', (e) => { e.returnValue = JSON.stringify(Object.assign({}, local, { platform: 'desktop', version: app.getVersion() })); });
 ipcMain.on('get-launch', (e) => {
   const u = new URL(e.sender.getURL()); e.returnValue = JSON.stringify({ mode: u.searchParams.get('mode') || 'main', task: u.searchParams.get('task') || '' });

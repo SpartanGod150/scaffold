@@ -315,11 +315,35 @@
     return { total: total, done: done };
   }
 
+  // ---------- calendar events ----------
+  // Google events are pulled by each device into state.gev (local only, never synced). state.events holds what was
+  // made or edited in Scaffold; an edit wins over the Google copy until Google has the newer version.
+  function eventsFor(state) {
+    var out = {}, gev = state.gev || {}, byGid = {};
+    Object.keys(gev).forEach(function (id) { out[id] = gev[id]; byGid[gev[id].gid + '|' + (gev[id].ro ? gev[id].start : '')] = id; });
+    Object.keys(state.events || {}).forEach(function (id) {
+      var e = state.events[id], gid = e.gid ? byGid[e.gid + '|' + (e.ro ? e.start : '')] : null;
+      if (gid && (gev[gid].gupd || 0) >= (e.ts || 0)) return;   // Google already has this version (or newer)
+      if (gid) delete out[gid];
+      if (out[id] && (out[id].gupd || 0) >= (e.ts || 0)) return;
+      if (e.del) { delete out[id]; return; }
+      out[id] = e;
+    });
+    return out;
+  }
+  // Old pulled copies (unchanged since they came from Google, or deletions Google already has) are dropped: each device now pulls Google itself.
+  function isPulledCopy(e, now) { return !!(e && e.gid && e.synced && e.synced >= (e.ts || 0) && (e.ts || 0) < now - 3600000); }   // older than 1 h: every device has pulled the Google version by then
+  function dropPulledCopies(state, now) {
+    var n = 0;
+    Object.keys(state.events || {}).forEach(function (k) { if (isPulledCopy(state.events[k], now)) { delete state.events[k]; n++; } });
+    return n;
+  }
+
   // Everything that falls on a given day, for the calendar.
   function dayAgenda(state, t) {
-    var day = dateKey(t), start = at(t, '00:00'), end = midnightAfter(t), out = [];
-    Object.keys(state.events || {}).forEach(function (id) {
-      var e = state.events[id];
+    var day = dateKey(t), start = at(t, '00:00'), end = midnightAfter(t), out = [], evs = eventsFor(state);
+    Object.keys(evs).forEach(function (id) {
+      var e = evs[id];
       if (e.del || e.task) return;
       if (e.start < end && (e.end || e.start) > start) out.push({ kind: 'event', id: id, rec: e, t: e.allDay ? start : e.start });
     });
@@ -387,14 +411,15 @@
     var cut = dateKey(now - 40 * DAY), s = JSON.parse(JSON.stringify(state));
     Object.keys(s.comps || {}).forEach(function (k) { var p = k.split('@')[1] || ''; if (/^\d{4}-\d\d-\d\d$/.test(p) && p < cut) delete s.comps[k]; });
     Object.keys(s.snoozes || {}).forEach(function (k) { if ((k.split('@')[1] || '') < cut) delete s.snoozes[k]; });
-    Object.keys(s.events || {}).forEach(function (k) { var e = s.events[k]; if ((e.end || e.start || 0) < now - 40 * DAY) delete s.events[k]; });
+    Object.keys(s.events || {}).forEach(function (k) { var e = s.events[k]; if ((e.end || e.start || 0) < now - 40 * DAY || isPulledCopy(e, now)) delete s.events[k]; });
+    delete s.gev;
     return s;
   }
 
   return {
     MIN: MIN, DAY: DAY, MAPS: MAPS, MAX_SNOOZES: MAX_SNOOZES, SNOOZE_MIN: SNOOZE_MIN,
     pad: pad, dateKey: dateKey, fromKey: fromKey, addDays: addDays, at: at, hhmm: hhmm, compKey: compKey, uid: uid, emptyState: emptyState,
-    newer: newer, merge: merge, scheduledOn: scheduledOn, windowOf: windowOf, reminderTimes: reminderTimes, periodOf: periodOf,
+    newer: newer, merge: merge, eventsFor: eventsFor, dropPulledCopies: dropPulledCopies, isPulledCopy: isPulledCopy, scheduledOn: scheduledOn, windowOf: windowOf, reminderTimes: reminderTimes, periodOf: periodOf,
     compute: compute, dueReminders: dueReminders, notePops: notePops, pendingNotes: pendingNotes, stats: stats,
     projectProgress: projectProgress, dayAgenda: dayAgenda, vaultProjects: vaultProjects, itemKey: itemKey,
     chunks: chunks, snapshot: snapshot,

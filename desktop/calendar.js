@@ -1,6 +1,6 @@
 /* Two-way Google Calendar sync through the user's own Apps Script web app (ui/gcal-script.js).
-   Scaffold events <-> Google events, and one-time tasks with a date and time -> Google events.
-   Google is pulled for a window of -14 to +120 days; changes on either side win by last edit time. */
+   Every device pulls Google itself (-14 to +120 days) into its own copy; only edits travel through Scaffold's sync.
+   The computer with the Google link pushes Scaffold-made events and one-time tasks with a time to Google. */
 const https = require('https');
 const { URL } = require('url');
 
@@ -41,21 +41,37 @@ function todoSlot(Engine, t) {
   return { title: (t.emoji ? t.emoji + ' ' : '') + t.title, start, end };
 }
 
-/* One sync round. ctx: { url, secret, state, local, Engine, by, apply(patch) }.
-   local.calMap = { todoId: { gid, sig } } remembers which tasks are on Google. Returns a status string. */
+/* Google events -> this device's own copy, keyed like Scaffold events ({ id: {id, gid, title, start, end, allDay, ro, gupd} }).
+   Events that are Scaffold tasks on Google (sid = a task id) are left out: they show as tasks. */
+function toGev(google, todos) {
+  const gev = {};
+  for (const g of google) {
+    if (g.sid && todos[g.sid]) continue;
+    const key = g.gid + '|' + (g.rec ? g.start : ''), id = g.sid || ('g_' + hashId(key));
+    gev[id] = { id, gid: g.gid, title: g.title, start: g.start, end: g.end, allDay: !!g.allDay, ro: !!g.rec, gupd: g.upd };
+  }
+  return gev;
+}
+async function pull(url, secret) {
+  const now = Date.now();
+  const res = await call(url, { secret, op: 'pull', from: now - 14 * DAY, to: now + 120 * DAY });
+  return res.events || [];
+}
+
+/* One sync round on the computer that owns the Google link. ctx: { url, secret, state, local, Engine, by, apply(patch) }.
+   Pulls Google into this device's copy (returned as gev; never sent through sync), pushes Scaffold-made or edited events
+   and one-time tasks with a time. local.calMap = { todoId: { gid, sig } } remembers which tasks are on Google. */
 async function syncOnce(ctx) {
   const { url, secret, state, local, Engine, by, apply } = ctx;
   const now = Date.now(), from = now - 14 * DAY, to = now + 120 * DAY;
-  const res = await call(url, { secret, op: 'pull', from, to });
-  const google = res.events || [];
+  let google = await pull(url, secret);
   const events = state.events || {}, todos = state.todos || {};
   local.calMap = local.calMap || {};
-  const byGid = {};
-  Object.keys(events).forEach((id) => { const e = events[id]; if (e.gid) byGid[e.gid + '|' + (e.rec ? e.start : '')] = e; });
   const seen = {}, patch = { events: {}, todos: {} };
   let pulled = 0, pushed = 0;
 
   for (const g of google) {
+    seen[g.gid + '|' + (g.rec ? g.start : '')] = 1;
     if (g.sid && todos[g.sid]) { // a task that lives on Google: edits there move the task
       const t = todos[g.sid], slot = todoSlot(Engine, t), m = local.calMap[g.sid];
       seen['todo:' + g.sid] = 1;
@@ -66,32 +82,14 @@ async function syncOnce(ctx) {
         local.calMap[g.sid] = { gid: g.gid, upd: g.upd, sig: JSON.stringify(todoSlot(Engine, c)) };
         pulled++;
       }
-      continue;
-    }
-    const key = g.gid + '|' + (g.rec ? g.start : '');
-    seen[key] = 1;
-    const e = (g.sid && events[g.sid]) || byGid[key];
-    if (!e) {
-      const id = g.sid || ('g_' + hashId(key));
-      Object.assign(patch.events, { [id]: { id, gid: g.gid, title: g.title, start: g.start, end: g.end, allDay: !!g.allDay, ro: !!g.rec, gupd: g.upd, synced: now, ts: now, by } });
-      pulled++;
-    } else if (!e.del && g.upd > (e.gupd || 0) && g.upd > (e.ts || 0)) {
-      Object.assign(patch.events, { [e.id]: Object.assign({}, e, { gid: g.gid, title: g.title, start: g.start, end: g.end, allDay: !!g.allDay, ro: !!g.rec, gupd: g.upd, synced: now + 1, ts: now + 1, by }) });
-      pulled++;
     }
   }
 
-  // Scaffold-side changes go up.
+  // Scaffold-side changes go up (events made or edited in Scaffold, on any device).
+  let changed = false;
   for (const id of Object.keys(events)) {
     const e = events[id];
-    if (e.ro || (e.synced && e.synced >= (e.ts || 0))) {
-      // unchanged here; deleted on Google?
-      const key = (e.gid || '') + '|' + (e.rec ? e.start : '');
-      if (e.gid && !e.del && !seen[key] && e.start >= from && e.start <= to) {
-        Object.assign(patch.events, { [id]: Object.assign({}, e, { del: true, synced: now + 2, ts: now + 2, by }) });
-      }
-      continue;
-    }
+    if (e.ro || (e.synced && e.synced >= (e.ts || 0))) continue;   // already on Google
     if (e.del) {
       if (e.gid) await call(url, { secret, op: 'delete', gid: e.gid });
       Object.assign(patch.events, { [id]: Object.assign({}, e, { synced: now + 3, ts: now + 3, by }) });
@@ -99,7 +97,7 @@ async function syncOnce(ctx) {
       const r = await call(url, { secret, op: 'upsert', sid: id, gid: e.gid || '', title: e.title, start: e.start, end: e.end, allDay: !!e.allDay });
       Object.assign(patch.events, { [id]: Object.assign({}, e, { gid: r.gid, gupd: r.upd, synced: now + 3, ts: now + 3, by }) });
     }
-    pushed++;
+    pushed++; changed = true;
   }
   for (const id of Object.keys(todos)) {
     if (patch.todos[id]) continue; // just moved from Google this round
@@ -115,7 +113,9 @@ async function syncOnce(ctx) {
     pushed++;
   }
   if (Object.keys(patch.events).length || Object.keys(patch.todos).length) apply(patch);
-  return `synced ${new Date().toTimeString().slice(0, 5)} · ${google.length} Google events` + (pulled || pushed ? ` · ${pulled} in, ${pushed} out` : '');
+  if (changed) google = await pull(url, secret);   // so this device shows Google's new version right away
+  const gev = toGev(google, state.todos || {});
+  return { gev, status: `synced ${new Date().toTimeString().slice(0, 5)} · ${google.length} Google events` + (pulled || pushed ? ` · ${pulled} in, ${pushed} out` : '') };
 }
 
-module.exports = { syncOnce, call, todoSlot };
+module.exports = { syncOnce, call, todoSlot, pull, toGev, hashId };

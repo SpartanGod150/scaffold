@@ -161,7 +161,7 @@ public final class Sync {
     }
 
     private static void backupLoop(Context c, String code) {
-        long since = 0, lastPoll = 0; boolean wasActive = false;
+        long since = 0, lastPoll = 0, lastPull = 0; boolean wasActive = false;
         while (code.equals(activeCode)) {
             try { Thread.sleep(10000); } catch (InterruptedException ignored) {}
             String[] cfg = relayCfg(c);
@@ -184,8 +184,32 @@ public final class Sync {
                 wasActive = nowActive;
             }
             gFlush(cfg);
+            if (now - lastPull > 10 * 60_000L) { lastPull = now; pullCalendar(c, cfg); }
         }
     }
+
+    /** This device's own copy of Google Calendar, read through the script (same shape as desktop/calendar.js toGev). */
+    private static void pullCalendar(Context c, String[] cfg) {
+        try {
+            long now = System.currentTimeMillis();
+            JSONObject r = gcall(cfg[0], new JSONObject().put("secret", cfg[1]).put("op", "pull").put("from", now - 14 * 86400_000L).put("to", now + 120 * 86400_000L));
+            JSONArray evs = r.optJSONArray("events");
+            JSONObject todos = Store.state(c).optJSONObject("todos"), gev = new JSONObject();
+            for (int i = 0; evs != null && i < evs.length(); i++) {
+                JSONObject g = evs.getJSONObject(i);
+                String sid = g.optString("sid", "");
+                if (!sid.isEmpty() && todos != null && todos.has(sid)) continue;
+                boolean rec = g.optBoolean("rec");
+                String key = g.optString("gid") + "|" + (rec ? String.valueOf(g.optLong("start")) : "");
+                String id = sid.isEmpty() ? "g_" + hashId(key) : sid;
+                gev.put(id, new JSONObject().put("id", id).put("gid", g.optString("gid")).put("title", g.optString("title")).put("start", g.optLong("start"))
+                        .put("end", g.optLong("end")).put("allDay", g.optBoolean("allDay")).put("ro", rec).put("gupd", g.optLong("upd")));
+            }
+            Store.prefs(c).edit().putString("gev", gev.toString()).apply();
+            MainActivity.notifyState();
+        } catch (Exception ignored) {}
+    }
+    static String hashId(String s) { int h = 0; for (int i = 0; i < s.length(); i++) h = h * 31 + s.charAt(i); return Long.toString(h & 0xffffffffL, 36); }
 
     private static void gFlush(String[] cfg) {
         JSONArray batch = new JSONArray();
