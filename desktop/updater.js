@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { spawn } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 
 const ASSET = process.platform === 'darwin' ? 'Scaffold-mac-arm64.zip' : 'Scaffold-win-x64.zip';
 
@@ -63,9 +63,17 @@ function install(file) {
       `Expand-Archive -Path '${file}' -DestinationPath '${tmp}' -Force`,
       `robocopy '${tmp}' '${dir}' /MIR /R:5 /W:1 /NFL /NDL /NJH /NJS | Out-Null`,
       `Remove-Item '${tmp}' -Recurse -Force; Remove-Item '${file}' -Force`,
-      `Start-Process '${exe}'`
+      `Start-Process '${exe}'`,
+      `schtasks /Delete /TN ScaffoldUpdate /F | Out-Null`
     ].join('\r\n'), 'utf8');
-    spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ps], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    // Run the helper through Task Scheduler: a child process would be killed together with the app.
+    const cmd = `powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${ps}"`;
+    try {
+      execFileSync('schtasks', ['/Create', '/TN', 'ScaffoldUpdate', '/TR', cmd, '/SC', 'ONCE', '/ST', '23:59', '/F'], { windowsHide: true, stdio: 'ignore' });
+      execFileSync('schtasks', ['/Run', '/TN', 'ScaffoldUpdate'], { windowsHide: true, stdio: 'ignore' });
+    } catch (e) {
+      spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ps], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    }
   } else {
     const bundle = path.resolve(process.execPath, '..', '..', '..');   // …/Scaffold.app
     const tmp = path.join(os.tmpdir(), 'scaffold-update-x');
