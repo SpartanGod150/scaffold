@@ -123,6 +123,8 @@ h3.mt { margin: 26px 0 10px; }
 .welcome p { color: #c9cde0; }
 .panel { background: var(--bg2); border-radius: var(--r); padding: 16px; margin-bottom: 12px; }
 .panel h3 { margin: 0 0 6px; }
+.callout { border: 1px solid var(--warn); border-radius: 12px; padding: 10px 12px; margin: 6px 0 10px; }
+.callout p { margin: 0 0 6px; }
 .panel p { margin: 4px 0 12px; color: #c9cde0; }
 .panel.kill { border: 1px solid #4a2532; }
 .muted { color: var(--mute) !important; font-size: 14px; }

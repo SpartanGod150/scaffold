@@ -3,6 +3,7 @@ package com.scaffold.app;
 import android.content.Context;
 import android.util.Base64;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -96,6 +97,9 @@ public final class Sync {
         thread = new Thread(() -> listen(c, code), "scaffold-sync");
         thread.setDaemon(true);
         thread.start();
+        Thread g = new Thread(() -> backupLoop(c, code), "scaffold-backup");
+        g.setDaemon(true);
+        g.start();
         pub.execute(() -> { try { Thread.sleep(4000); } catch (InterruptedException ignored) {} snapshot(c, true); });
     }
 
@@ -112,15 +116,17 @@ public final class Sync {
                 conn.setReadTimeout(100000);
                 conn.setRequestProperty("User-Agent", "Scaffold/0.1");
                 if (conn.getResponseCode() != 200) throw new Exception("relay error " + conn.getResponseCode());
-                status = "connected";
+                status = "connected"; ntfyOk = true;
                 MainActivity.notifyState();
                 backoff = 2000;
                 BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
                 String line;
                 while ((line = br.readLine()) != null && code.equals(activeCode)) handle(c, code, line);
                 status = "reconnecting";
+                if (ntfyOk) downSince = System.currentTimeMillis();
+                ntfyOk = false;
             } catch (Exception e) {
-                status = "offline (" + e.getMessage() + ")";
+                status = blocked() && gOk ? "connected through Google (main relay blocked here)" : "offline (" + e.getMessage() + ")";
             } finally {
                 if (conn != null) conn.disconnect();
             }
@@ -136,7 +142,83 @@ public final class Sync {
             JSONObject m = new JSONObject(line);
             if (!"message".equals(m.optString("event")) || !m.has("message")) return;
             Store.put(c, "since", m.getString("id"));
-            JSONObject env = decrypt(code, m.getString("message"));
+            handleMsg(c, code, m.getString("message"));
+        } catch (Exception ignored) {}
+    }
+
+    // ---- Google backup mailbox (the calendar script): used while this device can't reach ntfy, or while another device can't ----
+    private static volatile boolean ntfyOk = false, gOk = false;
+    private static volatile long downSince = System.currentTimeMillis(), othersUntil = 0;
+    private static final ArrayDeque<String> gOutbox = new ArrayDeque<>();
+    static boolean blocked() { return !ntfyOk && System.currentTimeMillis() - downSince > 45000; }
+    static boolean backupActive() { return blocked() || System.currentTimeMillis() < othersUntil; }
+
+    private static String[] relayCfg(Context c) {
+        JSONObject cfg = Store.state(c).optJSONObject("cfg"), r = cfg == null ? null : cfg.optJSONObject("relay");
+        if (r == null || r.optBoolean("del") || r.optString("url").isEmpty()) return null;
+        return new String[]{r.optString("url"), r.optString("secret")};
+    }
+
+    private static void backupLoop(Context c, String code) {
+        long since = 0, lastPoll = 0; boolean wasActive = false;
+        while (code.equals(activeCode)) {
+            try { Thread.sleep(10000); } catch (InterruptedException ignored) {}
+            String[] cfg = relayCfg(c);
+            if (cfg == null) continue;
+            long now = System.currentTimeMillis();
+            boolean active = backupActive();
+            if (now - lastPoll >= (active ? 9000 : 60000)) {
+                lastPoll = now;
+                try {
+                    JSONObject req = new JSONObject().put("secret", cfg[1]).put("op", "relay-poll").put("since", since).put("from", Store.deviceId(c)).put("listen", blocked());
+                    JSONObject r = gcall(cfg[0], req);
+                    gOk = true; since = r.optLong("seq", since);
+                    JSONArray ms = r.optJSONArray("msgs");
+                    for (int i = 0; ms != null && i < ms.length(); i++) handleMsg(c, code, ms.optString(i));
+                    if (r.optInt("listeners", 0) > 0) othersUntil = System.currentTimeMillis() + 120000;
+                    if (blocked()) { status = "connected through Google (main relay blocked here)"; MainActivity.notifyState(); }
+                } catch (Exception e) { gOk = false; }
+                boolean nowActive = backupActive();
+                if (nowActive && !wasActive) snapshot(c, true);
+                wasActive = nowActive;
+            }
+            gFlush(cfg);
+        }
+    }
+
+    private static void gFlush(String[] cfg) {
+        JSONArray batch = new JSONArray();
+        synchronized (gOutbox) { int n = 0; for (String m : gOutbox) { if (n++ >= 60) break; batch.put(m); } }
+        if (batch.length() == 0) return;
+        try {
+            gcall(cfg[0], new JSONObject().put("secret", cfg[1]).put("op", "relay-post").put("msgs", batch));
+            synchronized (gOutbox) { for (int i = 0; i < batch.length(); i++) gOutbox.poll(); }
+        } catch (Exception ignored) {}
+    }
+
+    /** POST JSON to the Apps Script; it answers with a redirect to the result, fetched with GET. */
+    static JSONObject gcall(String url, JSONObject body) throws Exception {
+        byte[] data = body.toString().getBytes(StandardCharsets.UTF_8);
+        boolean post = true;
+        for (int hop = 0; hop < 6; hop++) {
+            HttpURLConnection h = (HttpURLConnection) new URL(url).openConnection();
+            h.setInstanceFollowRedirects(false); h.setConnectTimeout(20000); h.setReadTimeout(60000);
+            if (post) { h.setRequestMethod("POST"); h.setDoOutput(true); h.setRequestProperty("Content-Type", "application/json"); try (OutputStream os = h.getOutputStream()) { os.write(data); } }
+            int rc = h.getResponseCode();
+            if (rc >= 300 && rc < 400 && h.getHeaderField("Location") != null) { url = new URL(new URL(url), h.getHeaderField("Location")).toString(); post = rc == 307 || rc == 308; h.disconnect(); continue; }
+            if (rc != 200) { h.disconnect(); throw new Exception("HTTP " + rc); }
+            try (java.io.InputStream in = h.getInputStream()) {
+                JSONObject j = new JSONObject(new String(Updater.read(in), StandardCharsets.UTF_8));
+                if (j.has("error")) throw new Exception(j.optString("error"));
+                return j;
+            } finally { h.disconnect(); }
+        }
+        throw new Exception("too many redirects");
+    }
+
+    private static void handleMsg(Context c, String code, String b64) {
+        try {
+            JSONObject env = decrypt(code, b64);
             if (Store.deviceId(c).equals(env.optString("d"))) return;
             if (env.optInt("s", 0) == 1) Store.putLong(c, "lastSnapSeen", System.currentTimeMillis());
             JSONObject p = env.optJSONObject("p");
@@ -157,7 +239,10 @@ public final class Sync {
                     JSONObject env = new JSONObject();
                     env.put("d", Store.deviceId(c)); env.put("p", p); env.put("s", isSnap ? 1 : 0);
                     String body = encrypt(code, env);
-                    if (body.length() <= MAX_MSG) synchronized (outbox) { outbox.add(body); }
+                    if (body.length() <= MAX_MSG) {
+                        synchronized (outbox) { outbox.add(body); }
+                        if (backupActive()) synchronized (gOutbox) { gOutbox.add(body); }
+                    }
                 }
             } catch (Exception ignored) {}
             flush(code);

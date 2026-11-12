@@ -24,6 +24,7 @@ node -e "const f='desktop/package.json',p=require('./'+f);p.version='$NEW';requi
 echo "== tests"
 node tests/engine.test.js >/dev/null
 node tests/gcal.mock.test.js >/dev/null
+node tests/relay.mock.test.js >/dev/null
 
 echo "== build"
 REL=release; rm -rf "$REL" desktop/dist; mkdir -p "$REL"

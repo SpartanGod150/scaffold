@@ -28,20 +28,54 @@ function decrypt(key, b64) {
 }
 
 class Sync {
-  // opts: { code, deviceId, since, onPatch(patch, isSnap), onStatus(text), onSince(id) }
+  // opts: { code, deviceId, since, onPatch(patch, isSnap), onStatus(text), onSince(id),
+  //         relay() -> { url, secret } | null  (Google backup mailbox), onBackupStart() (send everything once) }
   constructor(opts) {
     this.o = opts; this.topic = topicFor(opts.code); this.key = keyFor(opts.code);
     this.alive = true; this.backoff = 2000; this.req = null; this.outbox = [];
+    this.ntfyOk = false; this.downSince = Date.now(); this.g = { since: 0, lastPoll: 0, othersUntil: 0, outbox: [], busy: false, active: false };
   }
-  start() { this._connect(); }
-  stop() { this.alive = false; if (this.req) this.req.destroy(); clearTimeout(this.retryT); clearTimeout(this.reconT); }
+  start() { this._connect(); this.gT = setInterval(() => this._gTick(), 10000); setTimeout(() => this._gTick(), 3000); }
+  stop() { this.alive = false; if (this.req) this.req.destroy(); clearTimeout(this.retryT); clearTimeout(this.reconT); clearInterval(this.gT); }
+
+  // ---- Google backup mailbox: used while this device can't reach ntfy, or while another device can't ----
+  blocked() { return !this.ntfyOk && Date.now() - this.downSince > 45000; }
+  backupActive() { return this.blocked() || Date.now() < this.g.othersUntil; }
+  status(s) { this.o.onStatus(this.blocked() && this.g.ok ? 'connected through Google (main relay blocked here)' : s); }
+  async _gTick() {
+    const cfg = this.o.relay && this.o.relay();
+    if (!this.alive || !cfg || !cfg.url || this.g.busy) return;
+    const now = Date.now(), active = this.backupActive();
+    if (now - this.g.lastPoll < (active ? 9000 : 60000)) return this._gFlush(cfg);
+    this.g.busy = true; this.g.lastPoll = now;
+    try {
+      const r = await gcall(cfg.url, { secret: cfg.secret, op: 'relay-poll', since: this.g.since, from: this.o.deviceId, listen: this.blocked() });
+      this.g.ok = true; this.g.since = r.seq || this.g.since;
+      if (this.o.onScriptOld) this.o.onScriptOld(false);
+      (r.msgs || []).forEach((m) => this._msg(m));
+      if (r.listeners > 0) this.g.othersUntil = Date.now() + 120000;
+      if (this.blocked()) this.status('');
+    } catch (e) { this.g.ok = false; if (/unknown op/.test(e.message) && this.o.onScriptOld) this.o.onScriptOld(true); }
+    this.g.busy = false;
+    const nowActive = this.backupActive();
+    if (nowActive && !this.g.active && this.o.onBackupStart) this.o.onBackupStart();
+    this.g.active = nowActive;
+    this._gFlush(cfg);
+  }
+  async _gFlush(cfg) {
+    if (this.g.busy || !this.g.outbox.length) return;
+    this.g.busy = true;
+    const batch = this.g.outbox.slice(0, 60);
+    try { await gcall(cfg.url, { secret: cfg.secret, op: 'relay-post', msgs: batch }); this.g.outbox.splice(0, batch.length); } catch (e) {}
+    this.g.busy = false;
+  }
 
   _connect() {
     if (!this.alive) return;
     const since = this.o.since || '12h';
     this.req = https.get({ host: HOST, path: `/${this.topic}/json?since=${encodeURIComponent(since)}`, headers: { 'User-Agent': 'Scaffold/0.1' } }, (res) => {
       if (res.statusCode !== 200) { res.resume(); return this._retry('relay error ' + res.statusCode); }
-      this.backoff = 2000; this.o.onStatus('connected');
+      this.backoff = 2000; this.ntfyOk = true; this.o.onStatus('connected');
       let buf = '';
       res.setEncoding('utf8');
       res.on('data', (chunk) => {
@@ -57,7 +91,9 @@ class Sync {
   }
   _retry(why) {
     if (!this.alive) return;
-    this.o.onStatus('offline (' + why + ')');
+    if (this.ntfyOk) this.downSince = Date.now();
+    this.ntfyOk = false;
+    this.status('offline (' + why + ')');
     clearTimeout(this.reconT);
     this.reconT = setTimeout(() => this._connect(), this.backoff);
     this.backoff = Math.min(60000, this.backoff * 2);
@@ -67,13 +103,18 @@ class Sync {
     let m; try { m = JSON.parse(line); } catch (e) { return; }
     if (m.event !== 'message' || !m.message) return;
     this.o.since = m.id; this.o.onSince(m.id);
-    let env; try { env = decrypt(this.key, m.message); } catch (e) { return; }
+    this._msg(m.message);
+  }
+  _msg(b64) {
+    let env; try { env = decrypt(this.key, b64); } catch (e) { return; }
     if (!env || env.d === this.o.deviceId) return;
     this.o.onPatch(env.p || {}, !!env.s);
   }
 
   publish(patches, isSnap) {
-    patches.forEach((p) => this.outbox.push(encrypt(this.key, { d: this.o.deviceId, p, s: isSnap ? 1 : 0 })));
+    const msgs = patches.map((p) => encrypt(this.key, { d: this.o.deviceId, p, s: isSnap ? 1 : 0 }));
+    msgs.forEach((m) => this.outbox.push(m));
+    if (this.backupActive()) { msgs.forEach((m) => this.g.outbox.push(m)); const cfg = this.o.relay && this.o.relay(); if (cfg) this._gFlush(cfg); }
     this._flush();
   }
   _flush() {
@@ -90,5 +131,7 @@ class Sync {
     req.end(body);
   }
 }
+
+function gcall(url, body) { return require('./calendar.js').call(url, body); }
 
 module.exports = { Sync, topicFor, keyFor, encrypt, decrypt };

@@ -538,7 +538,11 @@
         '<label class="field">Vault folder<input id="vault-path" value="' + esc(L.vaultPath || V.path || '') + '" placeholder="/path/to/Second Brain"></label><button class="btn ghost sm" data-a="saveVault">Save and scan</button>' +
         '<p class="muted">Status: ' + esc(V.status || 'not scanned yet') + '</p></section>';
       h += '<section class="panel"><h3>📅 Google Calendar (two-way)</h3>' + (L.calUrl
-        ? '<p class="muted">Status: <span class="dot ' + (/ok|synced/.test(C.status || '') ? 'ok' : '') + '"></span>' + esc(C.status || 'connecting…') + '</p><label class="field">Bridge URL<input id="cal-url" value="' + esc(L.calUrl) + '"></label><button class="btn ghost sm" data-a="saveCal">Save</button>'
+        ? (L.scriptOld ? '<div class="callout"><p>⚠️ <b>Your Google script needs an update</b> (it adds a backup route for syncing, for networks that block the normal one). About 1 minute:</p><ol class="steps">' +
+            '<li><button class="btn sm" data-a="copyScript">Copy new script</button></li>' +
+            '<li>Open <b>script.google.com</b> → your Scaffold project. Select all the code, delete it, paste.</li>' +
+            '<li><b>Deploy → Manage deployments</b> → ✏️ (edit) → Version: <b>New version</b> → <b>Deploy</b>. The URL stays the same.</li></ol></div>' : '') +
+          '<p class="muted">Status: <span class="dot ' + (/ok|synced/.test(C.status || '') ? 'ok' : '') + '"></span>' + esc(C.status || 'connecting…') + '</p><label class="field">Bridge URL<input id="cal-url" value="' + esc(L.calUrl) + '"></label><button class="btn ghost sm" data-a="saveCal">Save</button>'
         : '<p>Events you add or change on either side show up on the other. One-time setup, about 5 minutes:</p><ol class="steps">' +
           '<li>Open <b>script.google.com</b> → <b>New project</b>.</li>' +
           '<li>Delete what is there and paste the bridge script: <button class="btn sm" data-a="copyScript">Copy script</button></li>' +

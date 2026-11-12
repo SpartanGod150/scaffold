@@ -20,7 +20,7 @@
   var NUDGE_AT = '09:00';
   var MAX_SNOOZES = 2;
   var SNOOZE_MIN = 10;
-  var MAPS = ['tasks', 'todos', 'projects', 'events', 'notes', 'acks', 'vault', 'comps', 'snoozes', 'log'];
+  var MAPS = ['tasks', 'todos', 'projects', 'events', 'notes', 'acks', 'vault', 'comps', 'snoozes', 'log', 'cfg'];   // cfg.relay = Google backup mailbox {url, secret}
 
   function pad(n) { return (n < 10 ? '0' : '') + n; }
   function dateKey(t) { var d = new Date(t); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }

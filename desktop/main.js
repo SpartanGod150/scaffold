@@ -67,10 +67,24 @@ function startSync() {
     code: local.syncCode, deviceId: local.deviceId, since: local.since,
     onPatch: (p, isSnap) => { if (isSnap) local.lastSnapSeen = Date.now(); applyPatch(p, false); },
     onStatus: (s) => { local.sync = { status: s }; notifyUI(); },
-    onSince: (id) => { local.since = id; saveLocalSoon(); }
+    onSince: (id) => { local.since = id; saveLocalSoon(); },
+    relay: relayCfg,
+    onScriptOld: (old) => { if (!!local.scriptOld !== old && local.calUrl) { local.scriptOld = old; saveLocalSoon(); notifyUI(); } },
+    onBackupStart: () => maybeSnapshot(true)
   });
   sync.start();
-  setTimeout(() => maybeSnapshot(true), 4000);
+  setTimeout(() => { shareRelay(); maybeSnapshot(true); }, 4000);
+}
+// Google backup mailbox (the calendar script): this computer's own link, else the one another device shared.
+function relayCfg() {
+  if (local.calUrl) return { url: local.calUrl, secret: local.calSecret };
+  const r = state.cfg && state.cfg.relay;
+  return r && !r.del && r.url ? { url: r.url, secret: r.secret } : null;
+}
+function shareRelay() {
+  const r = state.cfg && state.cfg.relay;
+  if (local.calUrl && (!r || r.url !== local.calUrl || r.secret !== local.calSecret))
+    applyPatch(Engine.opPut('cfg', { id: 'relay', url: local.calUrl, secret: local.calSecret }, local.deviceId, Date.now()), true);
 }
 let saveT;
 function saveLocalSoon() { clearTimeout(saveT); saveT = setTimeout(saveLocal, 2000); }
@@ -304,7 +318,7 @@ ipcMain.on('set-local', (e, k, v) => {
   if (!['syncCode', 'deviceName', 'blocklist', 'autostart', 'vaultPath', 'calUrl'].includes(k)) return;
   local[k] = JSON.parse(v); saveLocal();
   if (k === 'vaultPath') { local.vaultSig = ''; vaultFiles = null; scanVault(); }
-  if (k === 'calUrl') { local.cal = { status: local.calUrl ? 'connecting…' : '' }; local.calMap = {}; runCal(); }
+  if (k === 'calUrl') { local.cal = { status: local.calUrl ? 'connecting…' : '' }; local.calMap = {}; runCal(); shareRelay(); }
   if (k === 'syncCode') { local.since = ''; startSync(); }
   if (k === 'autostart') setAutostart(local.autostart);
   notifyUI();
