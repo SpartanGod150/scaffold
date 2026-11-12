@@ -85,6 +85,15 @@ public class Bridge {
         } catch (Exception ignored) {}
     }
 
+    @JavascriptInterface public void openDialer() {
+        try { a.startActivity(new Intent(Intent.ACTION_DIAL)); } catch (Exception e) { a.runOnUiThread(() -> Toast.makeText(a, "No phone app found", Toast.LENGTH_SHORT).show()); }
+    }
+
+    @JavascriptInterface public void openApp(String pkg) {
+        Intent i = a.getPackageManager().getLaunchIntentForPackage(pkg);
+        if (i != null) a.startActivity(i); else a.runOnUiThread(() -> Toast.makeText(a, "App not found", Toast.LENGTH_SHORT).show());
+    }
+
     @JavascriptInterface public void openWhatsApp() {
         PackageManager pm = a.getPackageManager();
         for (String pkg : new String[]{"com.whatsapp", "com.whatsapp.w4b"}) {

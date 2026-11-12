@@ -168,6 +168,12 @@ t('monthly and every-N-days periods', () => {
   assert.deepStrictEqual(d, { key: 'D2026-11-07', first: '2026-11-07', deadline: '2026-11-09' });
 });
 
+t('custom weekday repeat', () => {
+  assert.deepStrictEqual(E.periodOf({ repeat: 'custom', days: [1, 3] }, E.fromKey('2026-11-09')), { key: 'C2026-11-09', first: '2026-11-09', deadline: '2026-11-09' });
+  assert.strictEqual(E.periodOf({ repeat: 'custom', days: [1, 3] }, E.fromKey('2026-11-10')), null);
+  assert.strictEqual(E.periodOf({ repeat: 'custom', days: [] }, E.fromKey('2026-11-10')).key, 'C2026-11-10');
+});
+
 t('project progress', () => {
   const s = base();
   addTodo(s, { id: 'a', title: 'A', project: 'p1', date: '2026-11-09' });
@@ -211,6 +217,7 @@ E.merge(fx, E.opSnooze(fx, 'teeth', 'A', at('07:00')));
 addTodo(fx, { id: 'chap', title: 'Chapter', repeat: 'week', dueDay: 0, start: '18:00', due: '21:00', level: 3 });
 addTodo(fx, { id: 'buy', title: 'Buy', date: '2026-11-08', due: '12:00' });
 addTodo(fx, { id: 'mon', title: 'Bills', repeat: 'month', dueDay: 9, start: '10:00', due: '11:00', level: 2 });
+addTodo(fx, { id: 'cus', title: 'Gym', repeat: 'custom', days: [1, 4], due: '23:59', start: '18:00', level: 4 });
 addTodo(fx, { id: 'ev3', title: 'Water plants', repeat: 'days', every: 3, date: '2026-11-03', start: '17:00', due: '17:30', level: 1 });
 Object.assign(fx.notes, E.opPut('notes', { id: 'n1', text: 'x', every: 45, from: '08:00', to: '22:00' }, 'A', at('07:10')).notes);
 fx.tasks.gym.active = false;

@@ -33,7 +33,7 @@ public class BlockerService extends AccessibilityService {
     }
 
     /** A lock just started: cover whatever is on screen right now. */
-    static void recheck() { BlockerService s = instance; if (s != null && !lastPkg.isEmpty()) s.check(lastPkg); }
+    static void recheck() { BlockerService s = instance; if (s != null) s.check(lastPkg); }
 
     /** A reminder note is waiting: bring it to the front. */
     static void showNote() {

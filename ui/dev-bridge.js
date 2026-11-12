@@ -30,6 +30,8 @@
     stopTimer: function () { local.timer = null; changed(); },
     setLocal: function (k, v) { local[k] = JSON.parse(v); changed(); },
     openWhatsApp: function () { alert('Would open WhatsApp'); },
+    openDialer: function () { alert('Would open the phone app'); },
+    openApp: function (p) { alert('Would open ' + p); },
     closeWindow: function () { history.replaceState(null, '', location.pathname); location.reload(); },
     openPermission: function (n) { alert('Would open settings: ' + n); },
     listApps: function () { return JSON.stringify([{ pkg: 'com.amazon.kindle', label: 'Kindle' }, { pkg: 'com.google.android.youtube', label: 'YouTube' }, { pkg: 'md.obsidian', label: 'Obsidian' }]); },

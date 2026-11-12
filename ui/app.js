@@ -101,6 +101,8 @@
     },
     resume: function () { apply(E.opPause(false, by(), now())); toast('▶️ Scaffold is back on'); },
     whatsapp: function () { B.openWhatsApp(); },
+    dialer: function () { B.openDialer(); },
+    openApp: function (pkg) { B.openApp(pkg); },
     close: function () { B.closeWindow(); },
     nav: function (v) { S.view = v; S.project = ''; try { localStorage.setItem('scaffold-view', v); } catch (e) {} render(); window.scrollTo(0, 0); },
     editHabit: function (id) { openHabitEditor(id && S.state.tasks[id] ? JSON.parse(JSON.stringify(S.state.tasks[id])) : null); },
@@ -142,7 +144,7 @@
       } else if (k === 'remind') {
         var p = { log: {} }; p.log[E.uid()] = { type: 'test-remind', ts: now(), by: by() };
         apply(p); toast('🧪 Test reminder sent to all devices');
-      } else B.test(k);
+      } else { if (k === 'update') toast('⬆️ Checking for updates…'); B.test(k); }
     },
     copyCode: function () { copy(S.local.syncCode); },
     newCode: function () {
@@ -315,8 +317,17 @@
       '<h1>' + esc(t.title) + '</h1>' +
       '<div class="block-sub">' + (isLate ? 'Deadline was ' + hm(it.due) + ' · <span data-ago="' + it.due + '"></span> ago' : 'Due ' + hm(it.due)) + '</div>' +
       '<div class="block-actions">' + actions(it) + '</div>' +
-      '<div class="block-foot"><button class="btn wa" data-a="whatsapp">💬 WhatsApp</button>' +
+      '<div class="block-foot"><button class="btn wa" data-a="whatsapp">💬 WhatsApp</button>' + lockApps(t) +
       '<button class="link" data-a="stopAll">Emergency stop (all devices)</button></div></section>';
+  }
+  // Phone: the home screen is covered during a lock, so the allowed apps open from here.
+  var appNames = null;
+  function lockApps(t) {
+    if (PLATFORM !== 'android') return '';
+    if (!appNames) { appNames = {}; listApps().forEach(function (a) { appNames[a.pkg] = a.label; }); }
+    return '<button class="btn wa" data-a="dialer">📞 Phone</button>' + (t.allowApps || []).filter(function (p) { return appNames[p]; }).map(function (p) {
+      return '<button class="btn wa" data-a="openApp" data-id="' + esc(p) + '">' + esc(appNames[p]) + '</button>';
+    }).join('');
   }
 
   function remindView(it) {
@@ -409,10 +420,11 @@
   }
 
   function todoWhen(t) {
-    var rep = t.repeat || 'none';
-    if (rep === 'week') return 'Every week · by ' + WEEKDAYS[t.dueDay == null ? 6 : +t.dueDay] + ' ' + (t.due || '21:00');
-    if (rep === 'month') return 'Every month · by day ' + (t.dueDay || 'last') + ' ' + (t.due || '21:00');
-    if (rep === 'days') return 'Every ' + (t.every || 2) + ' days · by ' + (t.due || '21:00');
+    var rep = t.repeat || 'none', by = t.dueEnd ? 'end of day' : (t.due || '21:00');
+    if (rep === 'custom') { var full = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], ds = (t.days || []).slice().sort(); return (ds.length && ds.length < 7 ? ds.map(function (d) { return full[d]; }).join(', ') : 'Every day') + ' · by ' + by; }
+    if (rep === 'week') return 'Every week · by ' + WEEKDAYS[t.dueDay == null ? 6 : +t.dueDay] + ' ' + by;
+    if (rep === 'month') return 'Every month · by day ' + (t.dueDay || 'last') + ' ' + by;
+    if (rep === 'days') return 'Every ' + (t.every || 2) + ' days · by ' + by;
     if (!t.date) return 'No date';
     return niceDay(t.date) + (t.start ? ' ' + t.start : '') + (t.due ? '–' + t.due : '');
   }
@@ -561,7 +573,12 @@
     return '<div class="two"><label class="field">Counts as done when<select name="kind"><option value="check"' + sel('check', t.kind) + '>I tap “I did it”</option><option value="timer"' + sel('timer', t.kind) + '>A timer finishes</option></select></label>' +
       '<label class="field">Timer minutes<input type="number" name="minutes" min="1" max="240" value="' + esc(t.minutes || 20) + '"></label></div>' +
       '<label class="field">🌱 Tiny version <small>(optional: the smallest version that still counts, as a half win)</small><input name="tiny" maxlength="60" value="' + esc(t.tiny || '') + '" placeholder="e.g. Read 1 page"></label>' +
-      '<label class="field">Remind me every<select name="remind">' + [15, 30, 45, 60, 90, 120].map(function (m) { return '<option value="' + m + '"' + (+(t.remind || 30) === m ? ' selected' : '') + '>' + m + ' minutes</option>'; }).join('') + '</select></label>' +
+      (function () {
+        var cur = +(t.remind || 30), pre = [1, 5, 15, 30, 45, 60, 90, 120], custom = pre.indexOf(cur) < 0;
+        return '<div class="two"><label class="field">Remind me every<select name="remind">' + pre.map(function (m) { return '<option value="' + m + '"' + (!custom && cur === m ? ' selected' : '') + '>' + m + (m === 1 ? ' minute' : ' minutes') + '</option>'; }).join('') +
+          '<option value="custom"' + (custom ? ' selected' : '') + '>Custom…</option></select></label>' +
+          '<label class="field f-remind">Minutes<input type="number" name="remindN" min="1" max="1440" value="' + cur + '"></label></div>';
+      })() +
       '<label class="field">On computers, when locked<select name="desktop"><option value="lock"' + sel('lock', t.desktop) + '>Cover the whole screen (for tasks away from the computer)</option><option value="focus"' + sel('focus', t.desktop) + '>Only close distracting apps (for computer tasks)</option><option value="none"' + sel('none', t.desktop) + '>Do nothing on computers</option></select></label>';
   }
   function appsField(t, apps) {
@@ -587,16 +604,18 @@
       else if (b.hasAttribute('data-del') && onDelete) onDelete();
     });
     f.addEventListener('change', function (e) {
+      if (f.remind && f.querySelector('.f-remind')) f.querySelector('.f-remind').style.display = f.remind.value === 'custom' ? '' : 'none';
       if (e.target.name === 'level') f.querySelectorAll('.lvl').forEach(function (x) { x.classList.toggle('on', x.contains(e.target)); });
       if (onChange) onChange(f, e);
     });
     f.addEventListener('submit', function (e) { e.preventDefault(); onSave(new FormData(f), f); });
+    if (f.remind && f.querySelector('.f-remind')) f.querySelector('.f-remind').style.display = f.remind.value === 'custom' ? '' : 'none';
     if (onChange) onChange(f, {});
     return f;
   }
   function readDone(t, fd, apps) {
     t.level = +fd.get('level') || 1; t.kind = fd.get('kind'); t.minutes = Math.max(1, +fd.get('minutes') || 20);
-    t.tiny = fd.get('tiny').trim(); t.remind = +fd.get('remind'); t.desktop = fd.get('desktop');
+    t.tiny = fd.get('tiny').trim(); t.remind = fd.get('remind') === 'custom' ? Math.min(1440, Math.max(1, Math.round(+fd.get('remindN') || 30))) : +fd.get('remind'); t.desktop = fd.get('desktop');
     if (apps.length) t.allowApps = fd.getAll('app');
   }
 
@@ -628,16 +647,20 @@
       '<label class="field">What?<input name="title" required maxlength="80" value="' + esc(t.title) + '" placeholder="e.g. Buy batteries"></label>' +
       (t.vault ? '<p class="muted">🗂️ From the vault: “' + esc(cleanItem(t.vault.item)) + '”. Finishing it ticks it in Obsidian.</p>' : '') +
       '<label class="field">Project<select name="project"><option value="">None</option>' + projects.map(function (p) { return '<option value="' + p.id + '"' + sel(p.id, t.project) + '>' + esc((p.emoji || '') + ' ' + p.name) + '</option>'; }).join('') + '</select></label>' +
-      '<label class="field">Repeats<select name="repeat"><option value="none"' + sel('none', r) + '>Once</option><option value="week"' + sel('week', r) + '>Every week</option><option value="month"' + sel('month', r) + '>Every month</option><option value="days"' + sel('days', r) + '>Every few days</option></select></label>' +
+      '<label class="field">Repeats<select name="repeat"><option value="none"' + sel('none', r) + '>Once</option><option value="week"' + sel('week', r) + '>Every week</option><option value="month"' + sel('month', r) + '>Every month</option><option value="days"' + sel('days', r) + '>Every few days</option><option value="custom"' + sel('custom', r) + '>Custom days</option></select></label>' +
+      '<div class="field f-custom">Days <small>(none selected = every day)</small><div class="day-row">' + DAYS.map(function (d, i) { return '<button type="button" class="dp' + ((r === 'custom' ? t.days || [] : []).indexOf(i) >= 0 ? ' on' : '') + '" data-day="' + i + '">' + d + '</button>'; }).join('') + '</div></div>' +
       '<div class="two"><label class="field f-date">Date <small>(empty = someday)</small><input type="date" name="date" value="' + esc(t.date || '') + '"></label>' +
       '<label class="field f-dueday-w">Deadline day<select name="dueDayW">' + WEEKDAYS.map(function (w, i) { return '<option value="' + i + '"' + sel(i, t.dueDay) + '>' + w + '</option>'; }).join('') + '</select></label>' +
       '<label class="field f-dueday-m">Deadline day of month<input type="number" name="dueDayM" min="1" max="31" value="' + esc(r === 'month' ? t.dueDay || 28 : 28) + '"></label>' +
       '<label class="field f-every">Every how many days<input type="number" name="every" min="1" max="365" value="' + esc(t.every || 2) + '"></label></div>' +
-      '<div class="two f-times"><label class="field">Window opens <small>(on the deadline day)</small><input type="time" name="start" value="' + esc(t.start || '') + '"></label><label class="field">Deadline time<input type="time" name="due" value="' + esc(t.due || '') + '"></label></div>' +
+      '<div class="two f-times"><label class="field">Window opens <small class="f-wsmall">(on the deadline day)</small><input type="time" name="start" value="' + esc(t.start || '') + '"></label><label class="field">Deadline<select name="dueMode"><option value="time"' + (t.dueEnd ? '' : ' selected') + '>At a set time</option><option value="end"' + (t.dueEnd ? ' selected' : '') + '>By the end of the day</option></select></label>' +
+      '<label class="field f-duetime">Deadline time<input type="time" name="due" value="' + esc(t.dueEnd ? '' : t.due || '') + '"></label></div>' +
       emojiField(t) + colorField(t) + levelField(t) + doneFields(t) + appsField(t, apps), !isNew);
     wire(t, function (fd) {
       t.title = fd.get('title').trim(); t.project = fd.get('project') || ''; t.repeat = fd.get('repeat');
       t.date = fd.get('date') || ''; t.start = fd.get('start') || ''; t.due = fd.get('due') || '';
+      t.dueEnd = fd.get('dueMode') === 'end'; if (t.dueEnd) t.due = '23:59';
+      if (t.repeat !== 'custom') delete t.days;
       if (t.repeat === 'week') t.dueDay = +fd.get('dueDayW');
       if (t.repeat === 'month') t.dueDay = Math.min(31, Math.max(1, +fd.get('dueDayM') || 28));
       if (t.repeat === 'days') { t.every = Math.max(1, +fd.get('every') || 2); if (!t.date) t.date = E.dateKey(now()); }
@@ -653,6 +676,9 @@
       f.querySelector('.f-dueday-w').style.display = rep === 'week' ? '' : 'none';
       f.querySelector('.f-dueday-m').style.display = rep === 'month' ? '' : 'none';
       f.querySelector('.f-every').style.display = rep === 'days' ? '' : 'none';
+      f.querySelector('.f-custom').style.display = rep === 'custom' ? '' : 'none';
+      f.querySelector('.f-wsmall').textContent = rep === 'custom' ? '(each day)' : '(on the deadline day)';
+      f.querySelector('.f-duetime').style.display = f.dueMode.value === 'end' ? 'none' : '';
       f.querySelector('.f-times').style.display = rep === 'none' && !f.date.value ? 'none' : '';
     });
   }

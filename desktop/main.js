@@ -338,10 +338,16 @@ function applyPendingUpdate() {
   setTimeout(() => { app.allowQuit = true; hideOverlay(); app.quit(); }, 1500);
 }
 async function runUpdate() {
-  if (updating || !UPDATE_CFG.repo || (process.env.SCAFFOLD_DEV && !process.env.SCAFFOLD_UPDATE_TEST)) return;
+  if (updating) { notifyUI(); return; }   // already running: the status line shows its progress
+  if (!UPDATE_CFG.repo || (process.env.SCAFFOLD_DEV && !process.env.SCAFFOLD_UPDATE_TEST)) return;
+  if (pendingUpdate) { local.update = { status: 'version ' + pendingUpdate.version + ' downloaded, installs when nothing is locked', checked: Date.now() }; notifyUI(); return applyPendingUpdate(); }
   updating = true;
   local.update = { status: 'checking…', checked: Date.now() }; notifyUI();
-  const res = await Updater.check(UPDATE_CFG.repo, app.getVersion());
+  let shown = -1;
+  const res = await Updater.check(UPDATE_CFG.repo, app.getVersion(), (v, f) => {
+    const pct = Math.floor(f * 100);
+    if (pct >= shown + 5 || pct === 100) { shown = pct; local.update = { status: 'downloading version ' + v + ': ' + pct + '%', checked: Date.now() }; notifyUI(); }
+  });
   updating = false;
   local.update = { status: res.status === 'ready' ? 'version ' + res.version + ' downloaded, installs when nothing is locked' : res.status, checked: Date.now() };
   saveLocal(); notifyUI();

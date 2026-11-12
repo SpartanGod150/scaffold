@@ -84,8 +84,8 @@
   // Tasks whose deadline is on another day get one nudge, at 09:00.
   function reminderTimes(task, w) {
     if (w.nudge) return [w.nudge];
-    var out = [], every = Math.max(5, task.remind || 30), t = w.start, lastHour = w.due - 60 * MIN;
-    while (t < w.stop && out.length < 300) {
+    var out = [], every = Math.max(1, task.remind || 30), t = w.start, lastHour = w.due - 60 * MIN;
+    while (t < w.stop && out.length < 1500) {
       out.push(t);
       var step = t >= w.due ? 20 : (t >= lastHour ? Math.min(10, every) : every);
       var nt = t + step * MIN;
@@ -97,7 +97,7 @@
   }
 
   // ---------- tasks (todos) ----------
-  // repeat: 'none' (date optional: no date = someday), 'week' (dueDay 0=Mon..6=Sun), 'month' (dueDay 1..31), 'days' (every N days from date)
+  // repeat: 'none' (date optional: no date = someday), 'custom' (picked weekdays), 'week' (dueDay 0=Mon..6=Sun), 'month' (dueDay 1..31), 'days' (every N days from date)
   function periodOf(todo, t) {
     var rep = todo.repeat || 'none', today = dateKey(t);
     if (rep === 'week') {
@@ -109,6 +109,11 @@
       var m = new Date(t), last = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
       var day = Math.min(todo.dueDay ? +todo.dueDay : last, last);
       return { key: today.slice(0, 7), first: today.slice(0, 8) + '01', deadline: today.slice(0, 8) + pad(day) };
+    }
+    if (rep === 'custom') {   // on the picked weekdays (days: 0=Sun..6=Sat; none = every day), each day is its own period
+      var wd = new Date(t).getDay();
+      if (todo.days && todo.days.length && todo.days.indexOf(wd) < 0) return null;
+      return { key: 'C' + today, first: today, deadline: today };
     }
     if (rep === 'days') {
       var n = Math.max(1, +todo.every || 2), anchor = todo.date || todo.from || today;

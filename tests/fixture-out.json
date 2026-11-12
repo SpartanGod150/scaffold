@@ -102,6 +102,21 @@
     "ts": 1794214800000,
     "by": "A"
    },
+   "cus": {
+    "id": "cus",
+    "title": "Gym",
+    "repeat": "custom",
+    "days": [
+     1,
+     4
+    ],
+    "due": "23:59",
+    "start": "18:00",
+    "level": 4,
+    "from": "2026-11-09",
+    "ts": 1794214800000,
+    "by": "A"
+   },
    "ev3": {
     "id": "ev3",
     "title": "Water plants",
@@ -155,7 +170,7 @@
    "lock": null,
    "next": 1794218400000,
    "done": 0,
-   "total": 7,
+   "total": 8,
    "rem": [],
    "notes": [],
    "keys": [
@@ -165,6 +180,7 @@
     "study@2026-11-09:upcoming",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "cus@C2026-11-09:upcoming",
     "ev3@D2026-11-09:upcoming"
    ]
   },
@@ -173,7 +189,7 @@
    "lock": null,
    "next": 1794219000000,
    "done": 0,
-   "total": 7,
+   "total": 8,
    "rem": [],
    "notes": [],
    "keys": [
@@ -183,6 +199,7 @@
     "study@2026-11-09:upcoming",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "cus@C2026-11-09:upcoming",
     "ev3@D2026-11-09:upcoming"
    ]
   },
@@ -191,7 +208,7 @@
    "lock": null,
    "next": 1794219000000,
    "done": 0,
-   "total": 7,
+   "total": 8,
    "rem": [],
    "notes": [],
    "keys": [
@@ -201,6 +218,7 @@
     "study@2026-11-09:upcoming",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "cus@C2026-11-09:upcoming",
     "ev3@D2026-11-09:upcoming"
    ]
   },
@@ -209,7 +227,7 @@
    "lock": "teeth",
    "next": 1794219600000,
    "done": 0,
-   "total": 7,
+   "total": 8,
    "rem": [
     "teeth:true"
    ],
@@ -221,6 +239,7 @@
     "study@2026-11-09:upcoming",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "cus@C2026-11-09:upcoming",
     "ev3@D2026-11-09:upcoming"
    ]
   },
@@ -229,7 +248,7 @@
    "lock": "teeth",
    "next": 1794223200000,
    "done": 0,
-   "total": 7,
+   "total": 8,
    "rem": [
     "teeth:true"
    ],
@@ -241,6 +260,7 @@
     "study@2026-11-09:upcoming",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "cus@C2026-11-09:upcoming",
     "ev3@D2026-11-09:upcoming"
    ]
   },
@@ -249,7 +269,7 @@
    "lock": "teeth",
    "next": 1794226800000,
    "done": 0,
-   "total": 7,
+   "total": 8,
    "rem": [
     "buy:false",
     "teeth:true",
@@ -263,6 +283,7 @@
     "study@2026-11-09:upcoming",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "cus@C2026-11-09:upcoming",
     "ev3@D2026-11-09:upcoming"
    ]
   },
@@ -271,7 +292,7 @@
    "lock": "teeth",
    "next": 1794231600000,
    "done": 0,
-   "total": 7,
+   "total": 8,
    "rem": [
     "mon:true"
    ],
@@ -283,6 +304,7 @@
     "study@2026-11-09:upcoming",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "cus@C2026-11-09:upcoming",
     "ev3@D2026-11-09:upcoming"
    ]
   },
@@ -291,7 +313,7 @@
    "lock": "teeth",
    "next": 1794243600000,
    "done": 0,
-   "total": 7,
+   "total": 8,
    "rem": [],
    "notes": [
     "n1:1794243300000"
@@ -303,6 +325,7 @@
     "study@2026-11-09:upcoming",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "cus@C2026-11-09:upcoming",
     "ev3@D2026-11-09:upcoming"
    ]
   },
@@ -311,7 +334,7 @@
    "lock": "teeth",
    "next": 1794244800000,
    "done": 0,
-   "total": 7,
+   "total": 8,
    "rem": [
     "teeth:true",
     "mon:true",
@@ -327,6 +350,7 @@
     "study@2026-11-09:open",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "cus@C2026-11-09:upcoming",
     "ev3@D2026-11-09:upcoming"
    ]
   },
@@ -335,7 +359,7 @@
    "lock": "teeth",
    "next": 1794255000000,
    "done": 0,
-   "total": 7,
+   "total": 8,
    "rem": [],
    "notes": [
     "n1:1794254100000"
@@ -347,6 +371,7 @@
     "study@2026-11-09:open",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "cus@C2026-11-09:upcoming",
     "ev3@D2026-11-09:upcoming"
    ]
   },
@@ -355,7 +380,7 @@
    "lock": "teeth",
    "next": 1794256800000,
    "done": 0,
-   "total": 7,
+   "total": 8,
    "rem": [
     "study:true"
    ],
@@ -369,6 +394,7 @@
     "study@2026-11-09:open",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "cus@C2026-11-09:upcoming",
     "ev3@D2026-11-09:upcoming"
    ]
   },
@@ -377,7 +403,7 @@
    "lock": "teeth",
    "next": 1794268800000,
    "done": 0,
-   "total": 7,
+   "total": 8,
    "rem": [],
    "notes": [
     "n1:1794267600000"
@@ -389,6 +415,7 @@
     "study@2026-11-09:late",
     "chap@W2026-11-09:open",
     "read@2026-11-09:open",
+    "cus@C2026-11-09:open",
     "ev3@D2026-11-09:upcoming"
    ]
   },
@@ -397,13 +424,14 @@
    "lock": "teeth",
    "next": 1794270000000,
    "done": 0,
-   "total": 7,
+   "total": 8,
    "rem": [
     "teeth:true",
     "mon:true",
     "study:true",
     "chap:true",
-    "read:true"
+    "read:true",
+    "cus:true"
    ],
    "notes": [
     "n1:1794267600000"
@@ -415,6 +443,7 @@
     "study@2026-11-09:late",
     "chap@W2026-11-09:late",
     "read@2026-11-09:late",
+    "cus@C2026-11-09:open",
     "ev3@D2026-11-09:upcoming"
    ]
   },
@@ -423,7 +452,7 @@
    "lock": "teeth",
    "next": 1794270000000,
    "done": 0,
-   "total": 7,
+   "total": 8,
    "rem": [],
    "notes": [
     "n1:1794267600000"
@@ -435,15 +464,16 @@
     "study@2026-11-09:late",
     "chap@W2026-11-09:late",
     "read@2026-11-09:late",
+    "cus@C2026-11-09:open",
     "ev3@D2026-11-09:upcoming"
    ]
   },
   {
    "now": 1794277860000,
-   "lock": null,
-   "next": 1794279601000,
+   "lock": "cus",
+   "next": 1794278340000,
    "done": 0,
-   "total": 7,
+   "total": 8,
    "rem": [],
    "notes": [
     "n1:1794270300000"
@@ -455,6 +485,7 @@
     "study@2026-11-09:late",
     "chap@W2026-11-09:late",
     "read@2026-11-09:late",
+    "cus@C2026-11-09:open",
     "ev3@D2026-11-09:upcoming"
    ]
   }

@@ -162,9 +162,9 @@ public final class Engine {
     static List<Long> reminderTimes(JSONObject task, long start, long due, long stop, long nudge) {
         List<Long> out = new ArrayList<>();
         if (nudge > 0) { out.add(nudge); return out; }
-        long every = Math.max(5, task.optInt("remind", 30));
+        long every = Math.max(1, task.optInt("remind", 30));
         long t = start, lastHour = due - 60 * MIN;
-        while (t < stop && out.size() < 300) {
+        while (t < stop && out.size() < 1500) {
             out.add(t);
             long step = t >= due ? 20 : (t >= lastHour ? Math.min(10, every) : every);
             long nt = t + step * MIN;
@@ -192,6 +192,16 @@ public final class Engine {
             int dd = todo.optInt("dueDay", 0);
             int day = Math.min(dd > 0 ? dd : last, last);
             return new String[]{today.substring(0, 7), today.substring(0, 8) + "01", today.substring(0, 8) + String.format(Locale.US, "%02d", day)};
+        }
+        if (rep.equals("custom")) {
+            JSONArray days = todo.optJSONArray("days");
+            int wd = cal(t).get(Calendar.DAY_OF_WEEK) - 1;
+            if (days != null && days.length() > 0) {
+                boolean on = false;
+                for (int i = 0; i < days.length(); i++) if (days.optInt(i, -1) == wd) on = true;
+                if (!on) return null;
+            }
+            return new String[]{"C" + today, today, today};
         }
         if (rep.equals("days")) {
             int n = Math.max(1, todo.optInt("every", 2));

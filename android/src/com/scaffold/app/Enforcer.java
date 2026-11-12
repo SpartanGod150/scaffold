@@ -33,7 +33,21 @@ public final class Enforcer {
 
     private static Set<String> dynamic;
 
+    private static Set<String> homes;
+
+    /** The home screen (and Samsung's recent-apps screen, which belongs to it) is covered during a lock. */
+    static boolean isHome(Context c, String pkg) {
+        if (homes == null) {
+            Set<String> s = new HashSet<>(Arrays.asList("com.sec.android.app.launcher", "com.google.android.apps.nexuslauncher", "com.android.launcher3"));
+            try { for (ResolveInfo ri : c.getPackageManager().queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)) s.add(ri.activityInfo.packageName); } catch (Exception ignored) {}
+            s.remove(c.getPackageName()); s.remove("android");
+            homes = s;
+        }
+        return homes.contains(pkg);
+    }
+
     static boolean allowed(Context c, String pkg, Engine.Item lock) {
+        if (pkg != null && isHome(c, pkg)) return false;
         if (pkg == null || pkg.equals(c.getPackageName()) || ALWAYS.contains(pkg)) return true;
         if (dynamic == null) dynamic = resolveDynamic(c);
         if (dynamic.contains(pkg)) return true;
@@ -60,7 +74,7 @@ public final class Enforcer {
         return s;
     }
 
-    static void forgetDynamic() { dynamic = null; }
+    static void forgetDynamic() { dynamic = null; homes = null; }
 
     /** Called whenever state or time changes. */
     static void evaluate(Context c) {
