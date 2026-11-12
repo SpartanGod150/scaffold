@@ -23,7 +23,7 @@ import java.security.MessageDigest;
  *  and installs it with PackageInstaller (silent when Android allows it, otherwise one tap). Never during a lock. */
 public final class Updater {
     static final String ASSET = "Scaffold.apk";
-    static final long EVERY = 6 * 3600_000L;
+    static final long EVERY = 15 * 60_000L;
     private static volatile boolean busy;
 
     static String version(Context c) {

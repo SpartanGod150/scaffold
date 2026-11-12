@@ -48,6 +48,8 @@ function applyPatch(patch, publish) {
   const tests = Object.keys(patch.log || {}).filter((k) => patch.log[k].type === 'test-remind' && !(state.log || {})[k] && patch.log[k].ts > Date.now() - 120000);
   const changed = Engine.merge(state, patch);
   if (tests.length) testRemind();
+  const rel = Object.keys(patch.log || {}).some((k) => patch.log[k].type === 'release' && !(state.log || {})[k] && patch.log[k].ts > Date.now() - 3600e3 && Updater.newer(patch.log[k].v || '0', app.getVersion()));
+  if (rel) setTimeout(runUpdate, 5000 + Math.random() * 20000);   // a new version was just released
   if (changed) saveState();
   if (publish && sync) sync.publish(Engine.chunks(patch), false);
   if (changed || publish) { evaluate(); notifyUI(); }
@@ -401,7 +403,7 @@ app.whenReady().then(() => {
   setTimeout(runCal, 8000);
   setInterval(runCal, 3 * 60000);
   setTimeout(runUpdate, 60000);
-  setInterval(runUpdate, 6 * 3600000);
+  setInterval(runUpdate, 15 * 60000);
   setInterval(applyPendingUpdate, 60000);
   powerMonitor.on('resume', () => { evaluate(); if (sync) { sync.stop(); startSync(); } });
 });

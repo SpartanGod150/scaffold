@@ -144,7 +144,7 @@
       } else if (k === 'remind') {
         var p = { log: {} }; p.log[E.uid()] = { type: 'test-remind', ts: now(), by: by() };
         apply(p); toast('🧪 Test reminder sent to all devices');
-      } else { if (k === 'update') toast('⬆️ Checking for updates…'); B.test(k); }
+      } else { if (k === 'update') { toast('⬆️ Checking for updates…'); S.updClick = now(); } B.test(k); }
     },
     copyCode: function () { copy(S.local.syncCode); },
     newCode: function () {
@@ -788,7 +788,17 @@
     if (m !== lastMinute) { lastMinute = m; if (!busy) render(); }
   }, 1000);
 
-  window.onNative = function () { if (!S.modalOpen) render(); else load(); };
+  window.onNative = function () { if (!S.modalOpen) render(); else load(); updateFeedback(); };
+  // After "Check for updates now": say how it ended, so the button never looks dead.
+  function updateFeedback() {
+    var U = (S.local && S.local.update) || {}, st = U.status || '';
+    if (!S.updClick || (U.checked || 0) < S.updClick - 2000 || /checking/.test(st)) return;
+    if (/^downloading/.test(st)) { if (!S.updDl) { S.updDl = 1; toast('⬆️ Update found: ' + st.replace(/: \d+%$/, '') + '…'); } return; }
+    S.updClick = 0; S.updDl = 0;
+    if (/up to date/.test(st)) toast('✅ No updates found: version ' + (S.local.version || '') + ' is the latest');
+    else if (/downloaded|installing|ready/.test(st)) toast('⬆️ ' + st.charAt(0).toUpperCase() + st.slice(1));
+    else toast('⚠️ Update check failed: ' + st.replace(/^error:\s*/, ''));
+  }
   window.setMode = function (mode, task) { S.mode = mode || 'main'; S.modeTask = task || ''; if (!S.modalOpen) render(); };
   render();
 })();

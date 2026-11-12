@@ -42,7 +42,7 @@ public final class Store {
 
     /** Merge a patch. publish=true for local changes (sent to the other devices). */
     static void apply(Context c, JSONObject patch, boolean publish) {
-        boolean changed, test = false;
+        boolean changed, test = false, release = false;
         synchronized (Store.class) {
             JSONObject log = patch.optJSONObject("log"), have = state(c).optJSONObject("log");
             if (log != null) {
@@ -50,6 +50,8 @@ public final class Store {
                 while (it.hasNext()) {
                     String k = it.next();
                     JSONObject e = log.optJSONObject(k);
+                    if (e != null && "release".equals(e.optString("type")) && (have == null || !have.has(k)) && e.optLong("ts", 0) > System.currentTimeMillis() - 3600_000L
+                            && Updater.newer(e.optString("v", "0"), Updater.version(c))) release = true;
                     if (e != null && "test-remind".equals(e.optString("type")) && (have == null || !have.has(k)) && e.optLong("ts", 0) > System.currentTimeMillis() - 120000) test = true;
                 }
             }
@@ -59,6 +61,7 @@ public final class Store {
         if (publish) Sync.publish(c, patch, false);
         if (changed || publish) onChanged(c);
         if (test) Notif.testReminder(c.getApplicationContext());
+        if (release) Updater.maybeCheck(c.getApplicationContext(), true);   // a new version was just released
     }
 
     /** Everything that depends on the state refreshes here. */

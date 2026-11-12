@@ -39,7 +39,8 @@ class Sync {
   stop() { this.alive = false; if (this.req) this.req.destroy(); clearTimeout(this.retryT); clearTimeout(this.reconT); clearInterval(this.gT); }
 
   // ---- Google backup mailbox: used while this device can't reach ntfy, or while another device can't ----
-  blocked() { return !this.ntfyOk && Date.now() - this.downSince > 45000; }
+  // Blocked = can't listen to ntfy, or ntfy refuses our messages (its free daily limit, HTTP 429).
+  blocked() { return (!this.ntfyOk && Date.now() - this.downSince > 45000) || Date.now() < (this.sendBlockedUntil || 0); }
   backupActive() { return this.blocked() || Date.now() < this.g.othersUntil; }
   status(s) { this.o.onStatus(this.blocked() && this.g.ok ? 'connected through Google (main relay blocked here)' : s); }
   async _gTick() {
@@ -124,6 +125,12 @@ class Sync {
     this.sending = true;
     const req = https.request({ host: HOST, path: '/' + this.topic, method: 'POST', headers: { 'Content-Type': 'text/plain', 'User-Agent': 'Scaffold/0.1', 'Content-Length': Buffer.byteLength(body) } }, (res) => {
       res.resume(); this.sending = false;
+      if (res.statusCode === 429) {   // over ntfy's daily limit: the Google mailbox carries our messages meanwhile
+        const wait = Math.min(24 * 3600, +res.headers['retry-after'] || 3600) * 1000;
+        const was = this.backupActive(); this.sendBlockedUntil = Date.now() + wait;
+        if (!was) { this.g.outbox.push(...this.outbox); this.g.lastPoll = 0; }
+        this.outbox = []; this.retryT = setTimeout(() => this._flush(), wait); return;
+      }
       if (res.statusCode === 200) { this.outbox.shift(); this._flush(); }
       else { this.retryT = setTimeout(() => this._flush(), 30000); }
     });

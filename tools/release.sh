@@ -38,15 +38,17 @@ rm -rf desktop/dist/win-unpacked   # disk is tight on this Mac
 
 echo "== publish"
 git add -A && git commit -qm "Release $NEW: $NOTES" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git tag "v$NEW" && git push -q origin HEAD --tags
-gh release create "v$NEW" --repo "$REPO" --title "Scaffold $NEW" --notes "$NOTES" "$REL/Scaffold.apk" "$REL/SHA256SUMS.txt"
-RID=$(gh api "repos/$REPO/releases/tags/v$NEW" -q .id); TOKEN=$(gh auth token)
+gh release create "v$NEW" --repo "$REPO" --draft --title "Scaffold $NEW" --notes "$NOTES" "$REL/Scaffold.apk" "$REL/SHA256SUMS.txt"   # hidden until every file is up
+RID=$(gh release view "v$NEW" --repo "$REPO" --json databaseId -q .databaseId); TOKEN=$(gh auth token)
 for f in Scaffold-mac-arm64.zip Scaffold-win-x64.zip; do   # big files: gh upload times out (HTTP 408), curl with a long timeout works
   for i in 1 2 3; do curl -sS --fail --max-time 1500 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" \
     --data-binary @"$REL/$f" "https://uploads.github.com/repos/$REPO/releases/$RID/assets?name=$f" -o /dev/null && break; echo "retry $f"; sleep 5; done
 done
-[ "$(gh release view "v$NEW" --repo "$REPO" --json assets -q '[.assets[] | select(.state=="uploaded")] | length')" = 4 ] || { echo "release is missing files"; exit 1; }
+[ "$(gh release view "v$NEW" --repo "$REPO" --json assets -q '[.assets[] | select(.state=="uploaded")] | length')" = 4 ] || { echo "release is missing files (left as a draft)"; exit 1; }
+gh release edit "v$NEW" --repo "$REPO" --draft=false --latest
 
+node tools/announce.js "$NEW" || true   # devices check right away instead of within 15 min
 DRIVE="$HOME/Library/CloudStorage/GoogleDrive-mr.seckler150@gmail.com/My Drive/Scaffold"
 if [ -d "$DRIVE" ]; then cp "$REL/Scaffold.apk" "$DRIVE/Scaffold.apk"; cp "$REL/Scaffold-win-x64.zip" "$DRIVE/Scaffold-win.zip"; fi
 rm -rf "$REL" desktop/dist
-echo "== released $NEW: devices update within 6 hours (or Settings → Check for updates now)"
+echo "== released $NEW: every device updates itself within minutes"

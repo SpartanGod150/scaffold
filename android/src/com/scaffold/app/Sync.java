@@ -150,7 +150,8 @@ public final class Sync {
     private static volatile boolean ntfyOk = false, gOk = false;
     private static volatile long downSince = System.currentTimeMillis(), othersUntil = 0;
     private static final ArrayDeque<String> gOutbox = new ArrayDeque<>();
-    static boolean blocked() { return !ntfyOk && System.currentTimeMillis() - downSince > 45000; }
+    private static volatile long sendBlockedUntil = 0;
+    static boolean blocked() { return (!ntfyOk && System.currentTimeMillis() - downSince > 45000) || System.currentTimeMillis() < sendBlockedUntil; }
     static boolean backupActive() { return blocked() || System.currentTimeMillis() < othersUntil; }
 
     private static String[] relayCfg(Context c) {
@@ -264,7 +265,14 @@ public final class Sync {
                 conn.setRequestProperty("Content-Type", "text/plain");
                 try (OutputStream os = conn.getOutputStream()) { os.write(body.getBytes(StandardCharsets.UTF_8)); }
                 int rc = conn.getResponseCode();
+                String ra = conn.getHeaderField("Retry-After");
                 conn.disconnect();
+                if (rc == 429) {   // over ntfy's daily limit: the Google mailbox carries our messages meanwhile
+                    long wait = 3600_000L; try { wait = Math.min(86400L, Long.parseLong(ra.trim())) * 1000L; } catch (Exception ignored) {}
+                    sendBlockedUntil = System.currentTimeMillis() + wait;
+                    synchronized (outbox) { synchronized (gOutbox) { gOutbox.addAll(outbox); } outbox.clear(); }
+                    return;
+                }
                 if (rc != 200) return;
                 synchronized (outbox) { outbox.poll(); }
             } catch (Exception e) {
