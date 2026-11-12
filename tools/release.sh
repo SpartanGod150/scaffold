@@ -12,6 +12,7 @@ case "$BUMP" in
   *.*.*) NEW="$BUMP";; *) echo "bad bump: $BUMP"; exit 1;;
 esac
 REPO=$(node -p "require('./shared/update.json').repo")
+gh auth setup-git
 [ -n "$REPO" ] || { echo "shared/update.json has no repo"; exit 1; }
 git diff --quiet HEAD -- || echo "(committing pending changes with the release)"
 
@@ -35,8 +36,11 @@ rm -rf desktop/dist/win-unpacked   # disk is tight on this Mac
 
 echo "== publish"
 git add -A && git commit -qm "Release $NEW: $NOTES" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git tag "v$NEW" && git push -q origin HEAD --tags
-gh release create "v$NEW" --repo "$REPO" --title "Scaffold $NEW" --notes "$NOTES" \
-  "$REL/Scaffold-mac-arm64.zip" "$REL/Scaffold-win-x64.zip" "$REL/Scaffold.apk" "$REL/SHA256SUMS.txt"
+gh release create "v$NEW" --repo "$REPO" --title "Scaffold $NEW" --notes "$NOTES" "$REL/Scaffold.apk" "$REL/SHA256SUMS.txt"
+for f in Scaffold-mac-arm64.zip Scaffold-win-x64.zip; do   # big files: GitHub uploads sometimes time out, so retry
+  for i in 1 2 3 4; do gh release upload "v$NEW" --repo "$REPO" --clobber "$REL/$f" && break; echo "retry $f"; sleep 5; done
+done
+[ "$(gh release view "v$NEW" --repo "$REPO" --json assets -q '[.assets[] | select(.state=="uploaded")] | length')" = 4 ] || { echo "release is missing files"; exit 1; }
 
 DRIVE="$HOME/Library/CloudStorage/GoogleDrive-mr.seckler150@gmail.com/My Drive/Scaffold"
 if [ -d "$DRIVE" ]; then cp "$REL/Scaffold.apk" "$DRIVE/Scaffold.apk"; cp "$REL/Scaffold-win-x64.zip" "$DRIVE/Scaffold-win.zip"; fi
