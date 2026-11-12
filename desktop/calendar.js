@@ -26,7 +26,7 @@ function call(url, body, redirects) {
         catch (e) { reject(new Error('Not a bridge reply (is the URL the /exec one?)')); }
       });
     });
-    req.setTimeout(30000, () => req.destroy(new Error('timeout')));
+    req.setTimeout(90000, () => req.destroy(new Error('timeout')));
     req.on('error', reject);
     req.end(data || undefined);
   });

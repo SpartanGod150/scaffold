@@ -16,6 +16,7 @@ gh auth setup-git
 [ -n "$REPO" ] || { echo "shared/update.json has no repo"; exit 1; }
 git diff --quiet HEAD -- || echo "(committing pending changes with the release)"
 
+FREE=$(df -g . | awk 'NR==2{print $4}'); [ "$FREE" -ge 4 ] || { echo "only ${FREE} GB free: need 4 GB (Syncthing stops below ~2.3 GB)"; exit 1; }
 echo "== $OLD → $NEW"
 echo "$NEW" > VERSION
 node -e "const f='desktop/package.json',p=require('./'+f);p.version='$NEW';require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
@@ -44,5 +45,5 @@ done
 
 DRIVE="$HOME/Library/CloudStorage/GoogleDrive-mr.seckler150@gmail.com/My Drive/Scaffold"
 if [ -d "$DRIVE" ]; then cp "$REL/Scaffold.apk" "$DRIVE/Scaffold.apk"; cp "$REL/Scaffold-win-x64.zip" "$DRIVE/Scaffold-win.zip"; fi
-rm -rf "$REL"
+rm -rf "$REL" desktop/dist
 echo "== released $NEW: devices update within 6 hours (or Settings → Check for updates now)"
