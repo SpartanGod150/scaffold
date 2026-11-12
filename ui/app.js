@@ -790,6 +790,7 @@
   }, 1000);
 
   window.onNative = function () { if (!S.modalOpen) render(); else load(); updateFeedback(); };
+  if (B.onNative) B.onNative(function () { window.onNative(); });   // desktop: the main process says something changed
   // After "Check for updates now": say how it ended, so the button never looks dead.
   function updateFeedback() {
     var U = (S.local && S.local.update) || {}, st = U.status || '';

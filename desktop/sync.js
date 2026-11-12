@@ -47,7 +47,7 @@ class Sync {
     const cfg = this.o.relay && this.o.relay();
     if (!this.alive || !cfg || !cfg.url || this.g.busy) return;
     const now = Date.now(), active = this.backupActive();
-    if (now - this.g.lastPoll < (active ? 9000 : 60000)) return this._gFlush(cfg);
+    if (now - this.g.lastPoll < (active ? 9000 : 30000)) return this._gFlush(cfg);
     this.g.busy = true; this.g.lastPoll = now;
     try {
       const r = await gcall(cfg.url, { secret: cfg.secret, op: 'relay-poll', since: this.g.since, from: this.o.deviceId, listen: this.blocked() });
@@ -115,7 +115,9 @@ class Sync {
   publish(patches, isSnap) {
     const msgs = patches.map((p) => encrypt(this.key, { d: this.o.deviceId, p, s: isSnap ? 1 : 0 }));
     msgs.forEach((m) => this.outbox.push(m));
-    if (this.backupActive()) { msgs.forEach((m) => this.g.outbox.push(m)); const cfg = this.o.relay && this.o.relay(); if (cfg) this._gFlush(cfg); }
+    // Live changes (locks, completions…) always go to the Google mailbox too, so they arrive even if ntfy drops them.
+    // Full snapshots only while someone depends on Google.
+    if (!isSnap || this.backupActive()) { msgs.forEach((m) => this.g.outbox.push(m)); const cfg = this.o.relay && this.o.relay(); if (cfg) this._gFlush(cfg); }
     this._flush();
   }
   _flush() {

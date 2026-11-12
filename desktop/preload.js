@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld('ScaffoldBridge', {
   closeWindow: () => ipcRenderer.send('close-window'),
   openPermission: () => {},
   listApps: () => '[]',
-  test: (k) => ipcRenderer.send('test', k)
+  test: (k) => ipcRenderer.send('test', k),
+  // The page registers its refresh here: with context isolation, this script can't see the page's own window.onNative.
+  onNative: (fn) => { ipcRenderer.on('native', () => fn()); }
 });
-
-ipcRenderer.on('native', () => { if (window.onNative) window.onNative(); });

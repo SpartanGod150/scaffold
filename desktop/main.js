@@ -11,8 +11,8 @@ const Calendar = require('./calendar.js');
 const Updater = require('./updater.js');
 const UPDATE_CFG = (() => { try { return require('./ui/update.json'); } catch (e) { return {}; } })();
 
-if (process.env.SCAFFOLD_DEV) app.setPath('userData', app.getPath('userData') + '-dev');
-if (!app.requestSingleInstanceLock()) { app.quit(); }
+if (process.env.SCAFFOLD_DEV) app.setPath('userData', process.env.SCAFFOLD_DATA || (app.getPath('userData') + '-dev'));   // SCAFFOLD_DATA: run several test devices
+if (!process.env.SCAFFOLD_DATA && !app.requestSingleInstanceLock()) { app.quit(); }
 
 const UI = path.join(__dirname, 'ui', 'index.html');
 const DATA = app.getPath('userData');

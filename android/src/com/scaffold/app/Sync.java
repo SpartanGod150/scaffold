@@ -168,7 +168,7 @@ public final class Sync {
             if (cfg == null) continue;
             long now = System.currentTimeMillis();
             boolean active = backupActive();
-            if (now - lastPoll >= (active ? 9000 : 60000)) {
+            if (now - lastPoll >= (active ? 9000 : 30000)) {
                 lastPoll = now;
                 try {
                     JSONObject req = new JSONObject().put("secret", cfg[1]).put("op", "relay-poll").put("since", since).put("from", Store.deviceId(c)).put("listen", blocked());
@@ -266,7 +266,7 @@ public final class Sync {
                     String body = encrypt(code, env);
                     if (body.length() <= MAX_MSG) {
                         synchronized (outbox) { outbox.add(body); }
-                        if (backupActive()) synchronized (gOutbox) { gOutbox.add(body); }
+                        if (!isSnap || backupActive()) synchronized (gOutbox) { gOutbox.add(body); }   // live changes always go to Google too
                     }
                 }
             } catch (Exception ignored) {}

@@ -38,6 +38,7 @@ public class MainActivity extends Activity {
         s.setAllowFileAccess(true);
         web.setWebViewClient(new WebViewClient());
         web.setWebChromeClient(new WebChromeClient());
+        if ("1".equals(Store.get(this, "devtools", ""))) WebView.setWebContentsDebuggingEnabled(true);   // set over adb only (DevReceiver)
         web.addJavascriptInterface(new Bridge(this), "AndroidBridge");
         setContentView(web);
         web.loadUrl("file:///android_asset/ui/index.html");
@@ -46,6 +47,7 @@ public class MainActivity extends Activity {
         CoreService.start(this);
         if (getIntent().getBooleanExtra("selftest", false)) selfTest();
     }
+
 
     private void readIntent(Intent i) {
         String m = i.getStringExtra("mode");
