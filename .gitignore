@@ -1,0 +1,7 @@
+node_modules/
+desktop/dist/
+desktop/ui/
+android/build/
+android/debug.keystore
+release/
+.DS_Store

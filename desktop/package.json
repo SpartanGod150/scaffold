@@ -1,0 +1,49 @@
+{
+  "name": "scaffold",
+  "productName": "Scaffold",
+  "version": "0.2.0",
+  "description": "ADHD scaffolding: reminders, pop-ups and locks across all your devices",
+  "main": "main.js",
+  "author": "Ariel",
+  "license": "UNLICENSED",
+  "scripts": {
+    "prepare-ui": "rm -rf ui && cp -R ../ui ui && cp ../shared/engine.js ui/engine.js && cp ../shared/update.json ui/update.json",
+    "start": "npm run prepare-ui && SCAFFOLD_DEV=1 electron . --show",
+    "dist:mac": "npm run prepare-ui && electron-builder --mac dir --arm64",
+    "dist:win": "npm run prepare-ui && electron-builder --win zip --x64"
+  },
+  "build": {
+    "appId": "com.scaffold.desktop",
+    "productName": "Scaffold",
+    "files": [
+      "vault.js",
+      "calendar.js",
+      "updater.js",
+      "main.js",
+      "preload.js",
+      "sync.js",
+      "blocker.js",
+      "ui/**",
+      "assets/**"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "icon": "assets/icon.png",
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "extendInfo": {
+        "LSUIElement": true
+      }
+    },
+    "win": {
+      "icon": "assets/icon.png",
+      "signAndEditExecutable": false
+    }
+  },
+  "devDependencies": {
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0"
+  }
+}

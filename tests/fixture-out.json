@@ -1,0 +1,462 @@
+{
+ "state": {
+  "v": 2,
+  "pause": {
+   "on": false,
+   "ts": 0,
+   "by": ""
+  },
+  "tasks": {
+   "read": {
+    "id": "read",
+    "title": "Read",
+    "emoji": "📖",
+    "start": "20:00",
+    "due": "21:00",
+    "level": 3,
+    "kind": "timer",
+    "minutes": 20,
+    "remind": 30,
+    "from": "2026-11-09",
+    "ts": 1794222000000,
+    "by": "A"
+   },
+   "teeth": {
+    "id": "teeth",
+    "title": "Brush teeth",
+    "emoji": "🪥",
+    "start": "07:00",
+    "due": "08:00",
+    "level": 4,
+    "kind": "check",
+    "remind": 15,
+    "from": "2026-11-09",
+    "ts": 1794214800000,
+    "by": "A"
+   },
+   "study": {
+    "id": "study",
+    "title": "Study",
+    "emoji": "📚",
+    "start": "14:00",
+    "due": "18:00",
+    "level": 2,
+    "days": [
+     1,
+     3,
+     5
+    ],
+    "remind": 60,
+    "from": "2026-11-09",
+    "ts": 1794214800000,
+    "by": "A"
+   },
+   "gym": {
+    "id": "gym",
+    "title": "Gym",
+    "emoji": "🏋️",
+    "start": "10:00",
+    "due": "11:00",
+    "level": 1,
+    "days": [
+     2,
+     4
+    ],
+    "from": "2026-11-09",
+    "ts": 1794214800000,
+    "by": "A",
+    "active": false
+   }
+  },
+  "todos": {
+   "chap": {
+    "id": "chap",
+    "title": "Chapter",
+    "repeat": "week",
+    "dueDay": 0,
+    "start": "18:00",
+    "due": "21:00",
+    "level": 3,
+    "from": "2026-11-09",
+    "ts": 1794214800000,
+    "by": "A"
+   },
+   "buy": {
+    "id": "buy",
+    "title": "Buy",
+    "date": "2026-11-08",
+    "due": "12:00",
+    "from": "2026-11-09",
+    "ts": 1794214800000,
+    "by": "A"
+   },
+   "mon": {
+    "id": "mon",
+    "title": "Bills",
+    "repeat": "month",
+    "dueDay": 9,
+    "start": "10:00",
+    "due": "11:00",
+    "level": 2,
+    "from": "2026-11-09",
+    "ts": 1794214800000,
+    "by": "A"
+   },
+   "ev3": {
+    "id": "ev3",
+    "title": "Water plants",
+    "repeat": "days",
+    "every": 3,
+    "date": "2026-11-03",
+    "start": "17:00",
+    "due": "17:30",
+    "level": 1,
+    "from": "2026-11-09",
+    "ts": 1794214800000,
+    "by": "A"
+   }
+  },
+  "projects": {},
+  "events": {},
+  "notes": {
+   "n1": {
+    "id": "n1",
+    "text": "x",
+    "every": 45,
+    "from": "08:00",
+    "to": "22:00",
+    "anchor": 1794219000000,
+    "ts": 1794219000000,
+    "by": "A"
+   }
+  },
+  "acks": {
+   "n1": {
+    "at": 1794240000000,
+    "ts": 1794240000000,
+    "by": "B"
+   }
+  },
+  "vault": {},
+  "comps": {},
+  "snoozes": {
+   "teeth@2026-11-09": {
+    "n": 1,
+    "until": 1794219000000,
+    "ts": 1794218400000,
+    "by": "A"
+   }
+  },
+  "log": {}
+ },
+ "cases": [
+  {
+   "now": 1794218340000,
+   "lock": null,
+   "next": 1794218400000,
+   "done": 0,
+   "total": 7,
+   "rem": [],
+   "notes": [],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:upcoming",
+    "mon@2026-11:upcoming",
+    "study@2026-11-09:upcoming",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "ev3@D2026-11-09:upcoming"
+   ]
+  },
+  {
+   "now": 1794218400000,
+   "lock": null,
+   "next": 1794219000000,
+   "done": 0,
+   "total": 7,
+   "rem": [],
+   "notes": [],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:open",
+    "mon@2026-11:upcoming",
+    "study@2026-11-09:upcoming",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "ev3@D2026-11-09:upcoming"
+   ]
+  },
+  {
+   "now": 1794218700000,
+   "lock": null,
+   "next": 1794219000000,
+   "done": 0,
+   "total": 7,
+   "rem": [],
+   "notes": [],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:open",
+    "mon@2026-11:upcoming",
+    "study@2026-11-09:upcoming",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "ev3@D2026-11-09:upcoming"
+   ]
+  },
+  {
+   "now": 1794219000000,
+   "lock": "teeth",
+   "next": 1794219600000,
+   "done": 0,
+   "total": 7,
+   "rem": [
+    "teeth:true"
+   ],
+   "notes": [],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:open",
+    "mon@2026-11:upcoming",
+    "study@2026-11-09:upcoming",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "ev3@D2026-11-09:upcoming"
+   ]
+  },
+  {
+   "now": 1794222000000,
+   "lock": "teeth",
+   "next": 1794223200000,
+   "done": 0,
+   "total": 7,
+   "rem": [
+    "teeth:true"
+   ],
+   "notes": [],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "mon@2026-11:upcoming",
+    "study@2026-11-09:upcoming",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "ev3@D2026-11-09:upcoming"
+   ]
+  },
+  {
+   "now": 1794225600000,
+   "lock": "teeth",
+   "next": 1794226800000,
+   "done": 0,
+   "total": 7,
+   "rem": [
+    "buy:false",
+    "teeth:true",
+    "ev3:false"
+   ],
+   "notes": [],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "mon@2026-11:upcoming",
+    "study@2026-11-09:upcoming",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "ev3@D2026-11-09:upcoming"
+   ]
+  },
+  {
+   "now": 1794231000000,
+   "lock": "teeth",
+   "next": 1794231600000,
+   "done": 0,
+   "total": 7,
+   "rem": [
+    "mon:true"
+   ],
+   "notes": [],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "mon@2026-11:open",
+    "study@2026-11-09:upcoming",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "ev3@D2026-11-09:upcoming"
+   ]
+  },
+  {
+   "now": 1794243540000,
+   "lock": "teeth",
+   "next": 1794243600000,
+   "done": 0,
+   "total": 7,
+   "rem": [],
+   "notes": [
+    "n1:1794243300000"
+   ],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "mon@2026-11:late",
+    "study@2026-11-09:upcoming",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "ev3@D2026-11-09:upcoming"
+   ]
+  },
+  {
+   "now": 1794243600000,
+   "lock": "teeth",
+   "next": 1794244800000,
+   "done": 0,
+   "total": 7,
+   "rem": [
+    "teeth:true",
+    "mon:true",
+    "study:true"
+   ],
+   "notes": [
+    "n1:1794243300000"
+   ],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "mon@2026-11:late",
+    "study@2026-11-09:open",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "ev3@D2026-11-09:upcoming"
+   ]
+  },
+  {
+   "now": 1794254700000,
+   "lock": "teeth",
+   "next": 1794255000000,
+   "done": 0,
+   "total": 7,
+   "rem": [],
+   "notes": [
+    "n1:1794254100000"
+   ],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "mon@2026-11:late",
+    "study@2026-11-09:open",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "ev3@D2026-11-09:upcoming"
+   ]
+  },
+  {
+   "now": 1794256200000,
+   "lock": "teeth",
+   "next": 1794256800000,
+   "done": 0,
+   "total": 7,
+   "rem": [
+    "study:true"
+   ],
+   "notes": [
+    "n1:1794254100000"
+   ],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "mon@2026-11:late",
+    "study@2026-11-09:open",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "ev3@D2026-11-09:upcoming"
+   ]
+  },
+  {
+   "now": 1794268740000,
+   "lock": "teeth",
+   "next": 1794268800000,
+   "done": 0,
+   "total": 7,
+   "rem": [],
+   "notes": [
+    "n1:1794267600000"
+   ],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "mon@2026-11:late",
+    "study@2026-11-09:late",
+    "chap@W2026-11-09:open",
+    "read@2026-11-09:open",
+    "ev3@D2026-11-09:upcoming"
+   ]
+  },
+  {
+   "now": 1794268800000,
+   "lock": "teeth",
+   "next": 1794270000000,
+   "done": 0,
+   "total": 7,
+   "rem": [
+    "teeth:true",
+    "mon:true",
+    "study:true",
+    "chap:true",
+    "read:true"
+   ],
+   "notes": [
+    "n1:1794267600000"
+   ],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "mon@2026-11:late",
+    "study@2026-11-09:late",
+    "chap@W2026-11-09:late",
+    "read@2026-11-09:late",
+    "ev3@D2026-11-09:upcoming"
+   ]
+  },
+  {
+   "now": 1794269400000,
+   "lock": "teeth",
+   "next": 1794270000000,
+   "done": 0,
+   "total": 7,
+   "rem": [],
+   "notes": [
+    "n1:1794267600000"
+   ],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "mon@2026-11:late",
+    "study@2026-11-09:late",
+    "chap@W2026-11-09:late",
+    "read@2026-11-09:late",
+    "ev3@D2026-11-09:upcoming"
+   ]
+  },
+  {
+   "now": 1794277860000,
+   "lock": null,
+   "next": 1794279601000,
+   "done": 0,
+   "total": 7,
+   "rem": [],
+   "notes": [
+    "n1:1794270300000"
+   ],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "mon@2026-11:late",
+    "study@2026-11-09:late",
+    "chap@W2026-11-09:late",
+    "read@2026-11-09:late",
+    "ev3@D2026-11-09:upcoming"
+   ]
+  }
+ ]
+}

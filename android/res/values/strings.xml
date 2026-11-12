@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="a11y_desc">Scaffold uses this to see which app is open, so it can cover apps (except WhatsApp, calls and settings) while one of your tasks is locked. It does not read what is on the screen. Turn it off any time here, or with Emergency stop in the app.</string>
+</resources>
