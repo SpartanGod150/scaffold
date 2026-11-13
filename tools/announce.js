@@ -14,4 +14,7 @@ const ntfy = new Promise((ok) => {
   req.setTimeout(15000, () => req.destroy(new Error('timeout'))); req.on('error', (e) => ok('ntfy failed (' + e.message + ')')); req.end(msg);
 });
 const google = local.calUrl ? C.call(local.calUrl, { secret: local.calSecret, op: 'relay-post', msgs: [msg] }).then(() => 'google ok', (e) => 'google failed (' + e.message + ')') : Promise.resolve('no google script');
-Promise.all([ntfy, google]).then((r) => console.log('announce ' + v + ': ' + r.join(', ')));
+const st = (() => { try { return JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')); } catch (e) { return {}; } })();
+const fbUrl = st.cfg && st.cfg.fb && !st.cfg.fb.del && st.cfg.fb.url;
+const fb = fbUrl ? require('../desktop/firebase.js').req('POST', fbUrl + '/s/' + S.topicFor(local.syncCode) + '/m.json', { d: msg, t: { '.sv': 'timestamp' } }).then(() => 'firebase ok', (e) => 'firebase failed (' + e.message + ')') : Promise.resolve('no firebase');
+Promise.all([fb, ntfy, google]).then((r) => console.log('announce ' + v + ': ' + r.join(', ')));
