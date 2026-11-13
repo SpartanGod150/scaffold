@@ -65,8 +65,9 @@ public class MainActivity extends Activity {
         if (web != null) web.evaluateJavascript("window.setMode && window.setMode('" + mode + "','" + task.replace("'", "") + "')", null);
     }
 
-    @Override protected void onResume() { super.onResume(); current = new WeakReference<>(this); notifyState(); }
-    @Override protected void onPause() { super.onPause(); }
+    static volatile boolean resumed;
+    @Override protected void onResume() { super.onResume(); resumed = true; current = new WeakReference<>(this); notifyState(); }
+    @Override protected void onPause() { super.onPause(); resumed = false; }
 
     @Override public void onBackPressed() {
         if (Store.now(this).lock != null) return; // stay on the lock screen

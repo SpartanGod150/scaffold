@@ -35,14 +35,32 @@ class Sync {
     this.alive = true; this.backoff = 2000; this.req = null; this.outbox = [];
     this.ntfyOk = false; this.downSince = Date.now(); this.g = { since: 0, lastPoll: 0, othersUntil: 0, outbox: [], busy: false, active: false };
   }
-  start() { this._connect(); this.gT = setInterval(() => this._gTick(), 10000); setTimeout(() => this._gTick(), 3000); }
-  stop() { this.alive = false; if (this.req) this.req.destroy(); clearTimeout(this.retryT); clearTimeout(this.reconT); clearInterval(this.gT); }
+  start() { this._connect(); this.gT = setInterval(() => this._gTick(), 10000); setTimeout(() => this._gTick(), 3000); this._fbStart(); this.fbT = setInterval(() => this._fbStart(), 30000); }
+  stop() { this.alive = false; if (this.req) this.req.destroy(); clearTimeout(this.retryT); clearTimeout(this.reconT); clearInterval(this.gT); clearInterval(this.fbT); if (this.fb) this.fb.stop(); }
+
+  // ---- Firebase: the main channel once its address is known (opts.firebase() -> base URL). ntfy and the Google
+  //      mailbox stay as backups for devices that don't have it yet, and for when Firebase is unreachable. ----
+  _fbStart() {
+    const base = this.o.firebase && this.o.firebase();
+    if (this.fb && this.fb.base0 === base) return;
+    if (this.fb) { this.fb.stop(); this.fb = null; }
+    if (!base || !this.alive) return;
+    const { FirebaseChannel } = require('./firebase.js');
+    this.fb = new FirebaseChannel({ base, topic: this.topic, since: this.o.fbSince || 0,
+      onMessage: (b64) => this._msg(b64), onStatus: () => this.status(''), onSince: (t) => { this.o.fbSince = t; if (this.o.onFbSince) this.o.onFbSince(t); } });
+    this.fb.base0 = base;
+    this.fb.start();
+  }
+  fbOk() { return !!(this.fb && this.fb.ok); }
 
   // ---- Google backup mailbox: used while this device can't reach ntfy, or while another device can't ----
   // Blocked = can't listen to ntfy, or ntfy refuses our messages (its free daily limit, HTTP 429).
   blocked() { return (!this.ntfyOk && Date.now() - this.downSince > 45000) || Date.now() < (this.sendBlockedUntil || 0); }
-  backupActive() { return this.blocked() || Date.now() < this.g.othersUntil; }
-  status(s) { this.o.onStatus(this.blocked() && this.g.ok ? 'connected through Google (main relay blocked here)' : s); }
+  backupActive() { return (this.blocked() && !this.fbOk()) || Date.now() < this.g.othersUntil; }
+  status(s) {
+    if (this.fbOk()) return this.o.onStatus('connected (Firebase)');
+    this.o.onStatus(this.blocked() && this.g.ok ? 'connected through Google (main relay blocked here)' : s || (this.ntfyOk ? 'connected' : 'connecting…'));
+  }
   async _gTick() {
     const cfg = this.o.relay && this.o.relay();
     if (!this.alive || !cfg || !cfg.url || this.g.busy) return;
@@ -50,7 +68,8 @@ class Sync {
     if (now - this.g.lastPoll < (active ? 9000 : 30000)) return this._gFlush(cfg);
     this.g.busy = true; this.g.lastPoll = now;
     try {
-      const r = await gcall(cfg.url, { secret: cfg.secret, op: 'relay-poll', since: this.g.since, from: this.o.deviceId, listen: this.blocked() });
+      const r = await gcall(cfg.url, { secret: cfg.secret, op: 'relay-poll', since: this.g.since, from: this.o.deviceId, listen: this.blocked() && !this.fbOk() });
+      if (r.seq < this.g.since) this.g.since = 0;   // the mailbox restarted its count (expired cache)
       this.g.ok = true; this.g.since = r.seq || this.g.since;
       if (this.o.onScriptOld) this.o.onScriptOld(false);
       (r.msgs || []).forEach((m) => this._msg(m));
@@ -76,7 +95,7 @@ class Sync {
     const since = this.o.since || '12h';
     this.req = https.get({ host: HOST, path: `/${this.topic}/json?since=${encodeURIComponent(since)}`, headers: { 'User-Agent': 'Scaffold/0.1' } }, (res) => {
       if (res.statusCode !== 200) { res.resume(); return this._retry('relay error ' + res.statusCode); }
-      this.backoff = 2000; this.ntfyOk = true; this.o.onStatus('connected');
+      this.backoff = 2000; this.ntfyOk = true; this.status('connected');
       let buf = '';
       res.setEncoding('utf8');
       res.on('data', (chunk) => {
@@ -114,6 +133,8 @@ class Sync {
 
   publish(patches, isSnap) {
     const msgs = patches.map((p) => encrypt(this.key, { d: this.o.deviceId, p, s: isSnap ? 1 : 0 }));
+    if (this.fb) this.fb.publish(msgs);
+    // ntfy too, so devices that don't know the Firebase address yet still get everything (including that address).
     msgs.forEach((m) => this.outbox.push(m));
     // Live changes (locks, completions…) always go to the Google mailbox too, so they arrive even if ntfy drops them.
     // Full snapshots only while someone depends on Google.

@@ -94,6 +94,7 @@ public final class Sync {
         activeCode = code;
         if (code.isEmpty()) { status = "off"; return; }
         status = "connecting…";
+        Fb.ensure(c, code);
         thread = new Thread(() -> listen(c, code), "scaffold-sync");
         thread.setDaemon(true);
         thread.start();
@@ -116,7 +117,7 @@ public final class Sync {
                 conn.setReadTimeout(100000);
                 conn.setRequestProperty("User-Agent", "Scaffold/0.1");
                 if (conn.getResponseCode() != 200) throw new Exception("relay error " + conn.getResponseCode());
-                status = "connected"; ntfyOk = true;
+                status = Fb.ok ? "connected (Firebase)" : "connected"; ntfyOk = true;
                 MainActivity.notifyState();
                 backoff = 2000;
                 BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
@@ -126,7 +127,7 @@ public final class Sync {
                 if (ntfyOk) downSince = System.currentTimeMillis();
                 ntfyOk = false;
             } catch (Exception e) {
-                status = blocked() && gOk ? "connected through Google (main relay blocked here)" : "offline (" + e.getMessage() + ")";
+                status = Fb.ok ? "connected (Firebase)" : blocked() && gOk ? "connected through Google (main relay blocked here)" : "offline (" + e.getMessage() + ")";
             } finally {
                 if (conn != null) conn.disconnect();
             }
@@ -152,7 +153,9 @@ public final class Sync {
     private static final ArrayDeque<String> gOutbox = new ArrayDeque<>();
     private static volatile long sendBlockedUntil = 0;
     static boolean blocked() { return (!ntfyOk && System.currentTimeMillis() - downSince > 45000) || System.currentTimeMillis() < sendBlockedUntil; }
-    static boolean backupActive() { return blocked() || System.currentTimeMillis() < othersUntil; }
+    static boolean backupActive() { return (blocked() && !Fb.ok) || System.currentTimeMillis() < othersUntil; }
+    static void fbStatus() { status = "connected (Firebase)"; }
+    static void handleFromFb(Context c, String code, String b64) { handleMsg(c, code, b64); }
 
     private static String[] relayCfg(Context c) {
         JSONObject cfg = Store.state(c).optJSONObject("cfg"), r = cfg == null ? null : cfg.optJSONObject("relay");
@@ -164,6 +167,7 @@ public final class Sync {
         long since = 0, lastPoll = 0, lastPull = 0; boolean wasActive = false;
         while (code.equals(activeCode)) {
             try { Thread.sleep(10000); } catch (InterruptedException ignored) {}
+            Fb.ensure(c, code);
             String[] cfg = relayCfg(c);
             if (cfg == null) continue;
             long now = System.currentTimeMillis();
@@ -171,13 +175,14 @@ public final class Sync {
             if (now - lastPoll >= (active ? 9000 : 30000)) {
                 lastPoll = now;
                 try {
-                    JSONObject req = new JSONObject().put("secret", cfg[1]).put("op", "relay-poll").put("since", since).put("from", Store.deviceId(c)).put("listen", blocked());
+                    JSONObject req = new JSONObject().put("secret", cfg[1]).put("op", "relay-poll").put("since", since).put("from", Store.deviceId(c)).put("listen", blocked() && !Fb.ok);
                     JSONObject r = gcall(cfg[0], req);
                     gOk = true; since = r.optLong("seq", since);
                     JSONArray ms = r.optJSONArray("msgs");
                     for (int i = 0; ms != null && i < ms.length(); i++) handleMsg(c, code, ms.optString(i));
+                    if (r.optLong("seq", 0) < since) since = 0;
                     if (r.optInt("listeners", 0) > 0) othersUntil = System.currentTimeMillis() + 120000;
-                    if (blocked()) { status = "connected through Google (main relay blocked here)"; MainActivity.notifyState(); }
+                    if (blocked() && !Fb.ok) { status = "connected through Google (main relay blocked here)"; MainActivity.notifyState(); }
                 } catch (Exception e) { gOk = false; }
                 boolean nowActive = backupActive();
                 if (nowActive && !wasActive) snapshot(c, true);
@@ -264,7 +269,9 @@ public final class Sync {
                     JSONObject env = new JSONObject();
                     env.put("d", Store.deviceId(c)); env.put("p", p); env.put("s", isSnap ? 1 : 0);
                     String body = encrypt(code, env);
-                    if (body.length() <= MAX_MSG) {
+                    boolean fb = Fb.active(c);
+                    if (fb) Fb.publish(body);
+                    if (body.length() <= MAX_MSG) {   // ntfy too, so devices without the Firebase address still get everything
                         synchronized (outbox) { outbox.add(body); }
                         if (!isSnap || backupActive()) synchronized (gOutbox) { gOutbox.add(body); }   // live changes always go to Google too
                     }

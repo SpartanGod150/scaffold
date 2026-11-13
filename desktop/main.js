@@ -77,6 +77,9 @@ function startSync() {
     onStatus: (s) => { local.sync = { status: s }; notifyUI(); },
     onSince: (id) => { local.since = id; saveLocalSoon(); },
     relay: relayCfg,
+    firebase: () => { const f = state.cfg && state.cfg.fb; return f && !f.del && f.url ? f.url : null; },
+    fbSince: local.fbSince || 0,
+    onFbSince: (t) => { local.fbSince = t; saveLocalSoon(); },
     onScriptOld: (old) => { if (!!local.scriptOld !== old && local.calUrl) { local.scriptOld = old; saveLocalSoon(); notifyUI(); } },
     onBackupStart: () => maybeSnapshot(true)
   });

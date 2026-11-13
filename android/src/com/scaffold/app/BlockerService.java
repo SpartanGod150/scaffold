@@ -10,7 +10,22 @@ public class BlockerService extends AccessibilityService {
     static volatile String lastPkg = "";
     private long lastLaunch = 0;
 
-    @Override protected void onServiceConnected() { instance = this; Enforcer.forgetDynamic(); }
+    private final android.os.Handler loop = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable guard = new Runnable() { @Override public void run() { watch(); loop.postDelayed(this, 2000); } };
+
+    @Override protected void onServiceConnected() { instance = this; Enforcer.forgetDynamic(); loop.removeCallbacks(guard); loop.postDelayed(guard, 2000); }
+
+    /** Every 2 s during a lock: if Scaffold isn't on screen and the app in front isn't an allowed one, bring the lock back.
+     *  Covers a missed app-switch event (then nothing would re-check until the next switch). */
+    private void watch() {
+        Engine.Result r = Store.now(this);
+        if (r.lock == null || r.paused || MainActivity.resumed) return;
+        String pkg = lastPkg;
+        boolean stale = pkg.isEmpty() || pkg.equals(getPackageName());   // we think Scaffold is in front, but it isn't
+        if (!stale && Enforcer.allowed(this, pkg, r.lock)) return;
+        lastLaunch = 0;
+        check(stale ? "" : pkg);
+    }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent e) {
         if (e.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || e.getPackageName() == null) return;
@@ -53,5 +68,5 @@ public class BlockerService extends AccessibilityService {
     }
 
     @Override public void onInterrupt() {}
-    @Override public void onDestroy() { instance = null; super.onDestroy(); }
+    @Override public void onDestroy() { loop.removeCallbacks(guard); instance = null; super.onDestroy(); }
 }

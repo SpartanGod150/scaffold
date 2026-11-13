@@ -167,6 +167,11 @@
     autostart: function (el) { B.setLocal('autostart', JSON.stringify(el.checked)); },
     saveVault: function () { B.setLocal('vaultPath', JSON.stringify(document.getElementById('vault-path').value.trim())); toast('Looking for your projects…'); },
     copyScript: function () { copy(window.GCAL_SCRIPT.replace('__SECRET__', S.local.calSecret || '')); },
+    saveFb: function () {
+      var v = document.getElementById('fb-url').value.trim().replace(/\/+$/, '');
+      if (v && !/^https:\/\/[\w.-]+\.(firebaseio\.com|firebasedatabase\.app)$/.test(v)) return toast('Paste the database URL, like https://name-default-rtdb.firebaseio.com');
+      apply(E.opPut('cfg', { id: 'fb', url: v }, by(), now())); toast(v ? '⚡ Instant sync on: every device gets it in a moment' : 'Instant sync off');
+    },
     saveCal: function () {
       var v = document.getElementById('cal-url').value.trim();
       if (v && !/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(v)) return toast('Paste the Web app URL ending in /exec');
@@ -180,6 +185,8 @@
 
   document.addEventListener('click', function (e) {
     var el = e.target.closest('[data-a]'); if (!el || el.disabled) return;
+    // A lock or reminder that just popped up ignores clicks for a moment: a click meant for something else must not dismiss it.
+    if (S.guardUntil > Date.now() && el.closest('.block, .remind') && /^(done|snooze|timer)$/.test(el.getAttribute('data-a'))) { e.preventDefault(); return; }
     var fn = A[el.getAttribute('data-a')];
     if (fn) { e.preventDefault(); e.stopPropagation(); fn(el.getAttribute('data-id'), el.getAttribute('data-k'), el); }
   });
@@ -206,7 +213,11 @@
     }
     paint(shell());
   }
-  function paint(html) { $app.innerHTML = html; tick(); }
+  function paint(html) {
+    var full = /^<section class="(block|remind)/.exec(html), key = full ? full[1] + (S.r.lock ? S.r.lock.id : S.modeTask) : '';
+    if (key && key !== S.guardKey) { S.guardUntil = Date.now() + 1500; S.guardKey = key; } else if (!key) S.guardKey = '';
+    $app.innerHTML = html; tick();
+  }
 
   function shell() {
     var views = { today: todayView, calendar: calendarView, tasks: tasksView, habits: habitsView, notes: notesView, settings: settingsView };
@@ -511,7 +522,12 @@
     if (L.syncCode) {
       h += '<p>Type this code on your other devices:</p><div class="code" data-a="copyCode">' + esc(L.syncCode) + '</div>' +
         '<p class="muted">Status: <span class="dot ' + (/connected/.test(L.sync && L.sync.status) ? 'ok' : '') + '"></span>' + esc(L.sync && L.sync.status || '…') + '</p>' +
-        '<button class="btn ghost sm" data-a="leaveSync">Disconnect</button>';
+        '<button class="btn ghost sm" data-a="leaveSync">Disconnect</button>' +
+        (function () {
+          var fb = S.state.cfg && S.state.cfg.fb, url = fb && !fb.del ? fb.url || '' : '';
+          return '<label class="field" style="margin-top:12px">⚡ Instant sync (Firebase database URL) <small>' + (url ? 'set once, shared with every device' : 'not set: devices use the slower backup routes') + '</small>' +
+            '<div class="join"><input id="fb-url" value="' + esc(url) + '" placeholder="https://name-default-rtdb.firebaseio.com" autocapitalize="off" autocomplete="off"><button class="btn" data-a="saveFb">Save</button></div></label>';
+        })();
     } else {
       h += '<p>Create a code on your first device, then join with it everywhere else.</p><button class="btn primary" data-a="newCode">Create sync code</button>' +
         '<div class="join"><input id="join-code" placeholder="maple-otter-quartz-river-1234" autocapitalize="off" autocomplete="off"><button class="btn" data-a="joinCode">Join</button></div>';
