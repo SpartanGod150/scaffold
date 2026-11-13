@@ -401,28 +401,29 @@ app.on('window-all-closed', (e) => { /* stay in the tray */ });
 app.on('before-quit', () => { app.allowQuit = true; overlays.forEach((w) => { if (!w.isDestroyed()) { w.allowClose = true; w.destroy(); } }); });
 
 app.whenReady().then(() => {
-  if (process.platform === 'darwin' && app.dock) app.dock.hide();
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
+  // Each part starts on its own: one that fails must never stop locks or updates (0.4.0 lost both that way).
+  const safe = (name, fn) => { try { fn(); } catch (e) { console.error('startup: ' + name + ' failed', e); } };
+  // Updates first, so even a broken version can always replace itself.
+  setTimeout(runUpdate, 60000);
+  setInterval(runUpdate, 15 * 60000);
+  setInterval(applyPendingUpdate, 60000);
+  safe('dock', () => { if (process.platform === 'darwin' && app.dock) app.dock.hide(); });
+  safe('menu', () => Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'Scaffold', submenu: [{ label: 'Open Scaffold', click: showMain }, { label: 'Emergency stop', click: emergencyStop }] },
     { role: 'editMenu' }
-  ]));
+  ])));
   loadAll();
-  tray = new Tray(trayIcon());
-  tray.on('click', () => { if (process.platform !== 'darwin') showMain(); });
-  globalShortcut.register('CommandOrControl+Alt+Shift+K', emergencyStop);
-  setAutostart(local.autostart);
-  if (local.firstRun) { local.firstRun = false; saveLocal(); showMain(); }
-  else if (process.argv.includes('--show')) showMain();
-  startSync();
-  evaluate(); updateTray();
-  setInterval(evaluate, 5000);
-  setInterval(() => maybeSnapshot(false), 15 * 60000);
+  safe('tray', () => { tray = new Tray(trayIcon()); tray.on('click', () => { if (process.platform !== 'darwin') showMain(); }); });
+  safe('shortcut', () => globalShortcut.register('CommandOrControl+Alt+Shift+K', emergencyStop));
+  safe('autostart', () => setAutostart(local.autostart));
+  safe('window', () => { if (local.firstRun) { local.firstRun = false; saveLocal(); showMain(); } else if (process.argv.includes('--show')) showMain(); });
+  safe('sync', startSync);
+  setInterval(() => safe('evaluate', evaluate), 5000);
+  safe('evaluate', () => { evaluate(); updateTray(); });
+  setInterval(() => safe('snapshot', () => maybeSnapshot(false)), 15 * 60000);
   setTimeout(scanVault, 3000);
   setInterval(scanVault, 5 * 60000);
   setTimeout(runCal, 8000);
   setInterval(runCal, 3 * 60000);
-  setTimeout(runUpdate, 60000);
-  setInterval(runUpdate, 15 * 60000);
-  setInterval(applyPendingUpdate, 60000);
-  powerMonitor.on('resume', () => { evaluate(); if (sync) { sync.stop(); startSync(); } });
+  powerMonitor.on('resume', () => { safe('evaluate', evaluate); if (sync) { sync.stop(); safe('sync', startSync); } });
 });

@@ -35,7 +35,11 @@ class Sync {
     this.alive = true; this.backoff = 2000; this.req = null; this.outbox = [];
     this.ntfyOk = false; this.downSince = Date.now(); this.g = { since: 0, lastPoll: 0, othersUntil: 0, outbox: [], busy: false, active: false };
   }
-  start() { this._connect(); this.gT = setInterval(() => this._gTick(), 10000); setTimeout(() => this._gTick(), 3000); this._fbStart(); this.fbT = setInterval(() => this._fbStart(), 30000); }
+  start() {
+    this._connect(); this.gT = setInterval(() => this._gTick(), 10000); setTimeout(() => this._gTick(), 3000);
+    const fb = () => { try { this._fbStart(); } catch (e) { console.error('firebase', e); } };
+    fb(); this.fbT = setInterval(fb, 30000);
+  }
   stop() { this.alive = false; if (this.req) this.req.destroy(); clearTimeout(this.retryT); clearTimeout(this.reconT); clearInterval(this.gT); clearInterval(this.fbT); if (this.fb) this.fb.stop(); }
 
   // ---- Firebase: the main channel once its address is known (opts.firebase() -> base URL). ntfy and the Google
