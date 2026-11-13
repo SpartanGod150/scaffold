@@ -263,3 +263,14 @@ details.vault .row { background: var(--card); margin-top: 8px; border-left-color
 .steps { padding-left: 20px; color: #c9cde0; }
 .steps li { margin: 8px 0; }
 @media (max-width: 380px) { .ag-t { width: 70px; } .tab { font-size: 11px; } }
+
+/* Check-for-updates button: live state */
+.btn.upd { position: relative; overflow: hidden; text-align: center; }
+.btn.upd.busy { background: #1b2740; color: #a9c4ff; cursor: progress; opacity: 1; }
+.btn.upd.busy::after { content: ""; position: absolute; left: 0; bottom: 0; height: 4px; width: var(--p, 35%); background: #6ea0ff; border-radius: 2px; }
+.btn.upd.busy:not([style])::after { animation: updslide 1.2s ease-in-out infinite; }
+.btn.upd.good { background: #173a2e; color: var(--ok); }
+.btn.upd.bad { background: #3a1820; color: #ff9aa8; }
+.spin { width: 16px; height: 16px; border: 2.5px solid currentColor; border-right-color: transparent; border-radius: 50%; display: inline-block; animation: updspin .8s linear infinite; flex: none; }
+@keyframes updspin { to { transform: rotate(360deg); } }
+@keyframes updslide { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }

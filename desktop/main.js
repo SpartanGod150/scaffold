@@ -328,7 +328,7 @@ function trayIcon() {
 
 // ---------- IPC for the UI ----------
 ipcMain.on('get-state', (e) => { e.returnValue = JSON.stringify(Object.assign({}, state, { gev })); });
-ipcMain.on('get-local', (e) => { e.returnValue = JSON.stringify(Object.assign({}, local, { platform: 'desktop', version: app.getVersion() })); });
+ipcMain.on('get-local', (e) => { e.returnValue = JSON.stringify(Object.assign({}, local, { platform: 'desktop', version: app.getVersion(), update: Object.assign({}, local.update, { running: !!updating && Date.now() - updating < UPD_LIMIT }) })); });
 ipcMain.on('get-launch', (e) => {
   const u = new URL(e.sender.getURL()); e.returnValue = JSON.stringify({ mode: u.searchParams.get('mode') || 'main', task: u.searchParams.get('task') || '' });
 });
@@ -372,20 +372,26 @@ function applyPendingUpdate() {
   Updater.install(u.file);
   setTimeout(() => { app.allowQuit = true; hideOverlay(); app.quit(); }, 1500);
 }
+let updRun = 0;
+const UPD_LIMIT = 20 * 60000;   // hard cap on a whole check with download (stalls are already cut after 30 s)
 async function runUpdate() {
-  if (updating) { notifyUI(); return; }   // already running: the status line shows its progress
+  if (updating && Date.now() - updating < UPD_LIMIT) { notifyUI(); return; }   // already running: the button shows its progress
   if (!UPDATE_CFG.repo || (process.env.SCAFFOLD_DEV && !process.env.SCAFFOLD_UPDATE_TEST)) return;
   if (pendingUpdate) { local.update = { status: 'version ' + pendingUpdate.version + ' downloaded, installs when nothing is locked', checked: Date.now() }; notifyUI(); return applyPendingUpdate(); }
-  updating = true;
-  local.update = { status: 'checking…', checked: Date.now() }; notifyUI();
+  const id = ++updRun; updating = Date.now();
+  const set = (status) => { if (id === updRun) { local.update = { status, checked: Date.now() }; notifyUI(); } };
+  set('checking…');
   let shown = -1;
-  const res = await Updater.check(UPDATE_CFG.repo, app.getVersion(), (v, f) => {
+  const timeout = new Promise((r) => setTimeout(() => r({ status: 'error: no answer from GitHub (network too slow or blocked)', timedOut: true }), UPD_LIMIT));
+  const res = await Promise.race([timeout, Updater.check(UPDATE_CFG.repo, app.getVersion(), (v, f) => {
     const pct = Math.floor(f * 100);
-    if (pct >= shown + 5 || pct === 100) { shown = pct; local.update = { status: 'downloading version ' + v + ': ' + pct + '%', checked: Date.now() }; notifyUI(); }
-  });
-  updating = false;
-  local.update = { status: res.status === 'ready' ? 'version ' + res.version + ' downloaded, installs when nothing is locked' : res.status, checked: Date.now() };
-  saveLocal(); notifyUI();
+    if (pct >= shown + 5 || pct === 100) { shown = pct; set('downloading version ' + v + ': ' + pct + '%'); }
+  }, (v) => set('downloading version ' + v + ': 0%'))]);
+  if (id !== updRun) return;
+  updating = 0;
+  set(res.status === 'ready' ? 'version ' + res.version + ' downloaded, installs when nothing is locked' : res.status);
+  if (res.timedOut) updRun++;   // a late answer from the stuck check must not overwrite this
+  saveLocal();
   if (res.status === 'ready') { pendingUpdate = res; applyPendingUpdate(); }
 }
 ipcMain.on('check-update', () => runUpdate());

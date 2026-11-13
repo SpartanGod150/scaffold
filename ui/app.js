@@ -145,7 +145,7 @@
       } else if (k === 'remind') {
         var p = { log: {} }; p.log[E.uid()] = { type: 'test-remind', ts: now(), by: by() };
         apply(p); toast('🧪 Test reminder sent to all devices');
-      } else { if (k === 'update') { toast('⬆️ Checking for updates…'); S.updClick = now(); } B.test(k); }
+      } else { if (k === 'update') { S.updClick = now(); S.updShow = 0; S.updStale = 0; paintUpd(); } B.test(k); }
     },
     copyCode: function () { copy(S.local.syncCode); },
     newCode: function () {
@@ -576,7 +576,7 @@
     var U = L.update || {};
     h += '<section class="panel"><h3>⬆️ Updates</h3><p>Version <b>' + esc(L.version || '?') + '</b>. ' + (PLATFORM === 'android' ? 'New versions download by themselves; Android may ask you to tap Install.' : 'New versions install by themselves, never during a lock.') + '</p>' +
       (U.status ? '<p class="muted">Last check: ' + esc(U.status) + (U.checked ? ' (' + new Date(U.checked).toLocaleString() + ')' : '') + '</p>' : '') +
-      '<div class="row-btns"><button class="btn" data-a="test" data-id="update">Check for updates now</button></div></section>';
+      '<div class="row-btns" id="updBox">' + updBtn() + '</div></section>';
     h += '<p class="muted center">Scaffold ' + esc(L.version || '') + ' · ' + esc(PLATFORM) + ' · ' + esc(L.deviceId) + '</p>';
     return h;
   }
@@ -805,18 +805,37 @@
     if (m !== lastMinute) { lastMinute = m; if (!busy) render(); }
   }, 1000);
 
-  window.onNative = function () { if (!S.modalOpen) render(); else load(); updateFeedback(); };
+  window.onNative = function () { if (!S.modalOpen) render(); else load(); paintUpd(); };
   if (B.onNative) B.onNative(function () { window.onNative(); });   // desktop: the main process says something changed
-  // After "Check for updates now": say how it ended, so the button never looks dead.
-  function updateFeedback() {
-    var U = (S.local && S.local.update) || {}, st = U.status || '';
-    if (!S.updClick || (U.checked || 0) < S.updClick - 2000 || /checking/.test(st)) return;
-    if (/^downloading/.test(st)) { if (!S.updDl) { S.updDl = 1; toast('⬆️ Update found: ' + st.replace(/: \d+%$/, '') + '…'); } return; }
-    S.updClick = 0; S.updDl = 0;
-    if (/up to date/.test(st)) toast('✅ No updates found: version ' + (S.local.version || '') + ' is the latest');
-    else if (/downloaded|installing|ready/.test(st)) toast('⬆️ ' + st.charAt(0).toUpperCase() + st.slice(1));
-    else toast('⚠️ Update check failed: ' + st.replace(/^error:\s*/, ''));
+  // "Check for updates now" button: live state while a check runs, then the result right away.
+  function updState() {
+    var U = (S.local && S.local.update) || {}, st = U.status || '', mine = S.updClick && (U.checked || 0) >= S.updClick - 2000;
+    var m = /downloading version ([\d.]+): (\d+)%/.exec(st);
+    if (m && (U.running || mine)) return { k: 'dl', v: m[1], pct: +m[2] };
+    if (/ready: tap Install/.test(st)) return { k: 'install', v: (/version ([\d.]+)/.exec(st) || [])[1] || '' };
+    if (/^installing/.test(st)) return { k: 'busy', t: st.charAt(0).toUpperCase() + st.slice(1) };
+    if (U.running || (S.updClick && !mine) || (mine && /checking/.test(st))) { if (S.updClick && now() - S.updClick > 200000) { S.updStale = 1; S.updShow = now() + 8000; return { k: 'err', t: 'no answer' }; } return { k: 'busy', t: 'Checking for updates…' }; }
+    if (mine || (S.updShow && now() < S.updShow)) {
+      if (!S.updShow) S.updShow = now() + 8000;
+      if (S.updStale) return { k: 'err', t: 'no answer' };
+      if (/up to date/.test(st)) return { k: 'ok', t: 'No updates: ' + (S.local.version || '') + ' is the latest' };
+      if (/downloaded|updated/.test(st)) return { k: 'ok', t: st.charAt(0).toUpperCase() + st.slice(1) };
+      return { k: 'err', t: st.replace(/^(error|update failed):\s*/, '') || 'failed' };
+    }
+    return { k: 'idle' };
   }
+  function updBtn() {
+    var u = updState();
+    if (S.updClick && u.k !== 'busy' && u.k !== 'dl') S.updClick = 0;
+    if (u.k === 'busy') return '<button class="btn upd busy" disabled><span class="spin"></span>' + esc(u.t) + '</button>';
+    if (u.k === 'dl') return '<button class="btn upd busy" disabled style="--p:' + u.pct + '%"><span class="spin"></span>Found version ' + esc(u.v) + ': downloading ' + u.pct + '%</button>';
+    if (u.k === 'install') return '<button class="btn primary upd" data-a="test" data-id="install">⬆️ Install version ' + esc(u.v) + '</button>';
+    if (u.k === 'ok') return '<button class="btn upd good" data-a="test" data-id="update">✅ ' + esc(u.t) + '</button>';
+    if (u.k === 'err') return '<button class="btn upd bad" data-a="test" data-id="update">⚠️ Check failed: ' + esc(u.t) + ' · tap to retry</button>';
+    return '<button class="btn upd" data-a="test" data-id="update">Check for updates now</button>';
+  }
+  function paintUpd() { var el = document.getElementById('updBox'); if (el) el.innerHTML = updBtn(); }
+  setInterval(function () { if (S.updClick || S.updShow) { if (S.updShow && now() >= S.updShow) { S.updShow = 0; S.updStale = 0; } paintUpd(); } }, 1000);
   window.setMode = function (mode, task) { S.mode = mode || 'main'; S.modeTask = task || ''; if (!S.modalOpen) render(); };
   render();
 })();

@@ -20,7 +20,7 @@ import java.nio.charset.StandardCharsets;
 
 /** Hosts the shared UI (assets/ui) in a WebView. Modes: main, remind (pop-up), block (lock screen). */
 public class MainActivity extends Activity {
-    private static WeakReference<MainActivity> current = new WeakReference<>(null);
+    static WeakReference<MainActivity> current = new WeakReference<>(null);
     WebView web;
     String mode = "main", task = "";
 

@@ -57,7 +57,7 @@ public class Bridge {
             p.put("installs", Build.VERSION.SDK_INT < 26 || a.getPackageManager().canRequestPackageInstalls());
             o.put("perms", p);
             o.put("version", Updater.version(a));
-            JSONObject up = new JSONObject(); up.put("status", Store.get(a, "updStatus", "")); up.put("checked", Store.getLong(a, "updChecked", 0)); o.put("update", up);
+            JSONObject up = new JSONObject(); up.put("status", Store.get(a, "updStatus", "")); up.put("checked", Math.max(Store.getLong(a, "updChecked", 0), Store.getLong(a, "updAt", 0))); up.put("running", Updater.running()); o.put("update", up);
             return o.toString();
         } catch (Exception e) { return "{}"; }
     }
@@ -142,5 +142,6 @@ public class Bridge {
     @JavascriptInterface public void test(String k) {
         if ("remind".equals(k)) Notif.testReminder(a);
         if ("update".equals(k)) Updater.maybeCheck(a, true);
+        if ("install".equals(k)) UpdateReceiver.openConfirm(a);
     }
 }
