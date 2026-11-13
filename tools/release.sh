@@ -21,6 +21,8 @@ echo "== $OLD → $NEW"
 echo "$NEW" > VERSION
 node -e "const f='desktop/package.json',p=require('./'+f);p.version='$NEW';require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
 
+echo "== packaging check"   # every local module the desktop app requires must be in package.json build.files
+node -e "const fs=require('fs'),p=require('./desktop/package.json'),need=new Set();fs.readdirSync('desktop').filter(f=>f.endsWith('.js')).forEach(f=>{for(const m of fs.readFileSync('desktop/'+f,'utf8').matchAll(/require\\('\\.\\/([\\w.-]+\\.js)'\\)/g))need.add(m[1])});const miss=[...need].filter(f=>!p.build.files.includes(f));if(miss.length){console.error('missing from desktop/package.json build.files: '+miss.join(', '));process.exit(1)}"
 echo "== tests"
 node tests/engine.test.js >/dev/null
 node tests/gcal.mock.test.js >/dev/null
