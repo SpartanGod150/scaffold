@@ -418,3 +418,16 @@ details.vault .row { background: var(--card); margin-top: 8px; border-left-color
 .cs-c input { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; margin: 0; border-radius: 4px; border: 2px solid var(--c); flex: none; display: grid; place-items: center; cursor: pointer; padding: 0; background: transparent; }
 .cs-c input:checked { background: var(--c); }
 .cs-c input:checked::after { content: '✓'; color: #fff; font-size: 12px; font-weight: 800; line-height: 1; }
+
+/* ---- v0.4.9: edit a note right in its pop-up ---- */
+.note-btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; width: 100%; max-width: 520px; }
+.note-btns .btn.big { flex: 1 1 160px; }
+.note-btns .btn.ghost.big { flex: 0 1 140px; }
+.note-edit .rte-bar { margin: 0 0 8px; }
+.note-edit .rte-b { background: rgba(0,0,0,.08); color: #1d1a10; }
+.note-edit .rte-b.on { background: #1d1a10; color: #fff3b8; }
+.note-edit .rte-sep { background: rgba(0,0,0,.2); }
+.note-edit .rte { background: rgba(255,255,255,.35); border: 1px dashed rgba(0,0,0,.25); color: #1d1a10; min-height: 120px; }
+.note-edit .rte:focus { border-color: rgba(0,0,0,.5); }
+.note-edit .rte.blank::before { color: rgba(0,0,0,.4); }
+.note-edit .md [data-t=cl]::before { border-color: rgba(0,0,0,.45); }

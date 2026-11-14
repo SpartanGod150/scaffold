@@ -131,6 +131,17 @@
     },
     editNote: function (id) { openNoteEditor(id && S.state.notes[id] ? JSON.parse(JSON.stringify(S.state.notes[id])) : null); },
     toggleNote: function (id) { var n = S.state.notes[id]; if (!n) return; var c = JSON.parse(JSON.stringify(n)); c.active = n.active === false; if (c.active) c.anchor = now(); apply(E.opPut('notes', c, by(), now())); },
+    noteEdit: function (id) { S.noteEdit = id; render(); },
+    noteEditCancel: function () { S.noteEdit = null; S.noteRte = null; render(); },
+    noteEditSave: function (id) {
+      var n = S.state.notes[id], rte = S.noteRte; if (!n || !rte) return;
+      var text = rte.value(), len = E.plainNote(text).length;
+      if (!E.plainNote(text).trim()) return toast('The note is empty');
+      if (len > 600) return toast('Too long: ' + len + ' of 600 characters');
+      var c = JSON.parse(JSON.stringify(n)); c.anchor = c.anchor || c.ts; c.text = text;
+      S.noteEdit = null; S.noteRte = null;
+      apply(E.opPut('notes', c, by(), now())); render(); toast('Saved');
+    },
     tickNote: function (id, line) { var n = S.state.notes[id]; if (!n) return; var c = JSON.parse(JSON.stringify(n)); c.anchor = c.anchor || c.ts; c.text = noteTick(c.text, +line); apply(E.opPut('notes', c, by(), now())); },
     dismissNote: function (id) { apply(E.opAck(id, by(), now())); delete S.noteSeen[id]; if (S.mode === 'note' && !E.pendingNotes(S.state, now()).filter(function (n) { return n.id !== id; }).length) B.closeWindow(); },
     calPrev: function () { calMove(-1); },
@@ -231,6 +242,7 @@
     var full = /^<section class="(block|remind)/.exec(html), key = full ? full[1] + (S.r.lock ? S.r.lock.id : S.modeTask) : '';
     if (key && key !== S.guardKey) { S.guardUntil = Date.now() + 1500; S.guardKey = key; } else if (!key) S.guardKey = '';
     $app.innerHTML = html; tick(); wireTimeline();
+    var ne = $app.querySelector('.note-edit .rte'); if (ne) { S.noteRte = wireRte(ne, $app.querySelector('.note-edit .rte-bar')); ne.focus(); }
   }
 
   function shell() {
@@ -369,10 +381,15 @@
     var n = p.note, key = p.id + '@' + p.since;
     if (!S.noteSeen[p.id] || S.noteSeen[p.id].key !== key) S.noteSeen[p.id] = { key: key, at: now() };
     var hold = Math.max(0, +n.hold || 0) * 1000, until = S.noteSeen[p.id].at + hold;
+    var edit = S.noteEdit === p.id, locked = until > now();
     return '<section class="note-pop" style="--c:' + taskColor(n) + '"><div class="note-kicker">📌 Note' + (count > 1 ? ' · 1 of ' + count : '') + '</div>' +
-      '<div class="note-text md">' + mdHtml(n.text, p.id) + '</div>' +
-      '<div class="note-meta">Comes back every ' + everyLabel(n.every) + '</div>' +
-      '<button class="btn primary big" data-a="dismissNote" data-id="' + p.id + '" data-hold="' + until + '"' + (until > now() ? ' disabled' : '') + '>' + (until > now() ? 'Read it… <span data-holdleft="' + until + '"></span>' : 'Got it') + '</button>' +
+      (edit
+        ? '<div class="note-text note-edit">' + rteBar() + '<div class="rte md" contenteditable="true" spellcheck="true" data-ph="Write the note">' + mdHtml(n.text) + '</div></div>' +
+          '<div class="note-btns"><button class="btn ghost" data-a="noteEditCancel">Cancel</button><button class="btn primary" data-a="noteEditSave" data-id="' + p.id + '">Save</button></div>'
+        : '<div class="note-text md">' + mdHtml(n.text, p.id) + '</div>' +
+          '<div class="note-meta">Comes back every ' + everyLabel(n.every) + '</div>' +
+          '<div class="note-btns"><button class="btn ghost big" data-a="noteEdit" data-id="' + p.id + '" data-hold="' + until + '" data-done="✏️ Edit"' + (locked ? ' disabled' : '') + '>✏️ Edit</button>' +
+          '<button class="btn primary big" data-a="dismissNote" data-id="' + p.id + '" data-hold="' + until + '"' + (locked ? ' disabled' : '') + '>' + (locked ? 'Read it… <span data-holdleft="' + until + '"></span>' : 'Got it') + '</button></div>') +
       '<div class="block-foot"><button class="link" data-a="stopAll">Emergency stop (all devices)</button></div></section>';
   }
   function everyLabel(m) { m = +m || 60; return m % 1440 === 0 ? (m / 1440 === 1 ? 'day' : m / 1440 + ' days') : m % 60 === 0 ? (m / 60 === 1 ? 'hour' : m / 60 + ' hours') : m + ' min'; }
@@ -1003,8 +1020,9 @@
   var IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || '');
   var RTE_TOOLS = [['bold', '<b>B</b>', 'Bold (' + (IS_MAC ? '⌘' : 'Ctrl+') + 'B)'], ['italic', '<i>I</i>', 'Italic (' + (IS_MAC ? '⌘' : 'Ctrl+') + 'I)'], ['underline', '<u>U</u>', 'Underline (' + (IS_MAC ? '⌘' : 'Ctrl+') + 'U)'], ['strikeThrough', '<s>S</s>', 'Strikethrough (' + (IS_MAC ? '⌘⇧X' : 'Alt+Shift+5') + ')'],
     ['|'], ['ul', '•', 'Bullets (' + (IS_MAC ? '⌘⇧8' : 'Ctrl+Shift+8') + ')'], ['ol', '1.', 'Numbered (' + (IS_MAC ? '⌘⇧7' : 'Ctrl+Shift+7') + ')'], ['cl', '☑', 'Checklist (' + (IS_MAC ? '⌘⇧9' : 'Ctrl+Shift+9') + ')'], ['h1', 'H', 'Heading (' + (IS_MAC ? '⌘⌥1' : 'Ctrl+Alt+1') + ')']];
+  function rteBar() { return '<div class="rte-bar">' + RTE_TOOLS.map(function (t) { return t[0] === '|' ? '<i class="rte-sep"></i>' : '<button type="button" class="rte-b" data-fmt="' + t[0] + '" title="' + esc(t[2]) + '">' + t[1] + '</button>'; }).join('') + '</div>'; }
   function rteField(text) {
-    return '<div class="field">Note<div class="rte-bar">' + RTE_TOOLS.map(function (t) { return t[0] === '|' ? '<i class="rte-sep"></i>' : '<button type="button" class="rte-b" data-fmt="' + t[0] + '" title="' + esc(t[2]) + '">' + t[1] + '</button>'; }).join('') + '</div>' +
+    return '<div class="field">Note' + rteBar() +
       '<div class="rte md" contenteditable="true" spellcheck="true" data-ph="e.g. Reply to João about Saturday">' + (text ? mdHtml(text) : '<div data-t="p"><br></div>') + '</div></div>';
   }
   function wireRte(ed, bar) {
@@ -1340,7 +1358,7 @@
     document.querySelectorAll('[data-ago]').forEach(function (el) { el.textContent = dur(n - +el.getAttribute('data-ago')); });
     document.querySelectorAll('[data-clock]').forEach(function (el) { el.textContent = clock(+el.getAttribute('data-clock') - n); });
     document.querySelectorAll('[data-holdleft]').forEach(function (el) { el.textContent = Math.ceil((+el.getAttribute('data-holdleft') - n) / 1000) + ' s'; });
-    document.querySelectorAll('[data-hold]').forEach(function (el) { if (el.disabled && +el.getAttribute('data-hold') <= n) { el.disabled = false; el.textContent = 'Got it'; } });
+    document.querySelectorAll('[data-hold]').forEach(function (el) { if (el.disabled && +el.getAttribute('data-hold') <= n) { el.disabled = false; el.textContent = el.getAttribute('data-done') || 'Got it'; } });
   }
   var lastMinute = -1, lastTimerFrac = -1, lastNotes = '';
   setInterval(function () {
@@ -1348,7 +1366,7 @@
     if (!S.local) return;
     var m = new Date().getMinutes();
     var timer = S.local.timer;
-    var busy = S.modalOpen || S.dragging || document.querySelector('.top-layer') || (document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
+    var busy = S.modalOpen || S.dragging || S.noteEdit || document.querySelector('.top-layer') || (document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
     if (timer && timer.endsAt > now()) {
       var total = (timer.minutes || 20) * 60000, frac = Math.round((1 - (timer.endsAt - now()) / total) * 400);
       if (frac !== lastTimerFrac && !busy) { lastTimerFrac = frac; render(); }
@@ -1358,7 +1376,7 @@
     if (m !== lastMinute) { lastMinute = m; if (!busy) render(); }
   }, 1000);
 
-  window.onNative = function () { if (S.dragging) { load(); return; } if (!S.modalOpen) render(); else load(); paintUpd(); };
+  window.onNative = function () { if (S.dragging || S.noteEdit) { load(); return; } if (!S.modalOpen) render(); else load(); paintUpd(); };
   if (B.onNative) B.onNative(function () { window.onNative(); });   // desktop: the main process says something changed
   // "Check for updates now" button: live state while a check runs, then the result right away.
   function updState() {
