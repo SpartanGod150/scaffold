@@ -367,3 +367,12 @@ details.vault .row { background: var(--card); margin-top: 8px; border-left-color
 .cv.n7 .cv-ev { padding: 2px 3px; font-size: 10.5px; }
 .cv.n7 .cv-ev small { display: none; }
 .ag-row.hb { cursor: pointer; }
+
+/* ---- v0.4.7: Google calendars, colors, repeats ---- */
+.cv-ev.ev { color: var(--ink, #0f1117); }
+.ag-row.ev { border-left-color: var(--c, #5cc8ff); }
+.cal-pick { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+.cal-pick i { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+.cal-pick small { color: var(--mute); }
+.scope-list { display: grid; gap: 4px; margin: 6px 0 4px; }
+.ecp { width: 28px; height: 28px; }

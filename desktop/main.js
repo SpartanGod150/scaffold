@@ -255,12 +255,12 @@ async function runCal() {
   calBusy = true;
   try {
     if (local.calUrl) {   // this computer owns the Google link: pull and push
-      const r = await Calendar.syncOnce({ url: local.calUrl, secret: local.calSecret, state, local, Engine, by: local.deviceId, apply: (p) => applyPatch(p, true) });
-      gev = r.gev; local.cal = { status: r.status };
-    } else if (Date.now() - lastPull > 9 * 60000) {   // others only read Google, every 10 minutes
+      const r = await Calendar.syncOnce({ url: local.calUrl, secret: local.calSecret, state, gev, local, Engine, by: local.deviceId, apply: (p) => applyPatch(p, true) });
+      gev = r.gev; local.cal = { status: r.status }; local.scriptV = r.v;
+    } else if (Date.now() - lastPull > 2.5 * 60000) {   // others only read Google (a cheap "anything new?" check, every 3 minutes)
       lastPull = Date.now();
-      const g = await Calendar.pull(cfg.url, cfg.secret);
-      gev = Calendar.toGev(g, state.todos || {}); local.cal = { status: 'read ' + new Date().toTimeString().slice(0, 5) + ' · ' + g.length + ' Google events' };
+      const res = await Calendar.pull(cfg.url, cfg.secret, gev);
+      gev = Calendar.toGev(res, state.todos || {}, gev); local.cal = { status: 'read ' + new Date().toTimeString().slice(0, 5) + ' · ' + Calendar.evCount(gev) + ' Google events' };
     }
     writeJSON(GEV_F, gev);
   } catch (e) { local.cal = { status: 'error: ' + e.message }; }

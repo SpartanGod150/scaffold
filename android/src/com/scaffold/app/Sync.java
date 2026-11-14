@@ -189,31 +189,64 @@ public final class Sync {
                 wasActive = nowActive;
             }
             gFlush(cfg);
-            if (now - lastPull > 10 * 60_000L) { lastPull = now; pullCalendar(c, cfg); }
+            if (now - lastPull > 5 * 60_000L) { lastPull = now; pullCalendar(c, cfg); }   // a cheap "anything new?" check with bridge v2
         }
     }
 
-    /** This device's own copy of Google Calendar, read through the script (same shape as desktop/calendar.js toGev). */
+    /** This device's own copy of Google Calendar, read through the script (same shape as desktop/calendar.js toGev).
+     *  Bridge v2: asks "anything new?" (since + sig) and keeps the copy when nothing changed; a full read at least every 6 h. */
     private static void pullCalendar(Context c, String[] cfg) {
         try {
-            long now = System.currentTimeMillis();
-            JSONObject r = gcall(cfg[0], new JSONObject().put("secret", cfg[1]).put("op", "pull").put("from", now - 14 * 86400_000L).put("to", now + 120 * 86400_000L));
-            JSONArray evs = r.optJSONArray("events");
-            JSONObject todos = Store.state(c).optJSONObject("todos"), gev = new JSONObject();
+            long now = System.currentTimeMillis(), DAYMS = 86400_000L;
+            JSONObject prev = new JSONObject(Store.prefs(c).getString("gev", "{}")), meta = prev.optJSONObject("_meta");
+            JSONObject req = new JSONObject().put("secret", cfg[1]).put("op", "pull").put("from", now - 45 * DAYMS).put("to", now + 300 * DAYMS);
+            if (meta != null && meta.optInt("v") >= 2 && !meta.optString("sig").isEmpty() && now - meta.optLong("full") < 6 * 3600_000L)
+                req.put("since", meta.optLong("at")).put("sig", meta.optString("sig")).put("from", meta.optLong("full") - 45 * DAYMS).put("to", meta.optLong("full") + 300 * DAYMS);
+            JSONObject r = gcall(cfg[0], req);
+            if (r.optBoolean("same") && meta != null) {
+                meta.put("at", r.optLong("now", now));
+                Store.prefs(c).edit().putString("gev", prev.toString()).apply();
+                return;
+            }
+            boolean v2 = r.optInt("v") >= 2;
+            JSONArray evs = r.optJSONArray("events"), cl = r.optJSONArray("cals");
+            JSONObject todos = Store.state(c).optJSONObject("todos"), gev = new JSONObject(), cals = new JSONObject(), rules = r.optJSONObject("rules");
+            for (int i = 0; cl != null && i < cl.length(); i++) cals.put(cl.getJSONObject(i).optString("id"), cl.getJSONObject(i));
+            int n = 0;
             for (int i = 0; evs != null && i < evs.length(); i++) {
                 JSONObject g = evs.getJSONObject(i);
                 String sid = g.optString("sid", "");
                 if (!sid.isEmpty() && todos != null && todos.has(sid)) continue;
+                n++;
                 boolean rec = g.optBoolean("rec");
-                String key = g.optString("gid") + "|" + (rec ? String.valueOf(g.optLong("start")) : "");
-                String id = sid.isEmpty() ? "g_" + hashId(key) : sid;
-                gev.put(id, new JSONObject().put("id", id).put("gid", g.optString("gid")).put("title", g.optString("title")).put("start", g.optLong("start"))
-                        .put("end", g.optLong("end")).put("allDay", g.optBoolean("allDay")).put("ro", rec).put("gupd", g.optLong("upd")));
+                if (!v2) {
+                    String key = g.optString("gid") + "|" + (rec ? String.valueOf(g.optLong("start")) : "");
+                    String id = sid.isEmpty() ? "g_" + hashId(key) : sid;
+                    gev.put(id, new JSONObject().put("id", id).put("gid", g.optString("gid")).put("title", g.optString("title")).put("start", g.optLong("start"))
+                            .put("end", g.optLong("end")).put("allDay", g.optBoolean("allDay")).put("ro", rec).put("gupd", g.optLong("upd")));
+                    continue;
+                }
+                String series = g.optString("series", "");
+                String id = series.isEmpty() && !sid.isEmpty() ? sid : "g_" + hashId(g.optString("gid"));
+                boolean allDay = g.optBoolean("allDay");
+                Object os = g.opt("ostart");
+                long ostart = os instanceof String ? (((String) os).isEmpty() ? 0 : Engine.at(Engine.fromKey((String) os), "00:00")) : g.optLong("ostart", 0);
+                JSONObject cal = cals.optJSONObject(g.optString("cal"));
+                gev.put(id, new JSONObject().put("id", id).put("v", 2).put("gid", g.optString("gid")).put("cal", g.optString("cal")).put("title", g.optString("title"))
+                        .put("desc", g.optString("desc", "")).put("allDay", allDay)
+                        .put("start", allDay ? Engine.at(Engine.fromKey(g.optString("sd")), "00:00") : g.optLong("start"))
+                        .put("end", allDay ? Engine.at(Engine.fromKey(g.optString("ed")), "00:00") : g.optLong("end"))
+                        .put("color", g.optString("color", "")).put("ro", cal != null && cal.optBoolean("ro")).put("series", series).put("ostart", ostart)
+                        .put("rrule", series.isEmpty() || rules == null ? "" : rules.optString(series, "")).put("gupd", g.optLong("upd")));
             }
+            if (v2) gev.put("_cals", new JSONObject().put("list", cl == null ? new JSONArray() : cl).put("colors", r.optJSONObject("colors") == null ? new JSONObject() : r.optJSONObject("colors")));
+            long at = r.optLong("now", now);
+            gev.put("_meta", new JSONObject().put("v", r.optInt("v", 1)).put("sig", r.optString("sig", "")).put("at", at).put("full", at).put("n", n));
             Store.prefs(c).edit().putString("gev", gev.toString()).apply();
             MainActivity.notifyState();
         } catch (Exception ignored) {}
     }
+
     static String hashId(String s) { int h = 0; for (int i = 0; i < s.length(); i++) h = h * 31 + s.charAt(i); return Long.toString(h & 0xffffffffL, 36); }
 
     private static void gFlush(String[] cfg) {

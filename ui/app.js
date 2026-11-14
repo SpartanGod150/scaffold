@@ -138,9 +138,11 @@
     calToday: function () { S.calDay = null; S.calScroll = null; render(); },
     calPick: function (key) { S.calDay = key; S.calView = 'day'; lsSet('scaffold-calview', 'day'); render(); },
     calView: function (v) { S.calView = v; lsSet('scaffold-calview', v); render(); },
+    calCals: function () { openCalendars(); },
     calMode: function (m) { S.calList = m === 'list'; lsSet('scaffold-callist', S.calList ? '1' : '0'); render(); },
     editEvent: function (id) {
       var all = E.eventsFor(S.state), e = id && all[id] ? JSON.parse(JSON.stringify(all[id])) : null;
+      if (e && e.virt) e = JSON.parse(JSON.stringify(S.state.events[e.virt]));   // not on Google yet: edit the whole series
       if (e) { delete e.synced; delete e.gupd; }
       openEventEditor(e);
     },
@@ -393,7 +395,18 @@
   function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
   function weekStart(key) { var t = E.fromKey(key); return E.addDays(t, -((new Date(t).getDay() + 6) % 7)); }
   // "Show in monthly" lives in state.marks (events from Google can't carry it); repeating Google events share one mark.
-  function markKey(e) { return e.ro && e.gid ? 'gid:' + e.gid : e.id; }
+  function markKey(e) { return e.series ? 'gid:' + e.series : e.ro && e.gid ? 'gid:' + e.gid : e.virt || e.id; }
+  // Google calendars and colors (bridge v2). Hidden calendars are hidden on every device (marks 'cal:'+id).
+  var GCOLORS = { 1: '#a4bdfc', 2: '#7ae7bf', 3: '#dbadff', 4: '#ff887c', 5: '#fbd75b', 6: '#ffb878', 7: '#46d6db', 8: '#e1e1e1', 9: '#5484ed', 10: '#51b749', 11: '#dc2127' };
+  var GCOLOR_NAMES = { 1: 'Lavender', 2: 'Sage', 3: 'Grape', 4: 'Flamingo', 5: 'Banana', 6: 'Tangerine', 7: 'Peacock', 8: 'Graphite', 9: 'Blueberry', 10: 'Basil', 11: 'Tomato' };
+  function gcalInfo() { return ((S.state.gev || {})._cals) || null; }
+  function gcals() { var g = gcalInfo(); return g ? g.list || [] : []; }
+  function gcal(id) { var l = gcals(); for (var i = 0; i < l.length; i++) if (l[i].id === id || (!id && l[i].primary)) return l[i]; return null; }
+  function palette() { var g = gcalInfo(); return (g && g.colors && Object.keys(g.colors).length) ? g.colors : GCOLORS; }
+  function calHidden(id) { var c = id || (gcal('') || {}).id; var r = (S.state.marks || {})['cal:' + c]; return !!(r && !r.del && r.hidden); }
+  function evColor(e) { if (e.color && palette()[e.color]) return palette()[e.color]; var c = gcal(e.cal || ''); return (c && c.color) || EV_COLOR; }
+  function inkOn(hex) { var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(hex || ''); if (!m) return '#0f1117'; var l = (0.299 * parseInt(m[1], 16) + 0.587 * parseInt(m[2], 16) + 0.114 * parseInt(m[3], 16)) / 255; return l > 0.6 ? '#0f1117' : '#ffffff'; }
+  function shownAgenda(t) { return E.dayAgenda(S.state, t).filter(function (a) { return a.kind !== 'event' || !calHidden(a.rec.cal); }); }
   function monthlyOn(e) { var m = S.state.marks || {}, r = m[markKey(e)]; return !!(r && !r.del && r.monthly); }
 
   function calendarView() {
@@ -412,6 +425,7 @@
     return '<div class="sec-head cal-top"><h2>' + esc(title) + '</h2><div class="row-btns"><button class="btn ghost sm" data-a="calPrev">‹</button><button class="btn ghost sm" data-a="calToday">Today</button><button class="btn ghost sm" data-a="calNext">›</button></div></div>' +
       '<div class="cal-bar">' + seg([['month', 'Month'], ['week', 'Week'], ['day', 'Day']], 'calView', v) +
       (v === 'day' ? seg([['cv', 'Timeline'], ['list', 'List']], 'calMode', calList() ? 'list' : 'cv') : '') +
+      (gcals().length ? '<button class="btn ghost sm" data-a="calCals">Calendars</button>' : '') +
       '<span class="sp"></span><button class="btn primary sm" data-a="editEvent">＋ Event</button></div>' + body +
       '<div class="legend cal-legend">' + (cal.status ? '<span class="lg-note">Google: ' + esc(cal.status) + '</span>' : '<span class="lg-note">Google Calendar: not connected (Settings)</span>') + '</div>';
   }
@@ -423,8 +437,8 @@
     for (var i = 0; i < offset; i++) cells += '<i class="cal-blank"></i>';
     for (var dn = 1; dn <= daysIn; dn++) {
       var t = new Date(m.getFullYear(), m.getMonth(), dn, 12).getTime(), k = E.dateKey(t), chips = [], due = false;
-      E.dayAgenda(S.state, t).forEach(function (a) {
-        if (a.kind === 'event' && monthlyOn(a.rec)) chips.push('<i class="chip ev">' + esc(a.rec.title) + '</i>');
+      shownAgenda(t).forEach(function (a) {
+        if (a.kind === 'event' && monthlyOn(a.rec)) chips.push('<i class="chip ev" style="background:' + evColor(a.rec) + ';color:' + inkOn(evColor(a.rec)) + '">' + esc(a.rec.title) + '</i>');
         else if (a.kind === 'todo' && a.rec.monthly && !a.done) { due = true; chips.push('<i class="chip dl">' + esc(a.rec.title) + ' Deadline</i>'); }
       });
       var shown = chips.length > 3 ? chips.slice(0, 2).concat('<i class="chip more">+' + (chips.length - 2) + ' more</i>') : chips;
@@ -435,9 +449,9 @@
 
   // The day as a list (the old agenda), without "(repeating)".
   function dayList(key) {
-    var rows = E.dayAgenda(S.state, E.fromKey(key)).map(function (a) {
+    var rows = shownAgenda(E.fromKey(key)).map(function (a) {
       var r = a.rec;
-      if (a.kind === 'event') return '<button class="ag-row ev" data-a="editEvent" data-id="' + a.id + '"><span class="ag-t">' + (r.allDay ? 'all day' : hm(r.start) + '–' + hm(r.end)) + '</span><span class="ag-x">' + (r.gid ? '<i class="gtag">G</i>' : '📅') + ' ' + esc(r.title) + '</span></button>';
+      if (a.kind === 'event') return '<button class="ag-row ev" data-a="editEvent" data-id="' + a.id + '" style="--c:' + evColor(r) + '"><span class="ag-t">' + (r.allDay ? 'all day' : hm(r.start) + '–' + hm(r.end)) + '</span><span class="ag-x">' + (r.gid ? '<i class="gtag">G</i>' : '📅') + ' ' + esc(r.title) + '</span></button>';
       if (a.kind === 'todo') return '<button class="ag-row td' + (a.done ? ' dn' : '') + '" data-a="editTodo" data-id="' + a.id + '" style="--c:' + taskColor(r) + '"><span class="ag-t">' + esc(r.start || '') + (r.due ? '–' + esc(r.due) : '') + '</span><span class="ag-x">' + (a.done ? '✓ ' : '') + esc(r.emoji || '✅') + ' ' + esc(r.title) + '</span></button>';
       return '<button class="ag-row hb' + (a.done ? ' dn' : '') + '" data-a="editHabit" data-id="' + a.id + '" style="--c:' + taskColor(r) + '"><span class="ag-t">' + esc(r.start || '') + '</span><span class="ag-x">' + (a.done ? '✓ ' : '') + '🔁 ' + esc(r.title) + '</span></button>';
     }).join('');
@@ -464,12 +478,12 @@
     var today = E.dateKey(now()), heads = '', alls = '', cols = '', anyAll = false;
     keys.forEach(function (k) {
       var t = E.fromKey(k), d0 = E.at(t, '00:00'), d1 = E.at(E.addDays(t, 1), "00:00"), items = [], ad = [];
-      E.dayAgenda(S.state, t).forEach(function (a) {
+      shownAgenda(t).forEach(function (a) {
         var r = a.rec;
         if (a.kind === 'event') {
           var s = Math.max(r.start, d0), e = Math.min(r.end || r.start + 30 * E.MIN, d1);
           if (r.allDay || e - s >= d1 - d0) { ad.push(a); return; }
-          items.push({ a: a, s: s, e: Math.max(e, s + 15 * E.MIN), color: EV_COLOR, drag: !r.ro && r.start >= d0 && (r.end || 0) <= d1 });
+          items.push({ a: a, s: s, e: Math.max(e, s + 15 * E.MIN), color: evColor(r), drag: !r.ro && !r.virt && r.start >= d0 && (r.end || 0) <= d1 });
         } else if (a.kind === 'habit') {
           var hs = E.at(t, r.start || '00:00'), he = r.due ? E.at(t, r.due) : hs + 30 * E.MIN;
           if (he <= hs) he = hs + 30 * E.MIN;
@@ -479,12 +493,12 @@
       anyAll = anyAll || ad.length > 0;
       var d = new Date(t);
       heads += '<div class="cv-dh' + (k === today ? ' today' : '') + '" data-a="calPick" data-id="' + k + '"><small>' + WEEKDAYS[(d.getDay() + 6) % 7] + '</small><b>' + d.getDate() + '</b></div>';
-      alls += '<div class="cv-ad">' + ad.map(function (a) { return '<button class="chip ev" data-a="editEvent" data-id="' + a.id + '">' + esc(a.rec.title) + '</button>'; }).join('') + '</div>';
+      alls += '<div class="cv-ad">' + ad.map(function (a) { return '<button class="chip ev" data-a="editEvent" data-id="' + a.id + '" style="background:' + evColor(a.rec) + ';color:' + inkOn(evColor(a.rec)) + '">' + esc(a.rec.title) + '</button>'; }).join('') + '</div>';
       var blocks = layoutDay(items).map(function (it) {
         var a = it.a, r = a.rec, top = (it.s - d0) / 3600000 * HOUR_PX, h = Math.max(16, (it.e - it.s) / 3600000 * HOUR_PX - 2);
         var cls = 'cv-ev ' + (a.kind === 'habit' ? 'hb' + (a.done ? ' dn' : '') : 'ev') + (it.drag ? ' drag' : '') + (h < 34 ? ' short' : '');
         var act = a.kind === 'habit' ? 'editHabit' : 'editEvent';
-        return '<div class="' + cls + '" data-a="' + act + '" data-id="' + a.id + '" data-ev="' + a.id + '" data-s="' + it.s + '" data-e="' + it.e + '" style="top:' + top + 'px;height:' + h + 'px;left:calc(' + (it.col / it.cols * 100) + '% + 1px);width:calc(' + (100 / it.cols) + '% - 3px);--c:' + it.color + '">' +
+        return '<div class="' + cls + '" data-a="' + act + '" data-id="' + a.id + '" data-ev="' + a.id + '" data-s="' + it.s + '" data-e="' + it.e + '" style="top:' + top + 'px;height:' + h + 'px;left:calc(' + (it.col / it.cols * 100) + '% + 1px);width:calc(' + (100 / it.cols) + '% - 3px);--c:' + it.color + ';--ink:' + inkOn(it.color) + '">' +
           '<b>' + (a.kind === 'habit' && a.done ? '✓ ' : '') + esc((a.kind === 'habit' && r.emoji ? r.emoji + ' ' : '') + r.title) + '</b><small>' + hm(it.s) + '–' + hm(it.e) + '</small>' + (it.drag ? '<i class="rs"></i>' : '') + '</div>';
       }).join('');
       var nowLine = k === today ? '<i class="cv-now" style="top:' + ((now() - d0) / 3600000 * HOUR_PX) + 'px"></i>' : '';
@@ -551,6 +565,7 @@
       var c = JSON.parse(JSON.stringify(ev)); delete c.synced; delete c.gupd;
       if (was.mode === 'move') { var ds = was.dm * E.MIN; c.start = E.at(E.addDays(c.start, was.dc), hm(c.start)) + ds; c.end = c.start + (ev.end - ev.start); }
       else c.end = ev.end + was.dm * E.MIN;
+      if (c.series) return scopeBox('Change repeating event', false, function (scope) { c.scope = scope; c.keepRule = true; apply(E.opPut('events', c, by(), now())); }, render);
       apply(E.opPut('events', c, by(), now()));
     }
     body.addEventListener('pointerup', end);
@@ -709,14 +724,16 @@
         '<label class="field">Vault folder<input id="vault-path" value="' + esc(L.vaultPath || V.path || '') + '" placeholder="/path/to/Second Brain"></label><button class="btn ghost sm" data-a="saveVault">Save and scan</button>' +
         '<p class="muted">Status: ' + esc(V.status || 'not scanned yet') + '</p></section>';
       h += '<section class="panel"><h3>📅 Google Calendar (two-way)</h3>' + (L.calUrl
-        ? (L.scriptOld ? '<div class="callout"><p>⚠️ <b>Your Google script needs an update</b> (it adds a backup route for syncing, for networks that block the normal one). About 1 minute:</p><ol class="steps">' +
+        ? (L.scriptOld || (L.scriptV && L.scriptV < 2) || /Calendar API/.test(C.status || '') ? '<div class="callout"><p>⚠️ <b>Your Google script needs an update</b> (all your calendars with their colors, descriptions, repeating events). About 2 minutes:</p><ol class="steps">' +
             '<li><button class="btn sm" data-a="copyScript">Copy new script</button></li>' +
             '<li>Open <b>script.google.com</b> → your Scaffold project. Select all the code, delete it, paste.</li>' +
-            '<li><b>Deploy → Manage deployments</b> → ✏️ (edit) → Version: <b>New version</b> → <b>Deploy</b>. The URL stays the same.</li></ol></div>' : '') +
+            '<li>On the left, next to <b>Services</b>, click <b>+</b> → <b>Google Calendar API</b> → <b>Add</b>.</li>' +
+            '<li><b>Deploy → Manage deployments</b> → ✏️ (edit) → Version: <b>New version</b> → <b>Deploy</b>. Allow access if Google asks. The URL stays the same.</li></ol></div>' : '') +
           '<p class="muted">Status: <span class="dot ' + (/ok|synced/.test(C.status || '') ? 'ok' : '') + '"></span>' + esc(C.status || 'connecting…') + '</p><label class="field">Bridge URL<input id="cal-url" value="' + esc(L.calUrl) + '"></label><button class="btn ghost sm" data-a="saveCal">Save</button>'
         : '<p>Events you add or change on either side show up on the other. One-time setup, about 5 minutes:</p><ol class="steps">' +
           '<li>Open <b>script.google.com</b> → <b>New project</b>.</li>' +
           '<li>Delete what is there and paste the bridge script: <button class="btn sm" data-a="copyScript">Copy script</button></li>' +
+          '<li>On the left, next to <b>Services</b>, click <b>+</b> → <b>Google Calendar API</b> → <b>Add</b>.</li>' +
           '<li><b>Deploy → New deployment</b> → type <b>Web app</b>. Execute as <b>Me</b>, access <b>Anyone</b>. Deploy, then allow access to your calendar.</li>' +
           '<li>Copy the <b>Web app URL</b> and paste it here:</li></ol>' +
           '<div class="join"><input id="cal-url" placeholder="https://script.google.com/macros/s/…/exec"><button class="btn" data-a="saveCal">Connect</button></div>' +
@@ -1146,34 +1163,120 @@
     }, function () { confirmBox('Delete this note?', 'It stops popping up on every device.', 'Delete', function () { apply(E.opDel('notes', t, by(), now())); closeModal(); }); });
   }
 
+  // "This event / This and following events / All events", like Google. ruleChanged: a new repeat rule can't apply to one occurrence.
+  function scopeBox(title, ruleChanged, fn, onCancel, del) {
+    var el = document.createElement('div'), opts = (ruleChanged ? [] : [['one', 'This event']]).concat([['following', 'This and following events'], ['all', 'All events']]);
+    el.className = 'modal-bg top-layer';
+    el.innerHTML = '<div class="modal small"><h2>' + esc(title) + '</h2><div class="scope-list">' + opts.map(function (o, i) {
+      return '<label class="check"><input type="radio" name="scope" value="' + o[0] + '"' + (i === 0 ? ' checked' : '') + '> ' + o[1] + '</label>'; }).join('') + '</div>' +
+      '<div class="modal-actions"><span class="sp"></span><button class="btn ghost" data-no>Cancel</button><button class="btn ' + (del ? 'danger' : 'primary') + '" data-yes>' + (del ? 'Delete' : 'OK') + '</button></div></div>';
+    document.body.appendChild(el);
+    el.addEventListener('click', function (e) {
+      if (e.target.closest('[data-yes]')) { var v = el.querySelector('input[name=scope]:checked').value; el.remove(); fn(v); }
+      else if (e.target.closest('[data-no]') || e.target === el) { el.remove(); if (onCancel) onCancel(); }
+    });
+  }
+
+  // Show / hide each Google calendar (on every device).
+  function openCalendars() {
+    $modal.innerHTML = '<div class="modal-bg"><form class="modal" id="editor"><div class="sec-head"><h2>Calendars</h2><button type="button" class="x" data-close>✕</button></div>' +
+      gcals().map(function (c) {
+        return '<label class="check cal-pick"><input type="checkbox" data-cal="' + esc(c.id) + '"' + (calHidden(c.id) ? '' : ' checked') + '><i style="background:' + esc(c.color || EV_COLOR) + '"></i> ' + esc(c.name) + (c.ro ? ' <small>(read-only)</small>' : '') + '</label>';
+      }).join('') + '<p class="muted">Hiding a calendar hides it on every device. It stays in Google.</p><div class="modal-actions"><span class="sp"></span><button type="button" class="btn primary" data-close>Done</button></div></form></div>';
+    S.modalOpen = true;
+    var f = document.getElementById('editor');
+    f.addEventListener('change', function (e) { var id = e.target.dataset.cal; if (id) apply(E.opPut('marks', { id: 'cal:' + id, hidden: !e.target.checked }, by(), now())); });
+    f.addEventListener('click', function (e) { if (e.target.closest('[data-close]')) closeModal(); });
+  }
+
+  function repeatText(rule) {
+    var r = E.parseRule(rule); if (!r) return '';
+    if (!r.simple) return 'Custom repeat (change it in Google Calendar)';
+    var t = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', yearly: 'Yearly' }[r.freq];
+    if (r.freq === 'weekly' && r.days.length) t += ' on ' + r.days.map(function (d) { return DAYNAMES[d]; }).join(', ');
+    return t + (r.count ? ', ' + r.count + ' times' : r.until ? ', until ' + niceDay(r.until) : '');
+  }
+  function sameRule(a, b, start) {
+    var x = E.parseRule(a), y = E.parseRule(b), wd = [new Date(start).getDay()];
+    if (!x || !y) return !x === !y;
+    var dx = x.freq === 'weekly' && !x.days.length ? wd : x.days, dy = y.freq === 'weekly' && !y.days.length ? wd : y.days;
+    return x.freq === y.freq && dx.slice().sort().join() === dy.slice().sort().join() && x.count === y.count && x.until === y.until;
+  }
+  function plainDesc(html) { return String(html || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li)>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\n{3,}/g, '\n\n').trim(); }
+
   function openEventEditor(ev) {
     var isNew = !ev || !ev.id, day = S.calDay || E.dateKey(now());
     var t = Object.assign({ title: '', allDay: false, start: E.at(E.fromKey(day), '10:00'), end: E.at(E.fromKey(day), '11:00') }, ev || {});
-    var ro = !!t.ro, dis = ro ? ' disabled' : '', was = isNew ? false : monthlyOn(t), orig = JSON.stringify([t.title, t.allDay, t.start, t.end]);
-    $modal.innerHTML = modalShell(isNew ? 'New event' : ro ? 'Repeating event' : 'Edit event',
-      (ro ? '<p class="muted">Repeating Google event: change it in Google Calendar. Here you can only choose whether it shows in the month view.</p>' : '') +
+    var ro = !!t.ro, dis = ro ? ' disabled' : '', was = isNew ? false : monthlyOn(t);
+    var cals = gcals().filter(function (c) { return !c.ro; }), v2 = cals.length > 0, myCal = t.cal || (gcal('') || {}).id || '';
+    var rule = E.parseRule(t.rrule), canRule = !rule || rule.simple, desc0 = plainDesc(t.desc);
+    var rf = rule && rule.simple ? rule.freq : rule ? 'custom' : 'none', rdays = rule && rule.days.length ? rule.days : [new Date(t.start).getDay()];
+    var rend = rule && rule.count ? 'count' : rule && rule.until ? 'until' : 'never';
+    var orig = JSON.stringify([t.title, t.allDay, t.start, t.end, myCal, t.color || '', desc0, t.rrule || '']);
+    var pal = palette(), colorBtns = '<button type="button" class="cp ecp' + (!t.color ? ' on' : '') + '" data-ecolor="" title="Calendar color" style="background:' + esc((gcal(myCal) || {}).color || EV_COLOR) + '"></button>' +
+      Object.keys(pal).map(function (k) { return '<button type="button" class="cp ecp' + (t.color === k ? ' on' : '') + '" data-ecolor="' + k + '" title="' + (GCOLOR_NAMES[k] || '') + '" style="background:' + esc(pal[k]) + '"></button>'; }).join('');
+    $modal.innerHTML = modalShell(isNew ? 'New event' : ro ? 'Event (read-only calendar)' : 'Edit event',
+      (ro ? '<p class="muted">This calendar is read-only. Here you can only choose whether it shows in the month view.</p>' : '') +
       '<label class="field">Title<input name="title" required maxlength="120" value="' + esc(t.title) + '"' + dis + '></label>' +
+      (v2 && !ro ? '<label class="field">Calendar<select name="cal">' + cals.map(function (c) { return '<option value="' + esc(c.id) + '"' + (c.id === myCal ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></label>' : '') +
       '<label class="field">Date<input type="date" name="date" value="' + E.dateKey(t.start) + '" required' + dis + '></label>' +
       '<label class="check"><input type="checkbox" name="allDay"' + (t.allDay ? ' checked' : '') + dis + '> All day</label>' +
       '<div class="two f-times"><label class="field">Starts<input type="time" name="start" value="' + hm(t.start) + '"' + dis + '></label><label class="field">Ends<input type="time" name="end" value="' + hm(t.end) + '"' + dis + '></label></div>' +
+      (ro ? '' : '<label class="field">Repeat<select name="rf"' + (canRule ? '' : ' disabled') + '><option value="none"' + sel('none', rf) + '>Does not repeat</option><option value="daily"' + sel('daily', rf) + '>Daily</option><option value="weekly"' + sel('weekly', rf) + '>Weekly</option><option value="monthly"' + sel('monthly', rf) + '>Monthly</option><option value="yearly"' + sel('yearly', rf) + '>Yearly</option>' + (canRule ? '' : '<option value="custom" selected>' + esc(repeatText(t.rrule)) + '</option>') + '</select></label>' +
+        '<div class="field f-rdays">On <div class="day-row">' + DAYS.map(function (d, i) { return '<button type="button" class="dp rdp' + (rdays.indexOf(i) >= 0 ? ' on' : '') + '" data-rday="' + i + '">' + d + '</button>'; }).join('') + '</div></div>' +
+        '<div class="two f-rend"><label class="field">Ends<select name="rend"><option value="never"' + sel('never', rend) + '>Never</option><option value="until"' + sel('until', rend) + '>On a date</option><option value="count"' + sel('count', rend) + '>After…</option></select></label>' +
+        '<label class="field f-runtil">Last day<input type="date" name="runtil" value="' + esc(rule && rule.until || E.dateKey(E.addDays(t.start, 30))) + '"></label><label class="field f-rcount">Times<input type="number" name="rcount" min="1" max="999" value="' + esc(rule && rule.count || 10) + '"></label></div>') +
+      (ro ? '' : '<div class="field">Color<div class="color-row">' + colorBtns + '</div></div>') +
+      '<label class="field">Description<textarea name="desc" rows="3"' + dis + '>' + esc(desc0) + '</textarea></label>' +
       '<label class="check"><input type="checkbox" name="monthly"' + (was ? ' checked' : '') + '> Show in monthly</label>' +
       (ro ? '' : t.gid ? '<p class="muted">Synced with Google Calendar.</p>' : (S.local.calUrl || (S.local.cal || {}).status ? '' : '<p class="muted">Connect Google Calendar on a computer to sync it there too.</p>')), !isNew && !ro);
+    var f = document.getElementById('editor'), color = t.color || '', rd = rdays.slice();
+    f.addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      if (b.hasAttribute('data-ecolor')) { color = b.getAttribute('data-ecolor'); f.querySelectorAll('.ecp').forEach(function (x) { x.classList.toggle('on', x === b); }); }
+      if (b.hasAttribute('data-rday')) { var d = +b.getAttribute('data-rday'), i = rd.indexOf(d); if (i >= 0) { if (rd.length > 1) rd.splice(i, 1); } else rd.push(d); f.querySelectorAll('.rdp').forEach(function (x) { x.classList.toggle('on', rd.indexOf(+x.getAttribute('data-rday')) >= 0); }); }
+    });
     wire(t, function (fd) {
       var monthly = !!fd.get('monthly');
       if (!ro) {
-        var d = E.fromKey(fd.get('date'));
-        t.title = fd.get('title').trim(); t.allDay = !!fd.get('allDay');
-        if (t.allDay) { t.start = E.at(d, '00:00'); t.end = E.at(E.addDays(d, 1), '00:00'); }
-        else { t.start = E.at(d, fd.get('start') || '10:00'); t.end = E.at(d, fd.get('end') || '11:00'); if (t.end <= t.start) t.end = t.start + 30 * E.MIN; }
-        if (isNew || JSON.stringify([t.title, t.allDay, t.start, t.end]) !== orig) {
-          var patch = E.opPut('events', t, by(), now()); t.id = Object.keys(patch.events)[0]; apply(patch);
-        }
-        S.calDay = fd.get('date');
+        var d = E.fromKey(fd.get('date')), c = JSON.parse(JSON.stringify(t));
+        c.title = fd.get('title').trim(); c.allDay = !!fd.get('allDay');
+        if (c.allDay) { c.start = E.at(d, '00:00'); c.end = E.at(E.addDays(d, 1), '00:00'); }
+        else { c.start = E.at(d, fd.get('start') || '10:00'); c.end = E.at(d, fd.get('end') || '11:00'); if (c.end <= c.start) c.end = c.start + 30 * E.MIN; }
+        if (v2) { var nc = fd.get('cal') || myCal; if (nc !== myCal) c.oldCal = myCal; c.cal = nc; }
+        c.color = color;
+        var dsc = (fd.get('desc') || '').trim(); if (dsc !== desc0) c.desc = dsc;
+        var nf = fd.get('rf') || rf;
+        if (nf !== 'custom') c.rrule = nf === 'none' ? '' : E.buildRule({ freq: nf, days: nf === 'weekly' ? rd : [], count: fd.get('rend') === 'count' ? Math.max(1, +fd.get('rcount') || 1) : 0, until: fd.get('rend') === 'until' ? fd.get('runtil') : '' }, c.allDay);
+        var ruleChanged = !sameRule(c.rrule, t.rrule, t.start);
+        if (nf === 'custom' || !ruleChanged) { c.rrule = t.rrule || ''; c.keepRule = true; } else delete c.keepRule;
+        var changed = isNew || JSON.stringify([c.title, c.allDay, c.start, c.end, c.cal || myCal, c.color || '', c.desc != null ? c.desc : desc0, c.rrule || '']) !== orig;
+        var save = function (scope) {
+          if (scope) c.scope = scope;
+          if (!c.series) { if (!c.rrule) delete c.rrule; delete c.keepRule; }
+          var patch = E.opPut('events', c, by(), now()); t.id = Object.keys(patch.events)[0]; apply(patch);
+          if (monthly !== was) apply(E.opPut('marks', { id: markKey(c), monthly: monthly }, by(), now()));
+          S.calDay = fd.get('date'); closeModal(); toast(isNew ? '📅 Event added' : 'Saved');
+        };
+        if (changed && t.series) return scopeBox('Edit repeating event', ruleChanged || (c.cal !== myCal), save);
+        if (changed) return save();
       }
       if (monthly !== was) apply(E.opPut('marks', { id: markKey(t), monthly: monthly }, by(), now()));
       closeModal(); toast(isNew ? '📅 Event added' : 'Saved');
-    }, function () { confirmBox('Delete “' + t.title + '”?', t.gid ? 'It is removed from Google Calendar too.' : 'This removes it from every device.', 'Delete', function () { apply(E.opDel('events', t, by(), now())); closeModal(); }); },
-    function (f) { f.querySelector('.f-times').style.display = f.allDay.checked ? 'none' : ''; });
+    }, function () {
+      var go = function (scope) { var c = JSON.parse(JSON.stringify(t)); if (scope) c.scope = scope; apply(E.opDel('events', c, by(), now())); closeModal(); };
+      if (t.series) return scopeBox('Delete repeating event', false, go, null, true);
+      confirmBox('Delete “' + t.title + '”?', t.gid ? 'It is removed from Google Calendar too.' : t.rrule ? 'Every repeat is removed, on every device.' : 'This removes it from every device.', 'Delete', function () { go(''); });
+    },
+    function (f) {
+      f.querySelector('.f-times').style.display = f.allDay.checked ? 'none' : '';
+      if (!f.rf) return;
+      var r = f.rf.value;
+      f.querySelector('.f-rdays').style.display = r === 'weekly' ? '' : 'none';
+      f.querySelector('.f-rend').style.display = r === 'none' || r === 'custom' ? 'none' : '';
+      f.querySelector('.f-runtil').style.display = f.rend.value === 'until' ? '' : 'none';
+      f.querySelector('.f-rcount').style.display = f.rend.value === 'count' ? '' : 'none';
+    });
   }
 
   function closeModal() { $modal.innerHTML = ''; S.modalOpen = false; render(); }

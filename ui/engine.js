@@ -350,19 +350,91 @@
   }
 
   // ---------- calendar events ----------
-  // Google events are pulled by each device into state.gev (local only, never synced). state.events holds what was
-  // made or edited in Scaffold; an edit wins over the Google copy until Google has the newer version.
+  // Google events are pulled by each device into state.gev (local only, never synced; keys starting with "_" hold the
+  // calendar list and colors). state.events holds what was made or edited in Scaffold; an edit wins over the Google copy
+  // until Google has the newer version. Edits of a repeating event carry scope ('one' | 'following' | 'all'), series and
+  // ostart (the occurrence's original start); 'following' / 'all' edits show on the other occurrences right away.
+  // A new repeating event (rrule) shows its occurrences locally until Google has it.
+  function gkey(e) { return e.gid + '|' + (e.ro && e.v !== 2 ? e.start : ''); }   // old bridge: one id for every occurrence
   function eventsFor(state) {
-    var out = {}, gev = state.gev || {}, byGid = {};
-    Object.keys(gev).forEach(function (id) { out[id] = gev[id]; byGid[gev[id].gid + '|' + (gev[id].ro ? gev[id].start : '')] = id; });
+    var out = {}, gev = state.gev || {}, byGid = {}, spread = [], series = [];
+    Object.keys(gev).forEach(function (id) { if (id.charAt(0) === '_') return; out[id] = gev[id]; byGid[gkey(gev[id])] = id; });
     Object.keys(state.events || {}).forEach(function (id) {
-      var e = state.events[id], gid = e.gid ? byGid[e.gid + '|' + (e.ro ? e.start : '')] : null;
+      var e = state.events[id], wide = e.series && e.scope && e.scope !== 'one';
+      if ((wide || e.rrule) && e.synced && e.synced >= (e.ts || 0)) return;   // on Google now: its own copies show
+      var gid = e.gid ? byGid[gkey(e)] : null;
       if (gid && (gev[gid].gupd || 0) >= (e.ts || 0)) return;   // Google already has this version (or newer)
       if (gid) delete out[gid];
       if (out[id] && (out[id].gupd || 0) >= (e.ts || 0)) return;
+      if (wide) spread.push(e);
       if (e.del) { delete out[id]; return; }
       out[id] = e;
+      if (e.rrule && !e.series) series.push(e);
     });
+    spread.forEach(function (e) {
+      Object.keys(out).forEach(function (k) {
+        var g = out[k], os = g.ostart || g.start;
+        if (g === e || g.series !== e.series || (g.gupd || 0) >= (e.ts || 0) || (e.scope === 'following' && os < e.ostart)) return;
+        if (e.del) { delete out[k]; return; }
+        var c = {}; for (var f in g) c[f] = g[f];
+        c.title = e.title; c.desc = e.desc; c.color = e.color; c.cal = e.cal;
+        if (!e.allDay && !g.allDay) { c.start = os + (e.start - e.ostart); c.end = c.start + (e.end - e.start); }
+        out[k] = c;
+      });
+    });
+    series.forEach(function (e) {
+      expandRule(e, 400).slice(1).forEach(function (t, i) {
+        var c = {}; for (var f in e) c[f] = e[f];
+        c.id = e.id + '~' + (i + 1); c.virt = e.id; c.start = t; c.end = t + (e.end - e.start);
+        out[c.id] = c;
+      });
+    });
+    return out;
+  }
+
+  // Repeat rules (Google's RRULE). The simple ones Scaffold can edit: daily, weekly on days, monthly, yearly; ends by count or date.
+  var RDAYS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+  function parseRule(text) {
+    var m = /(?:^|\n)RRULE:([^\n]*)/.exec(text || ''); if (!m) return null;
+    var o = {}; m[1].split(';').forEach(function (p) { var kv = p.split('='); o[kv[0]] = kv[1] || ''; });
+    var r = { freq: (o.FREQ || '').toLowerCase(), days: o.BYDAY ? o.BYDAY.split(',').map(function (d) { return RDAYS.indexOf(d); }) : [], count: o.COUNT ? +o.COUNT : 0, until: '' };
+    if (o.UNTIL) {
+      var u = o.UNTIL;
+      if (u.length > 8) { r.untilMs = Date.UTC(+u.slice(0, 4), +u.slice(4, 6) - 1, +u.slice(6, 8), +u.slice(9, 11), +u.slice(11, 13), +u.slice(13, 15)); r.until = dateKey(r.untilMs); }
+      else r.until = u.slice(0, 4) + '-' + u.slice(4, 6) + '-' + u.slice(6, 8);
+    }
+    r.simple = ['daily', 'weekly', 'monthly', 'yearly'].indexOf(r.freq) >= 0 && (!o.INTERVAL || o.INTERVAL === '1') && (r.freq === 'weekly' || !o.BYDAY) &&
+      r.days.every(function (d) { return d >= 0; }) && Object.keys(o).every(function (k) { return ['FREQ', 'BYDAY', 'COUNT', 'UNTIL', 'INTERVAL', 'WKST'].indexOf(k) >= 0; });
+    return r;
+  }
+  // r: { freq, days (weekly, 0=Sun), count, until (YYYY-MM-DD, last day included) }
+  function buildRule(r, allDay) {
+    if (!r || !r.freq) return '';
+    var s = 'RRULE:FREQ=' + r.freq.toUpperCase();
+    if (r.freq === 'weekly' && r.days && r.days.length) s += ';BYDAY=' + r.days.slice().sort().map(function (d) { return RDAYS[d]; }).join(',');
+    if (r.count) s += ';COUNT=' + r.count;
+    else if (r.until) {
+      if (allDay) s += ';UNTIL=' + r.until.replace(/-/g, '');
+      else { var u = new Date(at(fromKey(r.until), '23:59') + 59000); s += ';UNTIL=' + u.getUTCFullYear() + pad(u.getUTCMonth() + 1) + pad(u.getUTCDate()) + 'T' + pad(u.getUTCHours()) + pad(u.getUTCMinutes()) + pad(u.getUTCSeconds()) + 'Z'; }
+    }
+    return s;
+  }
+  // Start times of the first occurrences (at most max) of event e with e.rrule.
+  function expandRule(e, max) {
+    var r = parseRule(e.rrule), out = [], hm = hhmm(e.start), d0 = new Date(e.start);
+    if (!r || !r.simple) return [e.start];
+    for (var i = 0; i < 800 && out.length < max; i++) {
+      var day = addDays(e.start, i), dd = new Date(day), ok;
+      if (r.freq === 'daily') ok = true;
+      else if (r.freq === 'weekly') ok = r.days.length ? r.days.indexOf(dd.getDay()) >= 0 : dd.getDay() === d0.getDay();
+      else if (r.freq === 'monthly') ok = dd.getDate() === d0.getDate();
+      else ok = dd.getDate() === d0.getDate() && dd.getMonth() === d0.getMonth();
+      if (!ok) continue;
+      var t = e.allDay ? at(day, '00:00') : at(day, hm);
+      if (r.untilMs ? t > r.untilMs : r.until && dateKey(day) > r.until) break;
+      out.push(t);
+      if (r.count && out.length >= r.count) break;
+    }
     return out;
   }
   // Old pulled copies (unchanged since they came from Google, or deletions Google already has) are dropped: each device now pulls Google itself.
@@ -453,7 +525,7 @@
   return {
     MIN: MIN, DAY: DAY, MAPS: MAPS, MAX_SNOOZES: MAX_SNOOZES, SNOOZE_MIN: SNOOZE_MIN,
     pad: pad, dateKey: dateKey, fromKey: fromKey, addDays: addDays, at: at, hhmm: hhmm, compKey: compKey, uid: uid, emptyState: emptyState,
-    newer: newer, merge: merge, eventsFor: eventsFor, dropPulledCopies: dropPulledCopies, isPulledCopy: isPulledCopy, scheduledOn: scheduledOn, windowOf: windowOf, reminderTimes: reminderTimes, periodOf: periodOf,
+    newer: newer, merge: merge, eventsFor: eventsFor, parseRule: parseRule, buildRule: buildRule, expandRule: expandRule, dropPulledCopies: dropPulledCopies, isPulledCopy: isPulledCopy, scheduledOn: scheduledOn, windowOf: windowOf, reminderTimes: reminderTimes, periodOf: periodOf,
     compute: compute, dueReminders: dueReminders, notePops: notePops, pendingNotes: pendingNotes, plainNote: plainNote, stats: stats,
     projectProgress: projectProgress, dayAgenda: dayAgenda, vaultProjects: vaultProjects, itemKey: itemKey,
     chunks: chunks, snapshot: snapshot,

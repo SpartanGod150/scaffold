@@ -1,7 +1,7 @@
 {
   "name": "scaffold",
   "productName": "Scaffold",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "description": "ADHD scaffolding: reminders, pop-ups and locks across all your devices",
   "main": "main.js",
   "author": "Ariel",
