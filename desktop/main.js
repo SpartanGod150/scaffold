@@ -9,16 +9,26 @@ const Blocker = require('./blocker.js');
 const Vault = require('./vault.js');
 const Calendar = require('./calendar.js');
 const Updater = require('./updater.js');
+const KeepAlive = require('./keepalive.js');
 const UPDATE_CFG = (() => { try { return require('./ui/update.json'); } catch (e) { return {}; } })();
 
 if (process.env.SCAFFOLD_DEV) app.setPath('userData', process.env.SCAFFOLD_DATA || (app.getPath('userData') + '-dev'));   // SCAFFOLD_DATA: run several test devices
-if (!process.env.SCAFFOLD_DATA && !app.requestSingleInstanceLock()) { app.quit(); }
+const GOT_LOCK = !!process.env.SCAFFOLD_DATA || app.requestSingleInstanceLock();
+if (!GOT_LOCK) app.quit();
 
 const UI = path.join(__dirname, 'ui', 'index.html');
 const DATA = app.getPath('userData');
 const STATE_F = path.join(DATA, 'state.json');
 const LOCAL_F = path.join(DATA, 'local.json');
 const STOP_F = path.join(DATA, 'STOP');           // creating this file triggers an emergency stop (escape hatch)
+// Always on: after "Quit Scaffold" it stays off until opened by hand; automatic starts (login, keep-alive) see quit.flag and leave.
+const KA = KeepAlive.flags(DATA);
+const KEEPALIVE_ON = !process.env.SCAFFOLD_DEV || !!process.env.SCAFFOLD_KEEPALIVE_TEST;
+const AUTO_START = process.argv.includes('--background') || (process.platform === 'darwin' && (() => { try { return app.getLoginItemSettings().wasOpenedAtLogin; } catch (e) { return false; } })());
+if (GOT_LOCK) {
+  if (fs.existsSync(KA.quit)) { if (AUTO_START) app.exit(0); else try { fs.unlinkSync(KA.quit); } catch (e) {} }
+  try { fs.unlinkSync(KA.updating); } catch (e) {}
+}
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 
 let state, local, tray, mainWin, popupWin, noteWin, waWin, overlays = [], sync = null, lastFocusKill = 0;
@@ -316,6 +326,8 @@ function emergencyStop() { applyPatch(Engine.opPause(true, local.deviceId, Date.
 function quitApp() {
   const choice = dialog.showMessageBoxSync({ type: 'question', buttons: ['Quit', 'Cancel'], defaultId: 1, message: 'Quit Scaffold on this computer?', detail: 'This computer stops reminding and locking. Other devices keep going. To free every device, use Emergency stop instead.' });
   if (choice !== 0) return;
+  try { fs.writeFileSync(KA.quit, new Date().toISOString()); } catch (e) {}   // stays off until opened by hand
+  if (!process.env.SCAFFOLD_DEV) try { app.setLoginItemSettings({ openAtLogin: false }); } catch (e) {}
   app.allowQuit = true; hideOverlay(); app.quit();
 }
 
@@ -369,6 +381,7 @@ function applyPendingUpdate() {
   if (!pendingUpdate || !updateSafe()) return;
   const u = pendingUpdate; pendingUpdate = null;
   notify('⬆️ Updating Scaffold', 'Version ' + u.version + ' installs now. Back in a few seconds.');
+  try { fs.writeFileSync(KA.updating, u.version); } catch (e) {}   // keep-alive: don't reopen while files are swapped
   Updater.install(u.file);
   setTimeout(() => { app.allowQuit = true; hideOverlay(); app.quit(); }, 1500);
 }
@@ -398,11 +411,13 @@ ipcMain.on('check-update', () => runUpdate());
 
 function setAutostart(on) {
   if (process.env.SCAFFOLD_DEV) return;
-  try { app.setLoginItemSettings({ openAtLogin: !!on, openAsHidden: true }); } catch (e) {}
+  try { app.setLoginItemSettings({ openAtLogin: !!on, openAsHidden: true, args: ['--background'] }); } catch (e) {}
 }
 
 // ---------- app lifecycle ----------
-app.on('second-instance', showMain);
+app.on('second-instance', (e, argv) => { if (!(argv || []).includes('--background')) showMain(); });
+app.on('render-process-gone', (e, wc) => { setTimeout(() => { try { if (!wc.isDestroyed()) wc.reload(); } catch (x) {} }, 1000); });   // a crashed window reloads itself
+process.on('uncaughtException', (e) => { console.error('uncaught', e); });   // never die on a stray error
 app.on('window-all-closed', (e) => { /* stay in the tray */ });
 app.on('before-quit', () => { app.allowQuit = true; overlays.forEach((w) => { if (!w.isDestroyed()) { w.allowClose = true; w.destroy(); } }); });
 
@@ -422,6 +437,11 @@ app.whenReady().then(() => {
   safe('tray', () => { tray = new Tray(trayIcon()); tray.on('click', () => { if (process.platform !== 'darwin') showMain(); }); });
   safe('shortcut', () => globalShortcut.register('CommandOrControl+Alt+Shift+K', emergencyStop));
   safe('autostart', () => setAutostart(local.autostart));
+  if (KEEPALIVE_ON) {
+    safe('keepalive', () => KeepAlive.startWatchdog(DATA));
+    if (app.isPackaged) safe('keepalive-os', () => KeepAlive.installOsJob(DATA));
+    powerMonitor.on('shutdown', () => { try { fs.writeFileSync(KA.updating, 'shutdown'); } catch (e) {} });   // logging out / shutting down: don't reopen
+  }
   safe('window', () => { if (local.firstRun) { local.firstRun = false; saveLocal(); showMain(); } else if (process.argv.includes('--show')) showMain(); });
   safe('sync', startSync);
   setInterval(() => safe('evaluate', evaluate), 5000);
