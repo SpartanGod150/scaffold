@@ -139,6 +139,10 @@
     calPick: function (key) { S.calDay = key; S.calView = 'day'; lsSet('scaffold-calview', 'day'); render(); },
     calView: function (v) { S.calView = v; lsSet('scaffold-calview', v); render(); },
     calCals: function () { openCalendars(); },
+    calJump: function (key) { S.calDay = key; S.miniMonth = null; render(); },
+    miniPrev: function () { var m = S.miniMonth; S.miniMonth = new Date(m.getFullYear(), m.getMonth() - 1, 1); render(); },
+    miniNext: function () { var m = S.miniMonth; S.miniMonth = new Date(m.getFullYear(), m.getMonth() + 1, 1); render(); },
+    calShow: function (el) { apply(E.opPut('marks', { id: 'cal:' + el.getAttribute('data-id'), hidden: !el.checked }, by(), now())); },
     calMode: function (m) { S.calList = m === 'list'; lsSet('scaffold-callist', S.calList ? '1' : '0'); render(); },
     editEvent: function (id) {
       var all = E.eventsFor(S.state), e = id && all[id] ? JSON.parse(JSON.stringify(all[id])) : null;
@@ -397,14 +401,19 @@
   // "Show in monthly" lives in state.marks (events from Google can't carry it); repeating Google events share one mark.
   function markKey(e) { return e.series ? 'gid:' + e.series : e.ro && e.gid ? 'gid:' + e.gid : e.virt || e.id; }
   // Google calendars and colors (bridge v2). Hidden calendars are hidden on every device (marks 'cal:'+id).
-  var GCOLORS = { 1: '#a4bdfc', 2: '#7ae7bf', 3: '#dbadff', 4: '#ff887c', 5: '#fbd75b', 6: '#ffb878', 7: '#46d6db', 8: '#e1e1e1', 9: '#5484ed', 10: '#51b749', 11: '#dc2127' };
+  // Google's API still sends its old palette; these are the colors Google Calendar shows today.
+  var GCOLORS = { 1: '#7986cb', 2: '#33b679', 3: '#8e24aa', 4: '#e67c73', 5: '#f6bf26', 6: '#f4511e', 7: '#039be5', 8: '#616161', 9: '#3f51b5', 10: '#0b8043', 11: '#d50000' };
+  var CAL_COLORS = { '#ac725e': '#795548', '#d06b64': '#e67c73', '#f83a22': '#d50000', '#fa573c': '#f4511e', '#ff7537': '#ef6c00', '#ffad46': '#f09300', '#42d692': '#009688', '#16a765': '#0b8043',
+    '#7bd148': '#7cb342', '#b3dc6c': '#c0ca33', '#fbe983': '#e4c441', '#fad165': '#f6bf26', '#92e1c0': '#33b679', '#9fe1e7': '#039be5', '#9fc6e7': '#4285f4', '#4986e7': '#3f51b5',
+    '#9a9cff': '#7986cb', '#b99aff': '#b39ddb', '#c2c2c2': '#616161', '#cabdbf': '#a79b8e', '#cca6ac': '#ad1457', '#f691b2': '#d81b60', '#cd74e6': '#8e24aa', '#a47ae2': '#9e69af' };
+  function calColor(c) { var x = (c && c.color || '').toLowerCase(); return CAL_COLORS[x] || (c && c.color) || EV_COLOR; }
   var GCOLOR_NAMES = { 1: 'Lavender', 2: 'Sage', 3: 'Grape', 4: 'Flamingo', 5: 'Banana', 6: 'Tangerine', 7: 'Peacock', 8: 'Graphite', 9: 'Blueberry', 10: 'Basil', 11: 'Tomato' };
   function gcalInfo() { return ((S.state.gev || {})._cals) || null; }
   function gcals() { var g = gcalInfo(); return g ? g.list || [] : []; }
   function gcal(id) { var l = gcals(); for (var i = 0; i < l.length; i++) if (l[i].id === id || (!id && l[i].primary)) return l[i]; return null; }
-  function palette() { var g = gcalInfo(); return (g && g.colors && Object.keys(g.colors).length) ? g.colors : GCOLORS; }
+  function palette() { return GCOLORS; }
   function calHidden(id) { var c = id || (gcal('') || {}).id; var r = (S.state.marks || {})['cal:' + c]; return !!(r && !r.del && r.hidden); }
-  function evColor(e) { if (e.color && palette()[e.color]) return palette()[e.color]; var c = gcal(e.cal || ''); return (c && c.color) || EV_COLOR; }
+  function evColor(e) { if (e.color && GCOLORS[e.color]) return GCOLORS[e.color]; var c = gcal(e.cal || ''); return c ? calColor(c) : EV_COLOR; }
   function inkOn(hex) { var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(hex || ''); if (!m) return '#0f1117'; var l = (0.299 * parseInt(m[1], 16) + 0.587 * parseInt(m[2], 16) + 0.114 * parseInt(m[3], 16)) / 255; return l > 0.6 ? '#0f1117' : '#ffffff'; }
   function shownAgenda(t) { return E.dayAgenda(S.state, t).filter(function (a) { return a.kind !== 'event' || !calHidden(a.rec.cal); }); }
   function monthlyOn(e) { var m = S.state.marks || {}, r = m[markKey(e)]; return !!(r && !r.del && r.monthly); }
@@ -419,15 +428,39 @@
     var seg = function (items, act, cur) { return '<div class="seg">' + items.map(function (x) { return '<button class="seg-b' + (x[0] === cur ? ' on' : '') + '" data-a="' + act + '" data-id="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>'; };
     var body;
     if (v === 'month') body = monthGrid(key);
-    else if (v === 'week') { var ks = []; for (var i = 0; i < 7; i++) ks.push(E.dateKey(E.addDays(weekStart(key), i))); body = timeline(ks); }
-    else body = calList() ? dayList(key) : timeline([key]);
+    else if (v === 'week') { var ks = []; for (var i = 0; i < 7; i++) ks.push(E.dateKey(E.addDays(weekStart(key), i))); body = calTimeline(ks); }
+    else body = calList() ? dayList(key) : calTimeline([key]);
     var cal = S.local.cal || {};
-    return '<div class="sec-head cal-top"><h2>' + esc(title) + '</h2><div class="row-btns"><button class="btn ghost sm" data-a="calPrev">‹</button><button class="btn ghost sm" data-a="calToday">Today</button><button class="btn ghost sm" data-a="calNext">›</button></div></div>' +
+    return '<div class="cal-layout">' + calSide(v, key) + '<div class="cal-main">' +
+      '<div class="sec-head cal-top"><h2>' + esc(title) + '</h2><div class="row-btns"><button class="btn ghost sm" data-a="calPrev">‹</button><button class="btn ghost sm" data-a="calToday">Today</button><button class="btn ghost sm" data-a="calNext">›</button></div></div>' +
       '<div class="cal-bar">' + seg([['month', 'Month'], ['week', 'Week'], ['day', 'Day']], 'calView', v) +
       (v === 'day' ? seg([['cv', 'Timeline'], ['list', 'List']], 'calMode', calList() ? 'list' : 'cv') : '') +
-      (gcals().length ? '<button class="btn ghost sm" data-a="calCals">Calendars</button>' : '') +
+      (gcals().length ? '<button class="btn ghost sm cal-cals-btn" data-a="calCals">Calendars</button>' : '') +
       '<span class="sp"></span><button class="btn primary sm" data-a="editEvent">＋ Event</button></div>' + body +
-      '<div class="legend cal-legend">' + (cal.status ? '<span class="lg-note">Google: ' + esc(cal.status) + '</span>' : '<span class="lg-note">Google Calendar: not connected (Settings)</span>') + '</div>';
+      '<div class="legend cal-legend">' + (cal.status ? '<span class="lg-note">Google: ' + esc(cal.status) + '</span>' : '<span class="lg-note">Google Calendar: not connected (Settings)</span>') + '</div></div></div>';
+  }
+
+  // Wide screens: mini month (today filled, the shown day / week marked; tap = jump there, same view) + calendar checkboxes.
+  function calSide(v, key) {
+    var today = E.dateKey(now()), a = new Date(E.fromKey(key)), m = S.miniMonth && S.miniKey === key ? S.miniMonth : new Date(a.getFullYear(), a.getMonth(), 1);
+    S.miniMonth = m; S.miniKey = key;
+    var first = new Date(m.getFullYear(), m.getMonth(), 1, 12), start = E.addDays(first.getTime(), -((first.getDay() + 6) % 7));
+    var ws = E.dateKey(weekStart(key)), we = E.dateKey(E.addDays(weekStart(key), 6)), cells = '';
+    for (var i = 0; i < 42; i++) {
+      var t = E.addDays(start, i), k = E.dateKey(t), d = new Date(t);
+      var inSel = v === 'week' ? k >= ws && k <= we : v === 'day' ? k === key : false;
+      cells += '<button class="mm-d' + (d.getMonth() !== m.getMonth() ? ' out' : '') + (k === today ? ' today' : '') + (inSel ? ' sel' : '') + (k === key ? ' anchor' : '') +
+        (v === 'week' && k === ws ? ' s0' : '') + (v === 'week' && k === we ? ' s1' : '') + '" data-a="calJump" data-id="' + k + '">' + d.getDate() + '</button>';
+    }
+    var list = gcals(), mine = list.filter(function (c) { return !c.ro; }), other = list.filter(function (c) { return c.ro; });
+    var group = function (title, cs) {
+      return cs.length ? '<h4>' + title + '</h4>' + cs.map(function (c) {
+        return '<label class="cs-c"><input type="checkbox" data-change="calShow" data-id="' + esc(c.id) + '"' + (calHidden(c.id) ? '' : ' checked') + ' style="--c:' + esc(calColor(c)) + '"><span>' + esc(c.name) + '</span></label>';
+      }).join('') : '';
+    };
+    return '<aside class="cal-side"><div class="mm"><div class="mm-h"><b>' + MONTHS[m.getMonth()] + ' ' + m.getFullYear() + '</b><span><button class="mm-n" data-a="miniPrev">‹</button><button class="mm-n" data-a="miniNext">›</button></span></div>' +
+      '<div class="mm-g">' + WEEKDAYS.map(function (w) { return '<i>' + w[0] + '</i>'; }).join('') + cells + '</div></div>' +
+      (list.length ? '<div class="cs">' + group('My calendars', mine) + group('Other calendars', other) + '</div>' : '') + '</aside>';
   }
 
   function monthGrid(key) {
@@ -474,7 +507,7 @@
   }
 
   // Week / day timeline: events solid, habits dotted and see-through (done ones stronger). Tap empty time = new event.
-  function timeline(keys) {
+  function calTimeline(keys) {
     var today = E.dateKey(now()), heads = '', alls = '', cols = '', anyAll = false;
     keys.forEach(function (k) {
       var t = E.fromKey(k), d0 = E.at(t, '00:00'), d1 = E.at(E.addDays(t, 1), "00:00"), items = [], ad = [];
@@ -590,7 +623,7 @@
     });
     groups.later.sort(function (a, b) { return a.date.localeCompare(b.date); });
     groups.done.sort(function (a, b) { return b.date.localeCompare(a.date); });
-    function sec(title, list) { return list.length ? '<h3 class="mt">' + title + '</h3>' + list.map(todoRow).join('') : ''; }
+    function sec(title, list) { return list.length ? '<h3 class="mt">' + title + '</h3><div class="grid-cards">' + list.map(todoRow).join('') + '</div>' : ''; }
     return '<div class="sec-head"><h2>Projects</h2><button class="btn sm" data-a="editProject">＋ Project</button></div>' +
       (projects.length ? '<div class="proj-grid">' + projects.map(projectCard).join('') + '</div>' : '<p class="empty">No projects yet.</p>') +
       (vault.length ? '<details class="vault"><summary>🗂️ From your Obsidian vault (' + vault.length + ' active)</summary>' + vault.map(function (v) {
@@ -662,7 +695,7 @@
       '<div class="hero-txt"><div class="big">' + (pct == null ? 'No data yet' : pct >= 80 ? 'On target 🎯' : 'Goal: 80%') + '</div>' +
       '<div class="goal">Full = 1 · 🌱 tiny win = ½</div><div class="goal">⛔ Emergency stops this week: <b>' + st.stops + '</b></div></div></section>' +
       '<div class="legend"><span><i class="h-full"></i>done</span><span><i class="h-tiny"></i>tiny</span><span><i class="h-miss"></i>missed</span><span><i class="h-none"></i>off day</span><span class="lg-note">last 4 weeks →</span></div>' +
-      (rows || '<p class="empty">No habits yet.</p>') +
+      (rows ? '<div class="grid-cards wide">' + rows + '</div>' : '<p class="empty">No habits yet.</p>') +
       '<h3 class="mt">Templates</h3><div class="tpl-grid">' + TEMPLATES.map(function (t, i) {
         return '<button class="tpl" data-a="template" data-id="' + i + '" style="--c:' + t.color + '"><span>' + t.emoji + '</span>' + esc(t.title) + '<small>' + LEVELS[t.level].icon + ' ' + LEVELS[t.level].name + '</small></button>';
       }).join('') + '</div>';
@@ -673,17 +706,17 @@
     var notes = live('notes').sort(function (a, b) { return ((a.active === false) - (b.active === false)) || (a.every || 0) - (b.every || 0); });
     return '<div class="sec-head"><h2>Notes</h2><button class="btn primary sm" data-a="editNote">＋ Note</button></div>' +
       '<p class="muted">Each note pops up on every device at its own rhythm and stays until you tap “Got it”.</p>' +
-      (notes.length ? notes.map(function (n) {
+      (notes.length ? '<div class="grid-cards">' + notes.map(function (n) {
         var on = n.active !== false, p = E.notePops(n, now());
         return '<div class="note-row' + (on ? '' : ' off') + '" style="--c:' + taskColor(n) + '"><button class="note-open" data-a="editNote" data-id="' + n.id + '"><span class="note-body md">' + mdHtml(n.text) + '</span>' +
           '<small>🔁 every ' + everyLabel(n.every) + ' · ⏳ ' + (+n.hold || 0) + ' s · 🕗 ' + esc(n.from || '00:00') + '–' + esc(n.to || '24:00') + (n.days && n.days.length && n.days.length < 7 ? ' · ' + n.days.map(function (d) { return DAYNAMES[d]; }).join(' ') : '') + (on && p.next ? ' · next ' + (E.dateKey(p.next) === E.dateKey(now()) ? hm(p.next) : niceDay(E.dateKey(p.next)) + ' ' + hm(p.next)) : '') + '</small></button>' +
           '<button class="switch' + (on ? ' on' : '') + '" data-a="toggleNote" data-id="' + n.id + '"><i></i></button></div>';
-      }).join('') : '<p class="empty">No notes yet. Add things you must not forget.</p>');
+      }).join('') + '</div>' : '<p class="empty">No notes yet. Add things you must not forget.</p>');
   }
 
   // ---------- Settings ----------
   function settingsView() {
-    var L = S.local, h = '<div class="sec-head"><h2>Settings</h2></div>';
+    var L = S.local, h = '<div class="sec-head"><h2>Settings</h2></div><div class="panels">';
     h += '<section class="panel kill">' + (S.r.paused
       ? '<h3>Scaffold is OFF everywhere</h3><p>No locks, pop-ups, notes or reminders on any device.</p><button class="btn primary wide" data-a="resume">▶ Resume on all devices</button>'
       : '<h3>⛔ Emergency stop</h3><p>Turns Scaffold off on <b>every device</b> at once. Everything goes back to normal until you resume.</p><button class="btn danger wide" data-a="stopAll">Stop everything</button>') + '</section>';
@@ -748,7 +781,7 @@
     h += '<section class="panel"><h3>⬆️ Updates</h3><p>Version <b>' + esc(L.version || '?') + '</b>. ' + (PLATFORM === 'android' ? 'New versions download by themselves; Android may ask you to tap Install.' : 'New versions install by themselves, never during a lock.') + '</p>' +
       (U.status ? '<p class="muted">Last check: ' + esc(U.status) + (U.checked ? ' (' + new Date(U.checked).toLocaleString() + ')' : '') + '</p>' : '') +
       '<div class="row-btns" id="updBox">' + updBtn() + '</div></section>';
-    h += '<p class="muted center">Scaffold ' + esc(L.version || '') + ' · ' + esc(PLATFORM) + ' · ' + esc(L.deviceId) + '</p>';
+    h += '</div><p class="muted center">Scaffold ' + esc(L.version || '') + ' · ' + esc(PLATFORM) + ' · ' + esc(L.deviceId) + '</p>';
     return h;
   }
 
@@ -1181,7 +1214,7 @@
   function openCalendars() {
     $modal.innerHTML = '<div class="modal-bg"><form class="modal" id="editor"><div class="sec-head"><h2>Calendars</h2><button type="button" class="x" data-close>✕</button></div>' +
       gcals().map(function (c) {
-        return '<label class="check cal-pick"><input type="checkbox" data-cal="' + esc(c.id) + '"' + (calHidden(c.id) ? '' : ' checked') + '><i style="background:' + esc(c.color || EV_COLOR) + '"></i> ' + esc(c.name) + (c.ro ? ' <small>(read-only)</small>' : '') + '</label>';
+        return '<label class="check cal-pick"><input type="checkbox" data-cal="' + esc(c.id) + '"' + (calHidden(c.id) ? '' : ' checked') + '><i style="background:' + esc(calColor(c)) + '"></i> ' + esc(c.name) + (c.ro ? ' <small>(read-only)</small>' : '') + '</label>';
       }).join('') + '<p class="muted">Hiding a calendar hides it on every device. It stays in Google.</p><div class="modal-actions"><span class="sp"></span><button type="button" class="btn primary" data-close>Done</button></div></form></div>';
     S.modalOpen = true;
     var f = document.getElementById('editor');
@@ -1213,7 +1246,7 @@
     var rf = rule && rule.simple ? rule.freq : rule ? 'custom' : 'none', rdays = rule && rule.days.length ? rule.days : [new Date(t.start).getDay()];
     var rend = rule && rule.count ? 'count' : rule && rule.until ? 'until' : 'never';
     var orig = JSON.stringify([t.title, t.allDay, t.start, t.end, myCal, t.color || '', desc0, t.rrule || '']);
-    var pal = palette(), colorBtns = '<button type="button" class="cp ecp' + (!t.color ? ' on' : '') + '" data-ecolor="" title="Calendar color" style="background:' + esc((gcal(myCal) || {}).color || EV_COLOR) + '"></button>' +
+    var pal = palette(), colorBtns = '<button type="button" class="cp ecp' + (!t.color ? ' on' : '') + '" data-ecolor="" title="Calendar color" style="background:' + esc(gcal(myCal) ? calColor(gcal(myCal)) : EV_COLOR) + '"></button>' +
       Object.keys(pal).map(function (k) { return '<button type="button" class="cp ecp' + (t.color === k ? ' on' : '') + '" data-ecolor="' + k + '" title="' + (GCOLOR_NAMES[k] || '') + '" style="background:' + esc(pal[k]) + '"></button>'; }).join('');
     $modal.innerHTML = modalShell(isNew ? 'New event' : ro ? 'Event (read-only calendar)' : 'Edit event',
       (ro ? '<p class="muted">This calendar is read-only. Here you can only choose whether it shows in the month view.</p>' : '') +
