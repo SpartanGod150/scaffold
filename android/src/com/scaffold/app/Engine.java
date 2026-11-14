@@ -17,7 +17,7 @@ public final class Engine {
     static final String NAG_STOP = "23:30", NUDGE_AT = "09:00";
     static final int MAX_SNOOZES = 2;
     static final int SNOOZE_MIN = 10;
-    static final String[] MAPS = {"tasks", "todos", "projects", "events", "notes", "acks", "vault", "comps", "snoozes", "log", "cfg"};
+    static final String[] MAPS = {"tasks", "todos", "projects", "events", "notes", "acks", "vault", "comps", "snoozes", "log", "cfg", "marks"};
 
     static final class Item {
         String id, type, key, sKey, status, doneKind, deadlineDay;
