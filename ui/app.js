@@ -125,6 +125,7 @@
     },
     editNote: function (id) { openNoteEditor(id && S.state.notes[id] ? JSON.parse(JSON.stringify(S.state.notes[id])) : null); },
     toggleNote: function (id) { var n = S.state.notes[id]; if (!n) return; var c = JSON.parse(JSON.stringify(n)); c.active = n.active === false; if (c.active) c.anchor = now(); apply(E.opPut('notes', c, by(), now())); },
+    tickNote: function (id, line) { var n = S.state.notes[id]; if (!n) return; var c = JSON.parse(JSON.stringify(n)); c.anchor = c.anchor || c.ts; c.text = noteTick(c.text, +line); apply(E.opPut('notes', c, by(), now())); },
     dismissNote: function (id) { apply(E.opAck(id, by(), now())); delete S.noteSeen[id]; if (S.mode === 'note' && !E.pendingNotes(S.state, now()).filter(function (n) { return n.id !== id; }).length) B.closeWindow(); },
     calPrev: function () { var m = S.calMonth; S.calMonth = new Date(m.getFullYear(), m.getMonth() - 1, 1); render(); },
     calNext: function () { var m = S.calMonth; S.calMonth = new Date(m.getFullYear(), m.getMonth() + 1, 1); render(); },
@@ -229,7 +230,7 @@
       '<button class="gear' + (S.view === 'settings' ? ' on' : '') + '" data-a="nav" data-id="settings" title="Settings">⚙️</button></div>' +
       '</header>' +
       (S.r.lock && !S.r.paused ? '<div class="banner lockb">🔒 <b>' + esc(S.r.lock.task.title) + '</b> is overdue: ' + ((S.r.lock.task.desktop === 'focus') ? 'distracting apps are being closed' : 'your other devices are locked') + ' until it is done.</div>' : '') +
-      (S.r.notes.length && PLATFORM !== 'android' ? '<div class="banner noteb">📌 ' + S.r.notes.length + ' note' + (S.r.notes.length > 1 ? 's' : '') + ' waiting: ' + esc(S.r.notes[0].note.text.split('\n')[0].slice(0, 60)) + '</div>' : '') +
+      (S.r.notes.length && PLATFORM !== 'android' ? '<div class="banner noteb">📌 ' + S.r.notes.length + ' note' + (S.r.notes.length > 1 ? 's' : '') + ' waiting: ' + esc(E.plainNote(S.r.notes[0].note.text).split('\n')[0].slice(0, 60)) + '</div>' : '') +
       (S.r.paused ? '<div class="banner">Scaffold is <b>OFF on every device</b>. Nothing will lock or pop up until you press Resume.</div>' : '') +
       '<main class="view">' + views[S.view]() + '</main>' +
       '<nav class="tabs">' + nav + '</nav>';
@@ -356,7 +357,7 @@
     if (!S.noteSeen[p.id] || S.noteSeen[p.id].key !== key) S.noteSeen[p.id] = { key: key, at: now() };
     var hold = Math.max(0, +n.hold || 0) * 1000, until = S.noteSeen[p.id].at + hold;
     return '<section class="note-pop" style="--c:' + taskColor(n) + '"><div class="note-kicker">📌 Note' + (count > 1 ? ' · 1 of ' + count : '') + '</div>' +
-      '<div class="note-text">' + esc(n.text).replace(/\n/g, '<br>') + '</div>' +
+      '<div class="note-text md">' + mdHtml(n.text, p.id) + '</div>' +
       '<div class="note-meta">Comes back every ' + everyLabel(n.every) + '</div>' +
       '<button class="btn primary big" data-a="dismissNote" data-id="' + p.id + '" data-hold="' + until + '"' + (until > now() ? ' disabled' : '') + '>' + (until > now() ? 'Read it… <span data-holdleft="' + until + '"></span>' : 'Got it') + '</button>' +
       '<div class="block-foot"><button class="link" data-a="stopAll">Emergency stop (all devices)</button></div></section>';
@@ -506,8 +507,8 @@
       '<p class="muted">Each note pops up on every device at its own rhythm and stays until you tap “Got it”.</p>' +
       (notes.length ? notes.map(function (n) {
         var on = n.active !== false, p = E.notePops(n, now());
-        return '<div class="note-row' + (on ? '' : ' off') + '" style="--c:' + taskColor(n) + '"><button class="note-open" data-a="editNote" data-id="' + n.id + '"><span class="note-body">' + esc(n.text).replace(/\n/g, '<br>') + '</span>' +
-          '<small>🔁 every ' + everyLabel(n.every) + ' · ⏳ ' + (+n.hold || 0) + ' s · 🕗 ' + esc(n.from || '00:00') + '–' + esc(n.to || '24:00') + (on && p.next ? ' · next ' + (E.dateKey(p.next) === E.dateKey(now()) ? hm(p.next) : niceDay(E.dateKey(p.next)) + ' ' + hm(p.next)) : '') + '</small></button>' +
+        return '<div class="note-row' + (on ? '' : ' off') + '" style="--c:' + taskColor(n) + '"><button class="note-open" data-a="editNote" data-id="' + n.id + '"><span class="note-body md">' + mdHtml(n.text) + '</span>' +
+          '<small>🔁 every ' + everyLabel(n.every) + ' · ⏳ ' + (+n.hold || 0) + ' s · 🕗 ' + esc(n.from || '00:00') + '–' + esc(n.to || '24:00') + (n.days && n.days.length && n.days.length < 7 ? ' · ' + n.days.map(function (d) { return DAYNAMES[d]; }).join(' ') : '') + (on && p.next ? ' · next ' + (E.dateKey(p.next) === E.dateKey(now()) ? hm(p.next) : niceDay(E.dateKey(p.next)) + ' ' + hm(p.next)) : '') + '</small></button>' +
           '<button class="switch' + (on ? ' on' : '') + '" data-a="toggleNote" data-id="' + n.id + '"><i></i></button></div>';
       }).join('') : '<p class="empty">No notes yet. Add things you must not forget.</p>');
   }
@@ -721,21 +722,271 @@
     });
   }
 
+  // ---------- Note text: light Markdown <-> formatted blocks ----------
+  // Stored text, one block per line: "# " heading, "## " subheading, "- " bullet, "1. " numbered, "- [ ] " / "- [x] " checklist.
+  // Inline: **bold** *italic* ~~strike~~ ++underline++, "\" escapes a mark. Blocks are <div data-t="p|h1|h2|ul|ol|cl" data-c="1 if ticked">.
+  var MD_TAG = { '**': 'b', '*': 'i', '~~': 's', '++': 'u' };
+  function mdInline(s) {
+    var toks = [], re = /\\([\s\S])|\*\*|~~|\+\+|\*/g, m, last = 0;
+    while ((m = re.exec(s))) {
+      if (m.index > last) toks.push({ text: s.slice(last, m.index) });
+      toks.push(m[1] !== undefined ? { text: m[1] } : { mark: m[0] });
+      last = re.lastIndex;
+    }
+    if (last < s.length) toks.push({ text: s.slice(last) });
+    var count = {}; toks.forEach(function (t) { if (t.mark) count[t.mark] = (count[t.mark] || 0) + 1; });
+    var seen = {}; toks.forEach(function (t) { if (t.mark) { seen[t.mark] = (seen[t.mark] || 0) + 1; if (count[t.mark] % 2 && seen[t.mark] === count[t.mark]) { t.text = t.mark; delete t.mark; } } });   // unpaired last mark: literal
+    var out = '', stack = [];
+    toks.forEach(function (t) {
+      if (!t.mark) { out += esc(t.text); return; }
+      var tag = MD_TAG[t.mark], i = stack.lastIndexOf(tag);
+      if (i < 0) { stack.push(tag); out += '<' + tag + '>'; return; }
+      var above = stack.splice(i);
+      for (var k = above.length - 1; k >= 0; k--) out += '</' + above[k] + '>';
+      above.slice(1).forEach(function (a) { stack.push(a); out += '<' + a + '>'; });
+    });
+    for (var k = stack.length - 1; k >= 0; k--) out += '</' + stack[k] + '>';
+    return out;
+  }
+  function mdLine(l) {
+    var m;
+    if ((m = /^## (.*)$/.exec(l))) return { t: 'h2', s: m[1] };
+    if ((m = /^# (.*)$/.exec(l))) return { t: 'h1', s: m[1] };
+    if ((m = /^- \[([ xX])\](?: (.*))?$/.exec(l))) return { t: 'cl', c: m[1] !== ' ', s: m[2] || '' };
+    if ((m = /^[-*] (.*)$/.exec(l))) return { t: 'ul', s: m[1] };
+    if ((m = /^\d+\. (.*)$/.exec(l))) return { t: 'ol', s: m[1] };
+    return { t: 'p', s: l };
+  }
+  // tick: note id when checklist lines can be ticked (pop-up).
+  function mdHtml(text, tick) {
+    return String(text || '').split('\n').map(function (l, i) {
+      var b = mdLine(l), inner = mdInline(b.s);
+      return '<div data-t="' + b.t + '"' + (b.c ? ' data-c="1"' : '') + (tick && b.t === 'cl' ? ' data-a="tickNote" data-id="' + esc(tick) + '" data-k="' + i + '"' : '') + '>' + (inner || '<br>') + '</div>';
+    }).join('');
+  }
+  function mdEsc(s) { return s.replace(/[\\*]/g, '\\$&').replace(/~~/g, '\\~\\~').replace(/\+\+/g, '\\+\\+'); }
+  function mdFromInline(node) {
+    var out = '';
+    node.childNodes.forEach(function (c) {
+      if (c.nodeType === 3) { out += mdEsc(c.data.replace(/\u200B/g, '').replace(/\u00a0/g, ' ')); return; }
+      if (c.nodeType !== 1) return;
+      var inner = mdFromInline(c), tag = c.nodeName.toLowerCase();
+      if (!inner) return;
+      var mk = { b: '**', strong: '**', i: '*', em: '*', u: '++', s: '~~', strike: '~~', del: '~~' }[tag];
+      out += mk ? mk + inner + mk : inner;
+    });
+    return out;
+  }
+  function mdFromEditor(ed) {
+    var n = 0, lines = [];
+    ed.childNodes.forEach(function (b) {
+      if (b.nodeType !== 1) return;
+      var t = b.dataset.t || 'p', s = mdFromInline(b);
+      n = t === 'ol' ? n + 1 : 0;
+      if (t === 'p' && /^(#{1,2} |[-*] |\d+\. )/.test(s)) s = '\\' + s;
+      lines.push(({ h1: '# ', h2: '## ', ul: '- ', ol: n + '. ', cl: b.dataset.c === '1' ? '- [x] ' : '- [ ] ' }[t] || '') + s);
+    });
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    return lines.join('\n');
+  }
+  function noteTick(text, line) {
+    var ls = String(text || '').split('\n');
+    if (ls[line] && /^- \[[ xX]\]/.test(ls[line])) ls[line] = ls[line].replace(/^- \[([ xX])\]/, function (m, c) { return c === ' ' ? '- [x]' : '- [ ]'; });
+    return ls.join('\n');
+  }
+
+  var IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || '');
+  var RTE_TOOLS = [['bold', '<b>B</b>', 'Bold (' + (IS_MAC ? '⌘' : 'Ctrl+') + 'B)'], ['italic', '<i>I</i>', 'Italic (' + (IS_MAC ? '⌘' : 'Ctrl+') + 'I)'], ['underline', '<u>U</u>', 'Underline (' + (IS_MAC ? '⌘' : 'Ctrl+') + 'U)'], ['strikeThrough', '<s>S</s>', 'Strikethrough (' + (IS_MAC ? '⌘⇧X' : 'Alt+Shift+5') + ')'],
+    ['|'], ['ul', '•', 'Bullets (' + (IS_MAC ? '⌘⇧8' : 'Ctrl+Shift+8') + ')'], ['ol', '1.', 'Numbered (' + (IS_MAC ? '⌘⇧7' : 'Ctrl+Shift+7') + ')'], ['cl', '☑', 'Checklist (' + (IS_MAC ? '⌘⇧9' : 'Ctrl+Shift+9') + ')'], ['h1', 'H', 'Heading (' + (IS_MAC ? '⌘⌥1' : 'Ctrl+Alt+1') + ')']];
+  function rteField(text) {
+    return '<div class="field">Note<div class="rte-bar">' + RTE_TOOLS.map(function (t) { return t[0] === '|' ? '<i class="rte-sep"></i>' : '<button type="button" class="rte-b" data-fmt="' + t[0] + '" title="' + esc(t[2]) + '">' + t[1] + '</button>'; }).join('') + '</div>' +
+      '<div class="rte md" contenteditable="true" spellcheck="true" data-ph="e.g. Reply to João about Saturday">' + (text ? mdHtml(text) : '<div data-t="p"><br></div>') + '</div></div>';
+  }
+  function wireRte(ed, bar) {
+    try { document.execCommand('styleWithCSS', false, false); } catch (e) {}
+    var LIST = { ul: 1, ol: 1, cl: 1 };
+    function sel() { var s = window.getSelection(); return s.rangeCount && ed.contains(s.getRangeAt(0).startContainer) ? s.getRangeAt(0) : null; }
+    function blockOf(n) { while (n && n.parentNode !== ed) { if (n === ed) return null; n = n.parentNode; } return n && n.nodeType === 1 ? n : null; }
+    function caretAt(node, off) { var r = document.createRange(); r.setStart(node, off); r.collapse(true); var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); }
+    function fill(b) { if (!b.textContent.replace(/\u200B/g, '') && !b.querySelector('br')) b.innerHTML = '<br>'; }
+    function setType(b, t, ticked) { b.dataset.t = t; if (t === 'cl') b.dataset.c = ticked ? '1' : '0'; else delete b.dataset.c; }
+    function before(r, b) { var x = document.createRange(); x.setStart(b, 0); x.setEnd(r.startContainer, r.startOffset); return x; }
+    function normalize() {
+      var s = window.getSelection(), an = s.anchorNode, ao = s.anchorOffset, run = null, moved = false;
+      Array.prototype.slice.call(ed.childNodes).forEach(function (c) {
+        if (c.nodeType === 1 && c.nodeName === 'DIV') { run = null; if (!c.dataset.t) c.dataset.t = 'p'; return; }
+        if (c.nodeType === 3 && !c.data.trim() && !run) { if (!c.data) ed.removeChild(c); return; }
+        if (!run) { run = document.createElement('div'); run.dataset.t = 'p'; ed.insertBefore(run, c); }
+        run.appendChild(c); moved = true;
+      });
+      if (!ed.firstElementChild) { ed.innerHTML = '<div data-t="p"><br></div>'; caretAt(ed.firstChild, 0); }
+      blank();
+      ed.querySelectorAll('[style]').forEach(function (x) { x.removeAttribute('style'); });
+      if (moved && an && ed.contains(an)) try { caretAt(an, ao); } catch (e) {}
+    }
+    function blank() { var f = ed.firstElementChild; ed.classList.toggle('blank', ed.children.length === 1 && f.dataset.t === 'p' && !f.textContent.replace(/\u200B/g, '')); }
+    function blocksInSel(r) {
+      var a = blockOf(r.startContainer), z = blockOf(r.endContainer), out = [];
+      if (!a) return out;
+      for (var b = a; b; b = b.nextElementSibling) { out.push(b); if (b === z || !z) break; }
+      return out;
+    }
+    function block(t) {
+      var r = sel(); if (!r) { ed.focus(); r = sel(); if (!r) return; }
+      var bs = blocksInSel(r), all = bs.every(function (b) { return b.dataset.t === t; });
+      bs.forEach(function (b) { setType(b, all ? 'p' : t); });
+      paintBar();
+    }
+    function fmt(cmd) {
+      if (LIST[cmd] || cmd === 'h1' || cmd === 'h2' || cmd === 'p') return block(cmd === 'p' ? 'p' : cmd);
+      document.execCommand(cmd, false, null); normalize(); paintBar();
+    }
+    function enter() {
+      var r = sel(); if (!r) return;
+      if (!r.collapsed) r.deleteContents();
+      normalize(); r = sel(); if (!r) return;
+      var b = blockOf(r.startContainer); if (!b) return;
+      var t = b.dataset.t || 'p';
+      if (LIST[t] && !b.textContent.replace(/\u200B/g, '').trim()) { setType(b, 'p'); paintBar(); return; }   // Enter on an empty list line ends the list
+      var x = document.createRange(); x.setStart(r.startContainer, r.startOffset); x.setEnd(b, b.childNodes.length);
+      var frag = x.extractContents(), nb = document.createElement('div');
+      setType(nb, t === 'h1' || t === 'h2' ? 'p' : t, false);
+      nb.appendChild(frag);
+      if (!nb.textContent.replace(/\u200B/g, '')) nb.innerHTML = '<br>';
+      fill(b); b.parentNode.insertBefore(nb, b.nextSibling);
+      var first = nb.firstChild; while (first && first.nodeType === 1 && first.firstChild && first.nodeName !== 'BR') first = first.firstChild;
+      caretAt(first && first.nodeType === 3 ? first : nb, 0);
+      nb.scrollIntoView({ block: 'nearest' });
+      paintBar();
+    }
+    // Typing marks: "- " "* " bullet, "1. " numbered, "[] " "[ ] " "- [ " checklist ("[x] " ticked), "# " "## " heading; **b** *i* ~~s~~ ++u++.
+    // added: how many characters the last input put just before the caret (keyboards may insert whole words at once).
+    var BLOCK_MARKS = [[/^[-*] /, 'ul'], [/^\d+\. /, 'ol'], [/^\[[xX]\] /, 'cl', 1], [/^(\[\] |\[ \] |\[ )/, 'cl'], [/^## /, 'h2'], [/^# /, 'h1']];
+    var UL_MARKS = [[/^\[[xX]\] /, 'cl', 1], [/^(\[\] |\[ \] |\[ )/, 'cl']];
+    var INLINE_MARKS = [[/\*\*([^*\s](?:[^*]*[^*\s])?)\*\*/g, 'b'], [/~~([^~]+)~~/g, 's'], [/\+\+([^+]+)\+\+/g, 'u'], [/(^|[^*\\])\*([^*\s](?:[^*]*[^*\s])?)\*(?!\*)/g, 'i']];
+    function marks(added) {
+      var r = sel(); if (!r || !r.collapsed) return;
+      var b = blockOf(r.startContainer); if (!b) return;
+      added = Math.max(1, added || 1);
+      var t = b.dataset.t || 'p', pre = before(r, b).toString().replace(/\u00a0/g, ' ').replace(/\u200B/g, '');
+      if (t === 'cl' && b.dataset.fresh && /^\] ?/.test(pre)) {   // "- [ ] ": the "] " after the box already made
+        if (/^\] /.test(pre)) { delete b.dataset.fresh; cut(b, 2); }
+        return;
+      }
+      var list = t === 'p' ? BLOCK_MARKS : t === 'ul' ? UL_MARKS : t === 'h1' ? [[/^# /, 'h2']] : [];
+      for (var i = 0; i < list.length; i++) {
+        var m = list[i][0].exec(pre);
+        if (m && pre.length - added < m[0].length) {   // the mark was just typed
+          setType(b, list[i][1], list[i][2]); cut(b, m[0].length);
+          if (list[i][1] === 'cl' && !list[i][2]) b.dataset.fresh = '1'; else delete b.dataset.fresh;
+          if (list[i][1] === 'cl' && b.dataset.fresh && /^\] /.test(before(sel(), b).toString())) { delete b.dataset.fresh; cut(b, 2); }
+          paintBar(); return marks(added - m[0].length);
+        }
+      }
+      if (b.dataset.fresh && pre.length > 1) delete b.dataset.fresh;
+      r = sel(); var n = r.startContainer, off = r.startOffset;
+      if (n.nodeType !== 3) return;
+      var s = n.data.slice(0, off), from = Math.max(0, off - added - 4), best = null;
+      INLINE_MARKS.forEach(function (im) {
+        im[0].lastIndex = 0; var m;
+        while ((m = im[0].exec(s))) {
+          var lead = im[1] === 'i' ? m[1].length : 0, start = m.index + lead, end = m.index + m[0].length;
+          if (end > from && (!best || end < best.end)) best = { start: start, end: end, inner: im[1] === 'i' ? m[2] : m[1], tag: im[1] };
+        }
+      });
+      if (!best) return;
+      var x = document.createRange(); x.setStart(n, best.start); x.setEnd(n, best.end);
+      var tail = document.createRange(); tail.setStart(n, best.end); tail.setEnd(n, off);
+      var rest = tail.toString(); tail.deleteContents(); x.deleteContents();
+      var el = document.createElement(best.tag); el.textContent = best.inner;
+      x.insertNode(el);
+      var after = document.createTextNode(rest || '\u200B'); el.parentNode.insertBefore(after, el.nextSibling);
+      caretAt(after, after.data.length); paintBar();
+      if (rest) marks(rest.length);
+    }
+    // Deletes the first n characters of block b (the typed mark); the caret stays where it was.
+    function cut(b, n) {
+      var r = sel(), keep = r ? Math.max(0, before(r, b).toString().length - n) : 0;
+      var w = document.createTreeWalker(b, NodeFilter.SHOW_TEXT), tx, left = n;
+      while (left > 0 && (tx = w.nextNode())) { var k = Math.min(left, tx.data.length); tx.deleteData(0, k); left -= k; }
+      if (!b.textContent) { b.innerHTML = '<br>'; caretAt(b, 0); return; }
+      w = document.createTreeWalker(b, NodeFilter.SHOW_TEXT);
+      while ((tx = w.nextNode())) { if (keep <= tx.data.length) return caretAt(tx, keep); keep -= tx.data.length; }
+      caretAt(b, b.childNodes.length);
+    }
+    function paintBar() {
+      if (!ed.isConnected) { document.removeEventListener('selectionchange', paintBar); return; }
+      var r = sel(), b = r && blockOf(r.startContainer), t = b ? b.dataset.t : '';
+      bar.querySelectorAll('[data-fmt]').forEach(function (x) {
+        var k = x.dataset.fmt, on = false;
+        if (LIST[k] || k === 'h1') on = t === k || (k === 'h1' && t === 'h2');
+        else if (r) try { on = document.queryCommandState(k); } catch (e) {}
+        x.classList.toggle('on', on);
+      });
+    }
+    bar.addEventListener('mousedown', function (e) { if (e.target.closest('[data-fmt]')) e.preventDefault(); });   // keep the caret in the note
+    bar.addEventListener('click', function (e) {
+      var x = e.target.closest('[data-fmt]'); if (!x) return;
+      e.preventDefault(); if (!sel()) { ed.focus(); var last = ed.lastElementChild; if (last) caretAt(last, last.childNodes.length); }
+      var k = x.dataset.fmt;
+      if (k === 'h1') { var cb = blockOf((sel() || {}).startContainer), ct = cb ? cb.dataset.t : ''; k = ct === 'h1' ? 'h2' : ct === 'h2' ? 'p' : 'h1'; }   // H cycles: heading → subheading → normal
+      fmt(k);
+    });
+    ed.addEventListener('beforeinput', function (e) {
+      if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') { e.preventDefault(); enter(); return; }
+      if (e.inputType === 'deleteContentBackward') {
+        var r = sel(); if (!r || !r.collapsed) return;
+        var b = blockOf(r.startContainer);
+        if (b && b.dataset.t !== 'p' && !before(r, b).toString().replace(/\u200B/g, '')) { e.preventDefault(); setType(b, 'p'); delete b.dataset.fresh; paintBar(); }
+      }
+    });
+    ed.addEventListener('input', function (e) { normalize(); if (!e.isComposing && /^insert/.test(e.inputType || 'insert') && e.inputType !== 'insertFromPaste') marks(e.data ? e.data.length : 1); });
+    ed.addEventListener('compositionend', function (e) { var k = e.data ? e.data.length : 1; setTimeout(function () { marks(k); }, 0); });
+    ed.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); enter(); return; }
+      var mod = e.ctrlKey || e.metaKey, c = e.code, cmd = null;
+      if (mod && !e.shiftKey && !e.altKey) cmd = { KeyB: 'bold', KeyI: 'italic', KeyU: 'underline' }[c];
+      else if (mod && e.shiftKey && !e.altKey) cmd = { Digit8: 'ul', Digit7: 'ol', Digit9: 'cl', KeyX: 'strikeThrough' }[c];
+      else if (mod && e.altKey && !e.shiftKey) cmd = { Digit1: 'h1', Digit2: 'h2', Digit0: 'p' }[c];
+      else if (!mod && e.altKey && e.shiftKey && c === 'Digit5') cmd = 'strikeThrough';
+      if (cmd) { e.preventDefault(); fmt(cmd); }
+    });
+    ed.addEventListener('paste', function (e) {
+      e.preventDefault();
+      var lines = ((e.clipboardData || window.clipboardData).getData('text/plain') || '').replace(/\r/g, '').split('\n');
+      lines.forEach(function (l, i) { if (i) enter(); if (l) document.execCommand('insertText', false, l); });
+    });
+    // Tick a checklist box in the editor by tapping it.
+    ed.addEventListener('click', function (e) {
+      var b = blockOf(e.target);
+      if (b && b.dataset.t === 'cl' && e.clientX - b.getBoundingClientRect().left < 26) { b.dataset.c = b.dataset.c === '1' ? '0' : '1'; e.preventDefault(); }
+    });
+    document.addEventListener('selectionchange', paintBar);
+    blank();
+    return { value: function () { return mdFromEditor(ed); } };
+  }
+
   function openNoteEditor(n) {
     var isNew = !n || !n.id;
-    var t = Object.assign({ text: '', every: 60, hold: 5, from: '08:00', to: '23:00', color: COLORS[6], active: true }, n || {});
+    var t = Object.assign({ text: '', every: 60, hold: 5, from: '08:00', to: '23:00', days: [], color: COLORS[6], active: true }, n || {});
     var unit = t.every % 1440 === 0 ? 1440 : t.every % 60 === 0 ? 60 : 1;
     $modal.innerHTML = modalShell(isNew ? 'New note' : 'Edit note',
-      '<label class="field">Note<textarea name="text" rows="4" required maxlength="600" placeholder="e.g. Reply to João about Saturday">' + esc(t.text) + '</textarea></label>' +
-      '<div class="two"><label class="field">Pop up every<input type="number" name="n" min="1" max="999" value="' + (t.every / unit) + '"></label><label class="field">&nbsp;<select name="unit"><option value="1"' + sel(1, unit) + '>minutes</option><option value="60"' + sel(60, unit) + '>hours</option><option value="1440"' + sel(1440, unit) + '>days</option></select></label></div>' +
+      rteField(t.text) +
+      '<div class="note-when"><div class="field">Pop up every<div class="pair"><input type="number" name="n" min="1" max="999" value="' + (t.every / unit) + '"><select name="unit"><option value="1"' + sel(1, unit) + '>minutes</option><option value="60"' + sel(60, unit) + '>hours</option><option value="1440"' + sel(1440, unit) + '>days</option></select></div></div>' +
+      '<div class="field">Only between<div class="pair"><input type="time" name="from" value="' + esc(t.from) + '"><span>and</span><input type="time" name="to" value="' + esc(t.to) + '"></div></div></div>' +
+      '<div class="field">Active days <small>(none selected = every day)</small><div class="day-row">' + DAYS.map(function (d, i) { return '<button type="button" class="dp' + ((t.days || []).indexOf(i) >= 0 ? ' on' : '') + '" data-day="' + i + '">' + d + '</button>'; }).join('') + '</div></div>' +
       '<label class="field">Can\'t dismiss for the first (seconds)<input type="number" name="hold" min="0" max="600" value="' + esc(t.hold) + '"></label>' +
-      '<div class="two"><label class="field">Only between<input type="time" name="from" value="' + esc(t.from) + '"></label><label class="field">and<input type="time" name="to" value="' + esc(t.to) + '"></label></div>' +
       '<label class="check"><input type="checkbox" name="active"' + (t.active !== false ? ' checked' : '') + '> Active</label>' + colorField(t), !isNew);
+    var rte = wireRte($modal.querySelector('.rte'), $modal.querySelector('.rte-bar'));
     wire(t, function (fd) {
+      var text = rte.value(), len = E.plainNote(text).length;
+      if (!E.plainNote(text).trim()) return toast('Write the note first');
+      if (len > 600) return toast('Too long: ' + len + ' of 600 characters');
       var every = Math.max(1, (+fd.get('n') || 1) * (+fd.get('unit') || 1));
       if (every !== t.every || isNew || (fd.get('active') && t.active === false)) t.anchor = now();
-      t.text = fd.get('text').trim(); t.every = every; t.hold = Math.max(0, +fd.get('hold') || 0);
+      t.text = text; t.every = every; t.hold = Math.max(0, +fd.get('hold') || 0);
       t.from = fd.get('from') || '00:00'; t.to = fd.get('to') || '24:00'; t.active = !!fd.get('active');
+      if (!t.days || t.days.length === 7) t.days = [];
       apply(E.opPut('notes', t, by(), now())); closeModal(); toast(isNew ? '📌 Note added' : 'Saved');
     }, function () { confirmBox('Delete this note?', 'It stops popping up on every device.', 'Delete', function () { apply(E.opDel('notes', t, by(), now())); closeModal(); }); });
   }

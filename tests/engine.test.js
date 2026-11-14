@@ -197,6 +197,16 @@ t('notes pop every N minutes inside active hours until dismissed', () => {
   assert.strictEqual(E.pendingNotes(s, at('10:40')).length, 0, 'emergency stop silences notes');
 });
 
+t('notes only pop on their active days; a night window belongs to the day it starts', () => {
+  const s = base();   // 2026-11-09 is a Monday
+  Object.assign(s.notes, E.opPut('notes', { id: 'n2', text: 'x', every: 60, from: '22:00', to: '02:00', days: [1] }, 'A', at('10:00')).notes);
+  assert.strictEqual(E.pendingNotes(s, at('12:00')).length, 0, 'not inside the window yet');
+  assert.strictEqual(E.notePops(s.notes.n2, at('12:00')).next, at('22:00'), 'Monday night');
+  assert.strictEqual(E.notePops(s.notes.n2, at('23:30')).next, at('00:00') + E.DAY, 'runs into Tuesday 00:00');
+  assert.strictEqual(E.notePops(s.notes.n2, at('01:30') + E.DAY).next, at('22:00') + 7 * E.DAY, 'then waits for next Monday');
+  assert.strictEqual(E.plainNote('# T\n- [ ] a **b** ++c++'), 'T\n☐ a b c');
+});
+
 t('calendar agenda', () => {
   const s = base();
   Object.assign(s.events, E.opPut('events', { id: 'e1', title: 'Dentist', start: at('15:00'), end: at('16:00') }, 'A', at('06:00')).events);
@@ -220,12 +230,14 @@ addTodo(fx, { id: 'mon', title: 'Bills', repeat: 'month', dueDay: 9, start: '10:
 addTodo(fx, { id: 'cus', title: 'Gym', repeat: 'custom', days: [1, 4], due: '23:59', start: '18:00', level: 4 });
 addTodo(fx, { id: 'ev3', title: 'Water plants', repeat: 'days', every: 3, date: '2026-11-03', start: '17:00', due: '17:30', level: 1 });
 Object.assign(fx.notes, E.opPut('notes', { id: 'n1', text: 'x', every: 45, from: '08:00', to: '22:00' }, 'A', at('07:10')).notes);
+Object.assign(fx.notes, E.opPut('notes', { id: 'n2', text: '- [ ] y', every: 90, from: '20:00', to: '01:00', days: [1, 3] }, 'A', at('07:10')).notes);
+Object.assign(fx.notes, E.opPut('notes', { id: 'n3', text: 'z', every: 30, from: '09:00', to: '09:00', days: [2] }, 'A', at('07:10')).notes);
 fx.tasks.gym.active = false;
 E.merge(fx, E.opAck('n1', 'B', at('13:00')));
 const instants = ['06:59', '07:00', '07:05', '07:10', '08:00', '09:00', '10:30', '13:59', '14:00', '17:05', '17:30', '20:59', '21:00', '21:10', '23:31'];
 const out = instants.map(h => {
   const now = at(h), r = E.compute(fx, now);
-  return { now, lock: r.lock ? r.lock.id : null, next: r.next, done: r.done, total: r.total, rem: E.dueReminders(fx, now - 60000, now).map(x => x.id + ':' + x.popup), notes: r.notes.map(n => n.id + ':' + n.since), keys: r.items.map(i => i.key + ':' + i.status) };
+  return { now, lock: r.lock ? r.lock.id : null, next: r.next, done: r.done, total: r.total, rem: E.dueReminders(fx, now - 60000, now).map(x => x.id + ':' + x.popup), notes: r.notes.map(n => n.id + ':' + n.since), keys: r.items.map(i => i.key + ':' + i.status), pops: Object.keys(fx.notes).sort().map(id => { const p = E.notePops(fx.notes[id], now); return id + ':' + p.last + ':' + p.next; }) };
 });
 fs.writeFileSync(path.join(__dirname, 'fixture-out.json'), JSON.stringify({ state: fx, cases: out }, null, 1));
 

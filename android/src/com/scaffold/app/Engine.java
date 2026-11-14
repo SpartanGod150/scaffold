@@ -328,12 +328,38 @@ public final class Engine {
     }
 
     // ---------- reminder notes ----------
+    // days: weekdays (0=Sun..6=Sat) the note is active; none = every day. A window that crosses midnight belongs to the day it starts.
+    static boolean dayOk(JSONObject note, long t) {
+        JSONArray ds = note.optJSONArray("days");
+        if (ds == null || ds.length() == 0) return true;
+        int wd = cal(t).get(Calendar.DAY_OF_WEEK) - 1;
+        for (int i = 0; i < ds.length(); i++) if (ds.optInt(i, -1) == wd) return true;
+        return false;
+    }
+    static String nFrom(JSONObject note) { String f = note.optString("from", "00:00"); return f.isEmpty() ? "00:00" : f; }
+    static String nTo(JSONObject note) { String t = note.optString("to", "24:00"); return t.isEmpty() ? "24:00" : t; }
+
     static boolean inHours(JSONObject note, long t) {
-        String from = note.optString("from", "00:00"), to = note.optString("to", "24:00"), x = hhmm(t);
-        if (from.isEmpty()) from = "00:00";
-        if (to.isEmpty()) to = "24:00";
-        if (from.equals(to)) return true;
-        return from.compareTo(to) < 0 ? (x.compareTo(from) >= 0 && x.compareTo(to) < 0) : (x.compareTo(from) >= 0 || x.compareTo(to) < 0);
+        String from = nFrom(note), to = nTo(note), x = hhmm(t);
+        if (from.equals(to)) return dayOk(note, t);
+        if (from.compareTo(to) < 0) return x.compareTo(from) >= 0 && x.compareTo(to) < 0 && dayOk(note, t);
+        return (x.compareTo(from) >= 0 && dayOk(note, t)) || (x.compareTo(to) < 0 && dayOk(note, addDays(t, -1)));
+    }
+    static long nextOpen(JSONObject note, long t) {
+        String from = nFrom(note), to = nTo(note), s = from.equals(to) ? "00:00" : from;
+        for (int d = 0; d <= 8; d++) { long w = at(addDays(t, d), s); if (w > t && inHours(note, w)) return w; }
+        return 0;
+    }
+    static long prevClose(JSONObject note, long t) {
+        String from = nFrom(note), to = nTo(note);
+        long best = 0;
+        for (int d = 0; d <= 9; d++) {
+            long D = addDays(t, -d);
+            if (!dayOk(note, D)) continue;
+            long e = from.equals(to) ? at(addDays(D, 1), "00:00") : from.compareTo(to) < 0 ? at(D, to) : at(addDays(D, 1), to);
+            if (e <= t && e > best) best = e;
+        }
+        return best;
     }
 
     /** {last, next} */
@@ -343,10 +369,42 @@ public final class Engine {
         long anchor = note.has("anchor") ? note.optLong("anchor", 0) : note.optLong("ts", 0);
         if (now < anchor) return new long[]{0, anchor};
         long k = (now - anchor) / every, last = anchor + k * every, next = last + every;
-        for (int j = 0; j < 3000 && last >= anchor && !inHours(note, last); j++) last -= every;
+        for (int j = 0; j < 500 && last >= anchor && !inHours(note, last); j++) {
+            long e = prevClose(note, last);
+            if (e == 0) { last = 0; break; }
+            last -= Math.max(1, (last - e + 1 + every - 1) / every) * every;
+        }
         if (last < anchor || !inHours(note, last)) last = 0;
-        for (int i = 0; i < 3000 && !inHours(note, next); i++) next += every;
+        for (int i = 0; i < 500 && !inHours(note, next); i++) {
+            long w = nextOpen(note, next);
+            if (w == 0) { next = 0; break; }
+            next += Math.max(1, (w - next + every - 1) / every) * every;
+        }
+        if (next != 0 && !inHours(note, next)) next = 0;
         return new long[]{last, next};
+    }
+
+    /** Note text without its Markdown marks (for notifications). */
+    static String plainNote(String text) {
+        StringBuilder out = new StringBuilder();
+        for (String l : (text == null ? "" : text).split("\n", -1)) {
+            if (out.length() > 0) out.append('\n');
+            if (l.matches("^- \\[[xX]\\] .*")) l = "☑ " + l.substring(6);
+            else if (l.startsWith("- [ ] ")) l = "☐ " + l.substring(6);
+            else if (l.startsWith("- ")) l = "• " + l.substring(2);
+            else if (l.startsWith("## ")) l = l.substring(3);
+            else if (l.startsWith("# ")) l = l.substring(2);
+            StringBuilder b = new StringBuilder();
+            for (int i = 0; i < l.length(); i++) {
+                char ch = l.charAt(i);
+                if (ch == '\\' && i + 1 < l.length()) { b.append(l.charAt(++i)); continue; }
+                if (ch == '*') continue;
+                if ((ch == '~' || ch == '+') && i + 1 < l.length() && l.charAt(i + 1) == ch) { i++; continue; }
+                b.append(ch);
+            }
+            out.append(b);
+        }
+        return out.toString();
     }
 
     static List<Note> pendingNotes(JSONObject state, long now) {
@@ -503,6 +561,15 @@ public final class Engine {
                 List<String> ns = new ArrayList<>(), ks = new ArrayList<>();
                 for (Note n : r.notes) ns.add(n.id + ":" + n.since);
                 for (Item it : r.items) ks.add(it.key + ":" + it.status);
+                List<String> pops = new ArrayList<>();
+                JSONObject nm = map(state, "notes");
+                List<String> nids = new ArrayList<>();
+                Iterator<String> it2 = nm.keys();
+                while (it2.hasNext()) nids.add(it2.next());
+                Collections.sort(nids);
+                for (String id : nids) { long[] p = notePops(nm.optJSONObject(id), now); pops.add(id + ":" + p[0] + ":" + p[1]); }
+                String popS = join(pops), expPops = c.has("pops") ? join(c.getJSONArray("pops")) : popS;
+                if (!popS.equals(expPops)) bad.append("case ").append(i).append(": pops ").append(popS).append('/').append(expPops).append('\n');
                 String notes = join(ns), expNotes = join(c.getJSONArray("notes")), itemKeys = join(ks), expKeys = join(c.getJSONArray("keys"));
                 if (!lock.equals(expLock) || r.next != c.getLong("next") || r.done != c.getInt("done") || r.total != c.getInt("total")
                         || !rem.equals(exp) || !notes.equals(expNotes) || !itemKeys.equals(expKeys))

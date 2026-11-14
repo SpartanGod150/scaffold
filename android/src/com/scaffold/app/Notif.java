@@ -120,7 +120,7 @@ public final class Notif {
         return anyFresh;
     }
 
-    static String firstLine(String s) { String l = s.split("\n")[0]; return l.length() > 60 ? l.substring(0, 60) + "…" : l; }
+    static String firstLine(String s) { String l = Engine.plainNote(s).split("\n")[0]; return l.length() > 60 ? l.substring(0, 60) + "…" : l; }
 
     static void simple(Context c, String title, String text) {
         c.getSystemService(NotificationManager.class).notify((int) (System.currentTimeMillis() % 100000) + 200000,

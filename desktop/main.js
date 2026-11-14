@@ -190,7 +190,7 @@ function showNoteWin(notes) {
     if (noteWin.noteKey !== key) { noteWin.noteKey = key; noteWin.webContents.send('native'); }
     return;
   }
-  notify('📌 ' + notes[0].note.text.split('\n')[0].slice(0, 60), 'Note · tap “Got it” when you have read it');
+  notify('📌 ' + Engine.plainNote(notes[0].note.text).split('\n')[0].slice(0, 60), 'Note · tap “Got it” when you have read it');
   const d = screen.getPrimaryDisplay().workArea;
   noteWin = new BrowserWindow({ width: 560, height: 440, x: Math.round(d.x + (d.width - 560) / 2), y: Math.round(d.y + (d.height - 440) / 2), frame: false, resizable: false, minimizable: false, alwaysOnTop: true, skipTaskbar: false, backgroundColor: '#0f1117', show: false, webPreferences: webPrefs() });
   noteWin.noteKey = key;

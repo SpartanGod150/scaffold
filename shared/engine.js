@@ -208,21 +208,55 @@
   }
 
   // ---------- reminder notes ----------
+  // days: weekdays (0=Sun..6=Sat) the note is active; none = every day. A window that crosses midnight belongs to the day it starts.
+  function dayOk(note, t) { var ds = note.days; return !ds || !ds.length || ds.indexOf(new Date(t).getDay()) >= 0; }
   function inHours(note, t) {
     var from = note.from || '00:00', to = note.to || '24:00', x = hhmm(t);
-    if (from === to) return true;
-    return from < to ? (x >= from && x < to) : (x >= from || x < to);
+    if (from === to) return dayOk(note, t);
+    if (from < to) return x >= from && x < to && dayOk(note, t);
+    return (x >= from && dayOk(note, t)) || (x < to && dayOk(note, addDays(t, -1)));
   }
-  // Pops at anchor + k*every, only inside the note's active hours. last = latest pop at or before now.
+  // First moment after t when the note's window opens (0 = never).
+  function nextOpen(note, t) {
+    var from = note.from || '00:00', to = note.to || '24:00', s = from === to ? '00:00' : from;
+    for (var d = 0; d <= 8; d++) { var w = at(addDays(t, d), s); if (w > t && inHours(note, w)) return w; }
+    return 0;
+  }
+  // Latest window end (exclusive) at or before t (0 = none in the last 9 days).
+  function prevClose(note, t) {
+    var from = note.from || '00:00', to = note.to || '24:00', best = 0;
+    for (var d = 0; d <= 9; d++) {
+      var D = addDays(t, -d); if (!dayOk(note, D)) continue;
+      var e = from === to ? at(addDays(D, 1), '00:00') : from < to ? at(D, to) : at(addDays(D, 1), to);
+      if (e <= t && e > best) best = e;
+    }
+    return best;
+  }
+  // Pops at anchor + k*every, only inside the note's active hours and days. last = latest pop at or before now.
   function notePops(note, now) {
     if (!note || note.del || note.active === false) return { last: 0, next: 0 };
     var every = Math.max(1, +note.every || 60) * MIN, anchor = note.anchor || note.ts || 0;
     if (now < anchor) return { last: 0, next: anchor };
     var k = Math.floor((now - anchor) / every), last = anchor + k * every, next = last + every;
-    for (var j = 0; j < 3000 && last >= anchor && !inHours(note, last); j++) last -= every;
+    for (var j = 0; j < 500 && last >= anchor && !inHours(note, last); j++) {
+      var e = prevClose(note, last); if (!e) { last = 0; break; }
+      last -= Math.max(1, Math.ceil((last - e + 1) / every)) * every;
+    }
     if (last < anchor || !inHours(note, last)) last = 0;
-    for (var i = 0; i < 3000 && !inHours(note, next); i++) next += every;
+    for (var i = 0; i < 500 && !inHours(note, next); i++) {
+      var w = nextOpen(note, next); if (!w) { next = 0; break; }
+      next += Math.max(1, Math.ceil((w - next) / every)) * every;
+    }
+    if (next && !inHours(note, next)) next = 0;
     return { last: last, next: next };
+  }
+  // Note text is light Markdown (# heading, - bullet, 1. numbered, - [ ] checklist, **bold** *italic* ~~strike~~ ++underline++).
+  // plainNote: the same text without the marks, for notifications.
+  function plainNote(text) {
+    return String(text || '').split('\n').map(function (l) {
+      return l.replace(/^(#{1,2} |- \[[ xX]\] |- |\d+\. )/, function (m) { return /\[[xX]\]/.test(m) ? '☑ ' : /\[ \]/.test(m) ? '☐ ' : /^- /.test(m) ? '• ' : /^\d/.test(m) ? m : ''; })
+        .replace(/\\(.)|\*\*|~~|\+\+|\*/g, function (m, c) { return c || ''; });
+    }).join('\n');
   }
   function pendingNotes(state, now) {
     if (state.pause && state.pause.on) return [];
@@ -420,7 +454,7 @@
     MIN: MIN, DAY: DAY, MAPS: MAPS, MAX_SNOOZES: MAX_SNOOZES, SNOOZE_MIN: SNOOZE_MIN,
     pad: pad, dateKey: dateKey, fromKey: fromKey, addDays: addDays, at: at, hhmm: hhmm, compKey: compKey, uid: uid, emptyState: emptyState,
     newer: newer, merge: merge, eventsFor: eventsFor, dropPulledCopies: dropPulledCopies, isPulledCopy: isPulledCopy, scheduledOn: scheduledOn, windowOf: windowOf, reminderTimes: reminderTimes, periodOf: periodOf,
-    compute: compute, dueReminders: dueReminders, notePops: notePops, pendingNotes: pendingNotes, stats: stats,
+    compute: compute, dueReminders: dueReminders, notePops: notePops, pendingNotes: pendingNotes, plainNote: plainNote, stats: stats,
     projectProgress: projectProgress, dayAgenda: dayAgenda, vaultProjects: vaultProjects, itemKey: itemKey,
     chunks: chunks, snapshot: snapshot,
     opPut: opPut, opDel: opDel, opTask: opTask, opDelete: opDelete, opComplete: opComplete, opUndo: opUndo, opSnooze: opSnooze, opPause: opPause, opAck: opAck
