@@ -28,9 +28,9 @@
   var TEMPLATES = [
     { emoji: '🪥', title: 'Brush teeth', start: '07:00', due: '08:00', level: 4, kind: 'check', remind: 15, color: '#5cc8ff', desktop: 'lock' },
     { emoji: '🛏️', title: 'Make the bed', start: '07:00', due: '09:00', level: 2, kind: 'check', remind: 30, color: '#c58cff', desktop: 'none' },
-    { emoji: '📖', title: 'Read', start: '20:00', due: '21:30', level: 3, kind: 'timer', minutes: 20, tiny: 'Read 1 page', remind: 30, color: '#ffb86b', desktop: 'lock' },
-    { emoji: '📚', title: 'Study', start: '14:00', due: '18:00', level: 3, kind: 'timer', minutes: 45, tiny: 'Study 10 minutes', remind: 45, color: '#7c9cff', desktop: 'focus' },
-    { emoji: '💻', title: 'Work on a project', start: '15:00', due: '20:00', level: 2, kind: 'timer', minutes: 30, tiny: 'Open the project for 5 minutes', remind: 60, color: '#5ed3a8', desktop: 'focus' },
+    { emoji: '📖', title: 'Read', start: '20:00', due: '21:30', level: 3, kind: 'timer', minutes: 20, remind: 30, color: '#ffb86b', desktop: 'lock' },
+    { emoji: '📚', title: 'Study', start: '14:00', due: '18:00', level: 3, kind: 'timer', minutes: 45, remind: 45, color: '#7c9cff', desktop: 'focus' },
+    { emoji: '💻', title: 'Work on a project', start: '15:00', due: '20:00', level: 2, kind: 'timer', minutes: 30, remind: 60, color: '#5ed3a8', desktop: 'focus' },
     { emoji: '🧹', title: 'Tidy up', start: '18:00', due: '21:00', level: 2, kind: 'timer', minutes: 10, remind: 45, color: '#ffd75e', desktop: 'none' }
   ];
   var WORDS = ('amber anchor apple arrow aspen atlas badge bamboo basil beacon berry birch blaze bloom breeze brook cabin cactus candle canyon cedar cherry cliff clover cobalt comet coral cosmic cotton crane crystal dawn delta dune eagle echo ember fable falcon fern fjord flame forest fox frost galaxy garnet ginger glacier grove harbor hazel honey indigo iris island ivory jade jasmine jungle kayak kite lagoon lantern lemon lily lotus lunar maple marble meadow mint mist moss nebula nectar north oak ocean olive onyx orbit otter panda pearl pebble pepper pine planet plum polar prism quartz raven reef river robin ruby saffron sage salt sierra silver sky snow solar spruce star stone storm sunny thunder tiger topaz tulip tundra valley velvet violet willow winter wolf zephyr').split(' ');
@@ -64,6 +64,7 @@
   }
   function calMove(dir) {
     var v = calView(), t = E.fromKey(calAnchor()), d = new Date(t);
+    if (v === 'range') { var rg = calRange(); S.calRange = { from: E.dateKey(E.addDays(E.fromKey(rg.from), (rg.n > 7 ? Math.ceil(rg.n / 7) * 7 : rg.n) * dir)), n: rg.n }; saveRange(); return render(); }
     if (v === 'month') t = new Date(d.getFullYear(), d.getMonth() + dir, 1, 12).getTime();
     else t = E.addDays(t, v === 'week' ? 7 * dir : dir);
     S.calDay = E.dateKey(t); render();
@@ -146,11 +147,15 @@
     dismissNote: function (id) { apply(E.opAck(id, by(), now())); delete S.noteSeen[id]; if (S.mode === 'note' && !E.pendingNotes(S.state, now()).filter(function (n) { return n.id !== id; }).length) B.closeWindow(); },
     calPrev: function () { calMove(-1); },
     calNext: function () { calMove(1); },
-    calToday: function () { S.calDay = null; S.calScroll = null; render(); },
+    calToday: function () { S.calDay = null; S.calScroll = null; if (calView() === 'range') { S.calRange = { from: E.dateKey(now()), n: calRange().n }; saveRange(); } render(); },
     calPick: function (key) { S.calDay = key; S.calView = 'day'; lsSet('scaffold-calview', 'day'); render(); },
-    calView: function (v) { S.calView = v; lsSet('scaffold-calview', v); render(); },
+    calView: function (v) { if (v === 'range' && !calRange()) return; if (v !== 'range' && calView() === 'range') S.calDay = calRange().from; S.calView = v; lsSet('scaffold-calview', v); render(); },
     calCals: function () { openCalendars(); },
-    calJump: function (key) { S.calDay = key; S.miniMonth = null; render(); },
+    calJump: function (key) {
+      if (S.mmDragged && Date.now() - S.mmDragged < 400) return;
+      if (calView() === 'range') { S.calRange = { from: key, n: calRange().n }; saveRange(); }
+      S.calDay = key; S.miniMonth = null; render();
+    },
     miniPrev: function () { var m = S.miniMonth; S.miniMonth = new Date(m.getFullYear(), m.getMonth() - 1, 1); render(); },
     miniNext: function () { var m = S.miniMonth; S.miniMonth = new Date(m.getFullYear(), m.getMonth() + 1, 1); render(); },
     calShow: function (el) { apply(E.opPut('marks', { id: 'cal:' + el.getAttribute('data-id'), hidden: !el.checked }, by(), now())); },
@@ -241,7 +246,7 @@
   function paint(html) {
     var full = /^<section class="(block|remind)/.exec(html), key = full ? full[1] + (S.r.lock ? S.r.lock.id : S.modeTask) : '';
     if (key && key !== S.guardKey) { S.guardUntil = Date.now() + 1500; S.guardKey = key; } else if (!key) S.guardKey = '';
-    $app.innerHTML = html; tick(); wireTimeline();
+    $app.innerHTML = html; tick(); wireTimeline(); wireMini();
     var ne = $app.querySelector('.note-edit .rte'); if (ne) { S.noteRte = wireRte(ne, $app.querySelector('.note-edit .rte-bar')); ne.focus(); }
   }
 
@@ -285,7 +290,7 @@
       (next ? '<div class="next">Next: ' + esc(next.task.emoji) + ' <b>' + esc(next.task.title) + '</b> · ' + (next.status === 'upcoming' ? 'starts ' + hm(next.start) : next.status === 'open' ? '<span data-left="' + next.due + '"></span> left' : '<span class="late-t">late</span>') + '</div>' : (r.total ? '<div class="next good">Everything done today 🎉</div>' : '')) +
       '</div></section>';
     var pending = function (list) { return list.filter(function (i) { return !i.done; }).concat(list.filter(function (i) { return i.done; })); };
-    return hero + timeline(todayItems.filter(function (i) { return !i.nudge; })) +
+    return hero + '<section class="today-cal">' + calTimeline([E.dateKey(now())], true) + '</section>' +
       '<section class="cards">' + (todayItems.length ? pending(todayItems).map(card).join('') : '<p class="empty">Nothing due today. Enjoy it.</p>') + '</section>' +
       (later.length ? '<h3 class="mt">Due later</h3><section class="cards">' + later.map(card).join('') + '</section>' : '');
   }
@@ -296,21 +301,6 @@
       '<h3>Quick start: a habit</h3><div class="tpl-grid">' + TEMPLATES.map(function (t, i) {
         return '<button class="tpl" data-a="template" data-id="' + i + '" style="--c:' + t.color + '"><span>' + t.emoji + '</span>' + esc(t.title) + '<small>' + LEVELS[t.level].icon + ' ' + LEVELS[t.level].name + '</small></button>';
       }).join('') + '</div><div class="row-btns"><button class="btn" data-a="editHabit">＋ Habit</button><button class="btn" data-a="editTodo">＋ Task</button><button class="btn" data-a="editNote">＋ Note</button></div></section>';
-  }
-
-  function timeline(items) {
-    if (!items.length) return '';
-    var d = new Date(), dayStart = E.at(now(), '00:00');
-    var first = Math.min.apply(null, items.map(function (i) { return i.start; }));
-    var from = Math.min(E.at(now(), '06:00'), first - 30 * E.MIN), to = dayStart + 24 * 60 * E.MIN, span = to - from;
-    function x(t) { return ((Math.max(from, Math.min(to, t)) - from) / span * 100).toFixed(2) + '%'; }
-    var hours = '';
-    for (var h = Math.ceil((from - dayStart) / 3600000); h <= 24; h += 3) hours += '<i style="left:' + x(dayStart + h * 3600000) + '">' + E.pad(h % 24) + '</i>';
-    var bars = items.map(function (it) {
-      var w = Math.max(1.5, (it.due - it.start) / span * 100);
-      return '<div class="tl-row"><div class="tl-bar ' + it.status + '" style="left:' + x(it.start) + ';width:' + w.toFixed(2) + '%;--c:' + taskColor(it.task) + '">' + esc(it.task.emoji) + '</div></div>';
-    }).join('');
-    return '<section class="timeline"><div class="tl-hours">' + hours + '</div>' + bars + '<div class="tl-now" style="left:' + x(d.getTime()) + '"></div></section>';
   }
 
   function statusChip(it) {
@@ -329,7 +319,6 @@
     var t = it.task, h = '';
     if (t.kind === 'timer') h += '<button class="btn primary" data-a="timer" data-id="' + it.id + '">▶ Start ' + (t.minutes || 20) + ' min</button>';
     else h += '<button class="btn primary" data-a="done" data-id="' + it.id + '">✓ I did it</button>';
-    if (t.tiny) h += '<button class="btn tiny" data-a="done" data-id="' + it.id + '" data-k="tiny">🌱 ' + esc(t.tiny) + '</button>';
     if (!compact && !it.nudge && it.status !== 'upcoming' && it.snoozesLeft > 0 && !it.snoozedUntil) h += '<button class="btn ghost sm" data-a="snooze" data-id="' + it.id + '">⏸ ' + E.SNOOZE_MIN + ' min (' + it.snoozesLeft + ' left)</button>';
     return h;
   }
@@ -410,9 +399,14 @@
   var HOUR_PX = 44, EV_COLOR = '#5cc8ff';
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
-  function calView() { return S.calView || lsGet('scaffold-calview') || 'month'; }
+  function calView() { var v = S.calView || lsGet('scaffold-calview') || 'month'; return v === 'range' && !calRange() ? 'week' : v; }
+  // Custom range picked by dragging on the mini month: up to 7 days = columns, more = whole weeks in a month-style grid.
+  function calRange() { if (S.calRange === undefined) { try { S.calRange = JSON.parse(lsGet('scaffold-calrange') || 'null'); } catch (e) { S.calRange = null; } } return S.calRange && S.calRange.from && S.calRange.n > 0 ? S.calRange : null; }
+  function saveRange() { lsSet('scaffold-calrange', JSON.stringify(S.calRange)); }
+  function rangeKeys(rg) { var ks = []; for (var i = 0; i < rg.n; i++) ks.push(E.dateKey(E.addDays(E.fromKey(rg.from), i))); return ks; }
+  function shortDay(k) { var d = new Date(E.fromKey(k)); return MONTHS[d.getMonth()].slice(0, 3) + ' ' + d.getDate(); }
   function calList() { return S.calList != null ? S.calList : lsGet('scaffold-callist') === '1'; }
-  function calAnchor() { return S.calDay || E.dateKey(now()); }
+  function calAnchor() { return calView() === 'range' ? calRange().from : S.calDay || E.dateKey(now()); }
   function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
   function weekStart(key) { var t = E.fromKey(key); return E.addDays(t, -((new Date(t).getDay() + 6) % 7)); }
   // "Show in monthly" lives in state.marks (events from Google can't carry it); repeating Google events share one mark.
@@ -441,16 +435,20 @@
     else if (v === 'week') {
       var a = new Date(weekStart(key)), b = new Date(E.addDays(weekStart(key), 6));
       title = MONTHS[a.getMonth()].slice(0, 3) + ' ' + a.getDate() + ' – ' + (a.getMonth() !== b.getMonth() ? MONTHS[b.getMonth()].slice(0, 3) + ' ' : '') + b.getDate();
+    } else if (v === 'range') {
+      var rk = rangeKeys(calRange()), a2 = new Date(E.fromKey(rk[0])), b2 = new Date(E.fromKey(rk[rk.length - 1]));
+      title = shortDay(rk[0]) + ' – ' + (a2.getMonth() !== b2.getMonth() ? shortDay(rk[rk.length - 1]) : b2.getDate());
     } else title = cap(niceDay(key)) + (/^(today|tomorrow|yesterday)$/.test(niceDay(key)) ? ' · ' + DAYNAMES[d.getDay()] + ' ' + d.getDate() + ' ' + MONTHS[d.getMonth()].slice(0, 3) : '');
     var seg = function (items, act, cur) { return '<div class="seg">' + items.map(function (x) { return '<button class="seg-b' + (x[0] === cur ? ' on' : '') + '" data-a="' + act + '" data-id="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>'; };
     var body;
     if (v === 'month') body = monthGrid(key);
     else if (v === 'week') { var ks = []; for (var i = 0; i < 7; i++) ks.push(E.dateKey(E.addDays(weekStart(key), i))); body = calTimeline(ks); }
+    else if (v === 'range') { var rr = calRange(); body = rr.n <= 7 ? calTimeline(rangeKeys(rr)) : weeksGrid(rangeKeys(rr)); }
     else body = calList() ? dayList(key) : calTimeline([key]);
     var cal = S.local.cal || {};
     return '<div class="cal-layout">' + calSide(v, key) + '<div class="cal-main">' +
       '<div class="sec-head cal-top"><h2>' + esc(title) + '</h2><div class="row-btns"><button class="btn ghost sm" data-a="calPrev">‹</button><button class="btn ghost sm" data-a="calToday">Today</button><button class="btn ghost sm" data-a="calNext">›</button></div></div>' +
-      '<div class="cal-bar">' + seg([['month', 'Month'], ['week', 'Week'], ['day', 'Day']], 'calView', v) +
+      '<div class="cal-bar">' + seg([['month', 'Month'], ['week', 'Week'], ['day', 'Day']].concat(calRange() ? [['range', calRange().n + ' days']] : []), 'calView', v) +
       (v === 'day' ? seg([['cv', 'Timeline'], ['list', 'List']], 'calMode', calList() ? 'list' : 'cv') : '') +
       (gcals().length ? '<button class="btn ghost sm cal-cals-btn" data-a="calCals">Calendars</button>' : '') +
       '<span class="sp"></span><button class="btn primary sm" data-a="editEvent">＋ Event</button></div>' + body +
@@ -463,11 +461,12 @@
     S.miniMonth = m; S.miniKey = key;
     var first = new Date(m.getFullYear(), m.getMonth(), 1, 12), start = E.addDays(first.getTime(), -((first.getDay() + 6) % 7));
     var ws = E.dateKey(weekStart(key)), we = E.dateKey(E.addDays(weekStart(key), 6)), cells = '';
+    if (v === 'range') { var rk = rangeKeys(calRange()); ws = rk[0]; we = rk[rk.length - 1]; v = 'week'; }
     for (var i = 0; i < 42; i++) {
       var t = E.addDays(start, i), k = E.dateKey(t), d = new Date(t);
       var inSel = v === 'week' ? k >= ws && k <= we : v === 'day' ? k === key : false;
       cells += '<button class="mm-d' + (d.getMonth() !== m.getMonth() ? ' out' : '') + (k === today ? ' today' : '') + (inSel ? ' sel' : '') + (k === key ? ' anchor' : '') +
-        (v === 'week' && k === ws ? ' s0' : '') + (v === 'week' && k === we ? ' s1' : '') + '" data-a="calJump" data-id="' + k + '">' + d.getDate() + '</button>';
+        (v === 'week' && k === ws ? ' s0' : '') + (v === 'week' && k === we ? ' s1' : '') + '" data-a="calJump" data-id="' + k + '" data-mm="' + k + '">' + d.getDate() + '</button>';
     }
     var list = gcals(), mine = list.filter(function (c) { return !c.ro; }), other = list.filter(function (c) { return c.ro; });
     var group = function (title, cs) {
@@ -480,20 +479,27 @@
       (list.length ? '<div class="cs">' + group('My calendars', mine) + group('Other calendars', other) + '</div>' : '') + '</aside>';
   }
 
+  function monthCell(t, label, out) {
+    var k = E.dateKey(t), chips = [], due = false;
+    shownAgenda(t).forEach(function (a) {
+      if (a.kind === 'event' && monthlyOn(a.rec)) chips.push('<i class="chip ev" style="background:' + evColor(a.rec) + ';color:' + inkOn(evColor(a.rec)) + '">' + esc(a.rec.title) + '</i>');
+      else if (a.kind === 'todo' && a.rec.monthly && !a.done) { due = true; chips.push('<i class="chip dl">' + esc(a.rec.title) + ' Deadline</i>'); }
+    });
+    var shown = chips.length > 3 ? chips.slice(0, 2).concat('<i class="chip more">+' + (chips.length - 2) + ' more</i>') : chips;
+    return '<button class="cal-day' + (k === E.dateKey(now()) ? ' today' : '') + (due ? ' due' : '') + (out ? ' out' : '') + '" data-a="calPick" data-id="' + k + '"><b>' + label + '</b><span class="chips">' + shown.join('') + '</span></button>';
+  }
   function monthGrid(key) {
-    var m = new Date(E.fromKey(key)), today = E.dateKey(now());
+    var m = new Date(E.fromKey(key));
     var first = new Date(m.getFullYear(), m.getMonth(), 1), offset = (first.getDay() + 6) % 7, daysIn = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
     var cells = '';
     for (var i = 0; i < offset; i++) cells += '<i class="cal-blank"></i>';
-    for (var dn = 1; dn <= daysIn; dn++) {
-      var t = new Date(m.getFullYear(), m.getMonth(), dn, 12).getTime(), k = E.dateKey(t), chips = [], due = false;
-      shownAgenda(t).forEach(function (a) {
-        if (a.kind === 'event' && monthlyOn(a.rec)) chips.push('<i class="chip ev" style="background:' + evColor(a.rec) + ';color:' + inkOn(evColor(a.rec)) + '">' + esc(a.rec.title) + '</i>');
-        else if (a.kind === 'todo' && a.rec.monthly && !a.done) { due = true; chips.push('<i class="chip dl">' + esc(a.rec.title) + ' Deadline</i>'); }
-      });
-      var shown = chips.length > 3 ? chips.slice(0, 2).concat('<i class="chip more">+' + (chips.length - 2) + ' more</i>') : chips;
-      cells += '<button class="cal-day' + (k === today ? ' today' : '') + (due ? ' due' : '') + '" data-a="calPick" data-id="' + k + '"><b>' + dn + '</b><span class="chips">' + shown.join('') + '</span></button>';
-    }
+    for (var dn = 1; dn <= daysIn; dn++) cells += monthCell(new Date(m.getFullYear(), m.getMonth(), dn, 12).getTime(), dn);
+    return '<div class="cal-head">' + WEEKDAYS.map(function (w) { return '<i>' + w + '</i>'; }).join('') + '</div><div class="cal-grid month">' + cells + '</div>';
+  }
+  // More than 7 days picked: the whole weeks that hold them, like Google; days outside the pick are dimmed.
+  function weeksGrid(keys) {
+    var a = weekStart(keys[0]), b = E.addDays(weekStart(keys[keys.length - 1]), 6), cells = '';
+    for (var t = a; t <= b; t = E.addDays(t, 1)) { var k = E.dateKey(t), d = new Date(t); cells += monthCell(t, d.getDate() === 1 || t === a ? MONTHS[d.getMonth()].slice(0, 3) + ' ' + d.getDate() : d.getDate(), keys.indexOf(k) < 0); }
     return '<div class="cal-head">' + WEEKDAYS.map(function (w) { return '<i>' + w + '</i>'; }).join('') + '</div><div class="cal-grid month">' + cells + '</div>';
   }
 
@@ -524,7 +530,7 @@
   }
 
   // Week / day timeline: events solid, habits dotted and see-through (done ones stronger). Tap empty time = new event.
-  function calTimeline(keys) {
+  function calTimeline(keys, viewOnly) {
     var today = E.dateKey(now()), heads = '', alls = '', cols = '', anyAll = false;
     keys.forEach(function (k) {
       var t = E.fromKey(k), d0 = E.at(t, '00:00'), d1 = E.at(E.addDays(t, 1), "00:00"), items = [], ad = [];
@@ -533,7 +539,7 @@
         if (a.kind === 'event') {
           var s = Math.max(r.start, d0), e = Math.min(r.end || r.start + 30 * E.MIN, d1);
           if (r.allDay || e - s >= d1 - d0) { ad.push(a); return; }
-          items.push({ a: a, s: s, e: Math.max(e, s + 15 * E.MIN), color: evColor(r), drag: !r.ro && !r.virt && r.start >= d0 && (r.end || 0) <= d1 });
+          items.push({ a: a, s: s, e: Math.max(e, s + 15 * E.MIN), color: evColor(r), drag: !viewOnly && !r.ro && !r.virt && r.start >= d0 && (r.end || 0) <= d1 });
         } else if (a.kind === 'habit') {
           var hs = E.at(t, r.start || '00:00'), he = r.due ? E.at(t, r.due) : hs + 30 * E.MIN;
           if (he <= hs) he = hs + 30 * E.MIN;
@@ -556,16 +562,52 @@
     });
     var hours = ''; for (var hh = 1; hh < 24; hh++) hours += '<i style="top:' + hh * HOUR_PX + 'px">' + (hh < 10 ? '0' : '') + hh + ':00</i>';
     var grid = 'grid-template-columns: 44px repeat(' + keys.length + ', minmax(0, 1fr))';
-    return '<div class="cv n' + keys.length + '" style="--h:' + HOUR_PX + 'px">' +
+    return '<div class="cv n' + keys.length + (viewOnly ? ' cv-view' : '') + '" style="--h:' + HOUR_PX + 'px">' +
       (keys.length > 1 ? '<div class="cv-row" style="' + grid + '"><i></i>' + heads + '</div>' : '') +
       (anyAll ? '<div class="cv-row cv-alls" style="' + grid + '"><i class="cv-gut">all day</i>' + alls + '</div>' : '') +
       '<div class="cv-scroll"><div class="cv-body" style="' + grid + ';height:' + 24 * HOUR_PX + 'px"><div class="cv-hours">' + hours + '</div>' + cols + '</div></div></div>';
   }
 
   // After each paint: keep the timeline's scroll position, wire taps on empty time and drag to move / resize events.
+  // Drag across the mini month to pick the days to show (any run of days, e.g. Fri–Tue). A plain tap still jumps.
+  function wireMini() {
+    var g = $app.querySelector('.mm-g'); if (!g) return;
+    var d0 = null, d1 = null;
+    var keyAt = function (e) { var el = document.elementFromPoint(e.clientX, e.clientY); el = el && el.closest('[data-mm]'); return el && g.contains(el) ? el.getAttribute('data-mm') : null; };
+    var paintSel = function () { var a = d0 < d1 ? d0 : d1, b = d0 < d1 ? d1 : d0; g.querySelectorAll('[data-mm]').forEach(function (x) { var k = x.getAttribute('data-mm'); x.classList.toggle('drag', k >= a && k <= b); }); };
+    g.addEventListener('pointerdown', function (e) { var k = keyAt(e); if (!k || (e.pointerType === 'mouse' && e.button !== 0)) return; d0 = d1 = k; try { g.setPointerCapture(e.pointerId); } catch (x) {} });
+    g.addEventListener('pointermove', function (e) { if (!d0) return; var k = keyAt(e); if (k && k !== d1) { d1 = k; paintSel(); } });
+    var end = function () {
+      if (!d0) return; var a = d0 < d1 ? d0 : d1, b = d0 < d1 ? d1 : d0; d0 = null;
+      if (a === b) return;
+      S.mmDragged = Date.now();
+      var n = Math.round((E.fromKey(b) - E.fromKey(a)) / E.DAY) + 1;
+      if (n === 7 && E.dateKey(weekStart(a)) === a) { S.calDay = a; S.calView = 'week'; lsSet('scaffold-calview', 'week'); }
+      else { S.calRange = { from: a, n: n }; saveRange(); S.calView = 'range'; lsSet('scaffold-calview', 'range'); }
+      S.miniMonth = null; render();
+    };
+    g.addEventListener('pointerup', end); g.addEventListener('pointercancel', function () { d0 = null; paintSel && g.querySelectorAll('.drag').forEach(function (x) { x.classList.remove('drag'); }); });
+  }
+  // The calendar fills the window: only the timeline scrolls, never the page.
+  function fitTimeline() {
+    var sc = $app.querySelector('.cal-main .cv-scroll'); if (!sc) return;
+    sc.style.height = '320px'; sc.style.maxHeight = 'none';
+    var cs = getComputedStyle($app), padB = parseFloat(cs.paddingBottom) || 0, r = sc.getBoundingClientRect();
+    var below = $app.getBoundingClientRect().bottom - padB - r.bottom;
+    sc.style.height = Math.max(260, Math.floor(innerHeight - (r.top + scrollY) - below - padB)) + 'px';
+  }
+  window.addEventListener('resize', function () { fitTimeline(); });
   function wireTimeline() {
     var sc = $app.querySelector('.cv-scroll'); if (!sc) return;
-    if (S.calScroll == null) { var n = new Date(); S.calScroll = Math.max(0, Math.min((n.getHours() - 1.5) * HOUR_PX, 24 * HOUR_PX)); if (n.getHours() < 8) S.calScroll = 7 * HOUR_PX; }
+    var n = new Date(), start = Math.max(0, Math.min((n.getHours() - 1.5) * HOUR_PX, 24 * HOUR_PX));
+    if (sc.closest('.cv-view')) {   // Today page: look only; taps on blocks open them, editing happens in the Calendar
+      if (S.todayScroll == null || S.todayScrollDay !== E.dateKey(now())) { S.todayScroll = start; S.todayScrollDay = E.dateKey(now()); }
+      sc.scrollTop = S.todayScroll;
+      sc.addEventListener('scroll', function () { S.todayScroll = sc.scrollTop; });
+      return;
+    }
+    fitTimeline();
+    if (S.calScroll == null) { S.calScroll = start; if (n.getHours() < 8) S.calScroll = 7 * HOUR_PX; }
     sc.scrollTop = S.calScroll;
     sc.addEventListener('scroll', function () { S.calScroll = sc.scrollTop; });
     var body = sc.querySelector('.cv-body'), d = null;
@@ -694,7 +736,7 @@
   // ---------- Habits ----------
   function habitsView() {
     var st = E.stats(S.state, now(), 28), pct = st.week == null ? null : Math.round(st.week * 100);
-    var byId = {}; st.tasks.forEach(function (x) { byId[x.id] = x; });
+    var byId = {}, hadTiny = false; st.tasks.forEach(function (x) { byId[x.id] = x; if (x.cells.some(function (c) { return c.s === 'tiny'; })) hadTiny = true; });
     var list = live('tasks').filter(function (t) { return !t.test; }).sort(function (a, b) { return ((a.active === false) - (b.active === false)) || (a.start || '').localeCompare(b.start || ''); });
     var lockedId = S.r.lock && S.r.lock.id;
     var rows = list.map(function (t) {
@@ -710,8 +752,8 @@
     return '<div class="sec-head"><h2>Habits</h2><button class="btn primary sm" data-a="editHabit">＋ Habit</button></div>' +
       '<section class="hero">' + ring(pct == null ? 0 : pct / 100, 110, 11, pctColor(pct), '<b>' + (pct == null ? '–' : pct + '%') + '</b><small>7 days</small>') +
       '<div class="hero-txt"><div class="big">' + (pct == null ? 'No data yet' : pct >= 80 ? 'On target 🎯' : 'Goal: 80%') + '</div>' +
-      '<div class="goal">Full = 1 · 🌱 tiny win = ½</div><div class="goal">⛔ Emergency stops this week: <b>' + st.stops + '</b></div></div></section>' +
-      '<div class="legend"><span><i class="h-full"></i>done</span><span><i class="h-tiny"></i>tiny</span><span><i class="h-miss"></i>missed</span><span><i class="h-none"></i>off day</span><span class="lg-note">last 4 weeks →</span></div>' +
+      (hadTiny ? '<div class="goal">Full = 1 · 🌱 old tiny win = ½</div>' : '') + '<div class="goal">⛔ Emergency stops this week: <b>' + st.stops + '</b></div></div></section>' +
+      '<div class="legend"><span><i class="h-full"></i>done</span>' + (hadTiny ? '<span><i class="h-tiny"></i>tiny</span>' : '') + '<span><i class="h-miss"></i>missed</span><span><i class="h-none"></i>off day</span><span class="lg-note">last 4 weeks →</span></div>' +
       (rows ? '<div class="grid-cards wide">' + rows + '</div>' : '<p class="empty">No habits yet.</p>') +
       '<h3 class="mt">Templates</h3><div class="tpl-grid">' + TEMPLATES.map(function (t, i) {
         return '<button class="tpl" data-a="template" data-id="' + i + '" style="--c:' + t.color + '"><span>' + t.emoji + '</span>' + esc(t.title) + '<small>' + LEVELS[t.level].icon + ' ' + LEVELS[t.level].name + '</small></button>';
@@ -812,9 +854,8 @@
     }).join('') + '</div></div>';
   }
   function doneFields(t) {
-    return '<div class="two"><label class="field">Counts as done when<select name="kind"><option value="check"' + sel('check', t.kind) + '>I tap “I did it”</option><option value="timer"' + sel('timer', t.kind) + '>A timer finishes</option></select></label>' +
-      '<label class="field">Timer minutes<input type="number" name="minutes" min="1" max="240" value="' + esc(t.minutes || 20) + '"></label></div>' +
-      '<label class="field">🌱 Tiny version <small>(optional: the smallest version that still counts, as a half win)</small><input name="tiny" maxlength="60" value="' + esc(t.tiny || '') + '" placeholder="e.g. Read 1 page"></label>' +
+    return '<div class="field timer-row"><label class="check"><input type="checkbox" name="timer"' + (t.kind === 'timer' ? ' checked' : '') + '> ⏱ Timer</label>' +
+      '<label class="f-minutes"><input type="number" name="minutes" min="1" max="240" value="' + esc(t.minutes || 20) + '"> minutes <small>(done when it finishes)</small></label></div>' +
       (function () {
         var cur = +(t.remind || 30), pre = [1, 5, 15, 30, 45, 60, 90, 120], custom = pre.indexOf(cur) < 0;
         return '<div class="two"><label class="field">Remind me every<select name="remind">' + pre.map(function (m) { return '<option value="' + m + '"' + (!custom && cur === m ? ' selected' : '') + '>' + m + (m === 1 ? ' minute' : ' minutes') + '</option>'; }).join('') +
@@ -846,24 +887,26 @@
       else if (b.hasAttribute('data-del') && onDelete) onDelete();
     });
     f.addEventListener('change', function (e) {
+      if (f.timer && f.querySelector('.f-minutes')) f.querySelector('.f-minutes').style.display = f.timer.checked ? '' : 'none';
       if (f.remind && f.querySelector('.f-remind')) f.querySelector('.f-remind').style.display = f.remind.value === 'custom' ? '' : 'none';
       if (e.target.name === 'level') f.querySelectorAll('.lvl').forEach(function (x) { x.classList.toggle('on', x.contains(e.target)); });
       if (onChange) onChange(f, e);
     });
     f.addEventListener('submit', function (e) { e.preventDefault(); onSave(new FormData(f), f); });
     if (f.remind && f.querySelector('.f-remind')) f.querySelector('.f-remind').style.display = f.remind.value === 'custom' ? '' : 'none';
+    if (f.timer && f.querySelector('.f-minutes')) f.querySelector('.f-minutes').style.display = f.timer.checked ? '' : 'none';
     if (onChange) onChange(f, {});
     return f;
   }
   function readDone(t, fd, apps) {
-    t.level = +fd.get('level') || 1; t.kind = fd.get('kind'); t.minutes = Math.max(1, +fd.get('minutes') || 20);
-    t.tiny = fd.get('tiny').trim(); t.remind = fd.get('remind') === 'custom' ? Math.min(1440, Math.max(1, Math.round(+fd.get('remindN') || 30))) : +fd.get('remind'); t.desktop = fd.get('desktop');
+    t.level = +fd.get('level') || 1; t.kind = fd.get('timer') ? 'timer' : 'check'; t.minutes = Math.max(1, Math.min(240, Math.round(+fd.get('minutes') || 20)));
+    delete t.tiny; t.remind = fd.get('remind') === 'custom' ? Math.min(1440, Math.max(1, Math.round(+fd.get('remindN') || 30))) : +fd.get('remind'); t.desktop = fd.get('desktop');
     if (apps.length) t.allowApps = fd.getAll('app');
   }
 
   function openHabitEditor(task) {
     var isNew = !task || !task.id;
-    var t = Object.assign({ title: '', emoji: '📖', color: COLORS[0], start: '09:00', due: '10:00', days: [], level: 2, kind: 'check', minutes: 20, tiny: '', remind: 30, desktop: 'lock', allowApps: [], active: true }, task || {});
+    var t = Object.assign({ title: '', emoji: '📖', color: COLORS[0], start: '09:00', due: '10:00', days: [], level: 2, kind: 'check', minutes: 20, remind: 30, desktop: 'lock', allowApps: [], active: true }, task || {});
     var apps = listApps();
     $modal.innerHTML = modalShell(isNew ? 'New habit' : 'Edit habit',
       '<label class="field">What?<input name="title" required maxlength="60" value="' + esc(t.title) + '" placeholder="e.g. Read"></label>' + emojiField(t) + colorField(t) +
@@ -881,7 +924,7 @@
 
   function openTodoEditor(task) {
     var isNew = !task || !task.id;
-    var t = Object.assign({ title: '', emoji: '✅', color: COLORS[1], repeat: 'none', date: E.dateKey(now()), start: '', due: '', dueDay: 6, every: 2, level: 1, kind: 'check', minutes: 20, tiny: '', remind: 120, desktop: 'none', allowApps: [] }, task || {});
+    var t = Object.assign({ title: '', emoji: '✅', color: COLORS[1], repeat: 'none', date: E.dateKey(now()), start: '', due: '', dueDay: 6, every: 2, level: 1, kind: 'check', minutes: 20, remind: 120, desktop: 'none', allowApps: [] }, task || {});
     if (isNew && task && task.vault && !task.date) t.date = '';
     var apps = listApps(), projects = live('projects');
     var r = t.repeat || 'none';
@@ -970,7 +1013,11 @@
     for (var k = stack.length - 1; k >= 0; k--) out += '</' + stack[k] + '>';
     return out;
   }
+  var MAX_INDENT = 4;
   function mdLine(l) {
+    var ind = /^\t*/.exec(l)[0].length, r = mdLineType(l.slice(ind)); r.i = Math.min(MAX_INDENT, ind); return r;
+  }
+  function mdLineType(l) {
     var m;
     if ((m = /^## (.*)$/.exec(l))) return { t: 'h2', s: m[1] };
     if ((m = /^# (.*)$/.exec(l))) return { t: 'h1', s: m[1] };
@@ -980,10 +1027,13 @@
     return { t: 'p', s: l };
   }
   // tick: note id when checklist lines can be ticked (pop-up).
+  // Numbered lines count per indent level (a deeper line in between doesn't restart the count).
+  function olCounter() { var counts = []; return function (t, lvl) { counts.length = lvl + 1; counts[lvl] = t === 'ol' ? (counts[lvl] || 0) + 1 : 0; return counts[lvl]; }; }
   function mdHtml(text, tick) {
+    var num = olCounter();
     return String(text || '').split('\n').map(function (l, i) {
-      var b = mdLine(l), inner = mdInline(b.s);
-      return '<div data-t="' + b.t + '"' + (b.c ? ' data-c="1"' : '') + (tick && b.t === 'cl' ? ' data-a="tickNote" data-id="' + esc(tick) + '" data-k="' + i + '"' : '') + '>' + (inner || '<br>') + '</div>';
+      var b = mdLine(l), inner = mdInline(b.s), n = num(b.t, b.i);
+      return '<div data-t="' + b.t + '"' + (b.i ? ' data-i="' + b.i + '"' : '') + (b.t === 'ol' ? ' data-n="' + n + '"' : '') + (b.c ? ' data-c="1"' : '') + (tick && b.t === 'cl' ? ' data-a="tickNote" data-id="' + esc(tick) + '" data-k="' + i + '"' : '') + '>' + (inner || '<br>') + '</div>';
     }).join('');
   }
   function mdEsc(s) { return s.replace(/[\\*]/g, '\\$&').replace(/~~/g, '\\~\\~').replace(/\+\+/g, '\\+\\+'); }
@@ -1000,26 +1050,25 @@
     return out;
   }
   function mdFromEditor(ed) {
-    var n = 0, lines = [];
+    var num = olCounter(), lines = [];
     ed.childNodes.forEach(function (b) {
       if (b.nodeType !== 1) return;
-      var t = b.dataset.t || 'p', s = mdFromInline(b);
-      n = t === 'ol' ? n + 1 : 0;
+      var t = b.dataset.t || 'p', s = mdFromInline(b).replace(/^\t+/, ''), lvl = +b.dataset.i || 0, n = num(t, lvl);
       if (t === 'p' && /^(#{1,2} |[-*] |\d+\. )/.test(s)) s = '\\' + s;
-      lines.push(({ h1: '# ', h2: '## ', ul: '- ', ol: n + '. ', cl: b.dataset.c === '1' ? '- [x] ' : '- [ ] ' }[t] || '') + s);
+      lines.push('\t'.repeat(lvl) + ({ h1: '# ', h2: '## ', ul: '- ', ol: n + '. ', cl: b.dataset.c === '1' ? '- [x] ' : '- [ ] ' }[t] || '') + s);
     });
     while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
     return lines.join('\n');
   }
   function noteTick(text, line) {
     var ls = String(text || '').split('\n');
-    if (ls[line] && /^- \[[ xX]\]/.test(ls[line])) ls[line] = ls[line].replace(/^- \[([ xX])\]/, function (m, c) { return c === ' ' ? '- [x]' : '- [ ]'; });
+    if (ls[line] && /^\t*- \[[ xX]\]/.test(ls[line])) ls[line] = ls[line].replace(/^(\t*)- \[([ xX])\]/, function (m, ind, c) { return ind + (c === ' ' ? '- [x]' : '- [ ]'); });
     return ls.join('\n');
   }
 
   var IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || '');
   var RTE_TOOLS = [['bold', '<b>B</b>', 'Bold (' + (IS_MAC ? '⌘' : 'Ctrl+') + 'B)'], ['italic', '<i>I</i>', 'Italic (' + (IS_MAC ? '⌘' : 'Ctrl+') + 'I)'], ['underline', '<u>U</u>', 'Underline (' + (IS_MAC ? '⌘' : 'Ctrl+') + 'U)'], ['strikeThrough', '<s>S</s>', 'Strikethrough (' + (IS_MAC ? '⌘⇧X' : 'Alt+Shift+5') + ')'],
-    ['|'], ['ul', '•', 'Bullets (' + (IS_MAC ? '⌘⇧8' : 'Ctrl+Shift+8') + ')'], ['ol', '1.', 'Numbered (' + (IS_MAC ? '⌘⇧7' : 'Ctrl+Shift+7') + ')'], ['cl', '☑', 'Checklist (' + (IS_MAC ? '⌘⇧9' : 'Ctrl+Shift+9') + ')'], ['h1', 'H', 'Heading (' + (IS_MAC ? '⌘⌥1' : 'Ctrl+Alt+1') + ')']];
+    ['|'], ['ul', '•', 'Bullets (' + (IS_MAC ? '⌘⇧8' : 'Ctrl+Shift+8') + ')'], ['ol', '1.', 'Numbered (' + (IS_MAC ? '⌘⇧7' : 'Ctrl+Shift+7') + ')'], ['cl', '☑', 'Checklist (' + (IS_MAC ? '⌘⇧9' : 'Ctrl+Shift+9') + ')'], ['h1', 'H', 'Heading (' + (IS_MAC ? '⌘⌥1' : 'Ctrl+Alt+1') + ')'], ['|'], ['outdent', '⇤', 'Move left (Shift+Tab)'], ['indent', '⇥', 'Move right (Tab)']];
   function rteBar() { return '<div class="rte-bar">' + RTE_TOOLS.map(function (t) { return t[0] === '|' ? '<i class="rte-sep"></i>' : '<button type="button" class="rte-b" data-fmt="' + t[0] + '" title="' + esc(t[2]) + '">' + t[1] + '</button>'; }).join('') + '</div>'; }
   function rteField(text) {
     return '<div class="field">Note' + rteBar() +
@@ -1058,9 +1107,17 @@
       var r = sel(); if (!r) { ed.focus(); r = sel(); if (!r) return; }
       var bs = blocksInSel(r), all = bs.every(function (b) { return b.dataset.t === t; });
       bs.forEach(function (b) { setType(b, all ? 'p' : t); });
-      paintBar();
+      renumber(); paintBar();
+    }
+    function renumber() { var num = olCounter(); Array.prototype.forEach.call(ed.children, function (b) { var n = num(b.dataset.t, +b.dataset.i || 0); if (b.dataset.t === 'ol') b.dataset.n = n; else delete b.dataset.n; }); }
+    function setIndent(b, lvl) { lvl = Math.max(0, Math.min(MAX_INDENT, lvl)); if (lvl) b.dataset.i = lvl; else delete b.dataset.i; }
+    function indent(dir) {
+      var r = sel(); if (!r) { ed.focus(); r = sel(); if (!r) return; }
+      blocksInSel(r).forEach(function (b) { setIndent(b, (+b.dataset.i || 0) + dir); });
+      renumber();
     }
     function fmt(cmd) {
+      if (cmd === 'indent' || cmd === 'outdent') return indent(cmd === 'indent' ? 1 : -1);
       if (LIST[cmd] || cmd === 'h1' || cmd === 'h2' || cmd === 'p') return block(cmd === 'p' ? 'p' : cmd);
       document.execCommand(cmd, false, null); normalize(); paintBar();
     }
@@ -1070,17 +1127,20 @@
       normalize(); r = sel(); if (!r) return;
       var b = blockOf(r.startContainer); if (!b) return;
       var t = b.dataset.t || 'p';
-      if (LIST[t] && !b.textContent.replace(/\u200B/g, '').trim()) { setType(b, 'p'); paintBar(); return; }   // Enter on an empty list line ends the list
+      if (LIST[t] && !b.textContent.replace(/\u200B/g, '').trim()) {   // Enter on an empty list line: move it left, then end the list
+        if (+b.dataset.i) setIndent(b, +b.dataset.i - 1); else setType(b, 'p');
+        renumber(); paintBar(); return;
+      }
       var x = document.createRange(); x.setStart(r.startContainer, r.startOffset); x.setEnd(b, b.childNodes.length);
       var frag = x.extractContents(), nb = document.createElement('div');
-      setType(nb, t === 'h1' || t === 'h2' ? 'p' : t, false);
+      setType(nb, t === 'h1' || t === 'h2' ? 'p' : t, false); setIndent(nb, +b.dataset.i || 0);
       nb.appendChild(frag);
       if (!nb.textContent.replace(/\u200B/g, '')) nb.innerHTML = '<br>';
       fill(b); b.parentNode.insertBefore(nb, b.nextSibling);
       var first = nb.firstChild; while (first && first.nodeType === 1 && first.firstChild && first.nodeName !== 'BR') first = first.firstChild;
       caretAt(first && first.nodeType === 3 ? first : nb, 0);
       nb.scrollIntoView({ block: 'nearest' });
-      paintBar();
+      renumber(); paintBar();
     }
     // Typing marks: "- " "* " bullet, "1. " numbered, "[] " "[ ] " "- [ " checklist ("[x] " ticked), "# " "## " heading; **b** *i* ~~s~~ ++u++.
     // added: how many characters the last input put just before the caret (keyboards may insert whole words at once).
@@ -1143,7 +1203,7 @@
       bar.querySelectorAll('[data-fmt]').forEach(function (x) {
         var k = x.dataset.fmt, on = false;
         if (LIST[k] || k === 'h1') on = t === k || (k === 'h1' && t === 'h2');
-        else if (r) try { on = document.queryCommandState(k); } catch (e) {}
+        else if (r && k !== 'indent' && k !== 'outdent') try { on = document.queryCommandState(k); } catch (e) {}
         x.classList.toggle('on', on);
       });
     }
@@ -1160,13 +1220,17 @@
       if (e.inputType === 'deleteContentBackward') {
         var r = sel(); if (!r || !r.collapsed) return;
         var b = blockOf(r.startContainer);
-        if (b && b.dataset.t !== 'p' && !before(r, b).toString().replace(/\u200B/g, '')) { e.preventDefault(); setType(b, 'p'); delete b.dataset.fresh; paintBar(); }
+        if (b && !before(r, b).toString().replace(/\u200B/g, '')) {
+          if (b.dataset.t !== 'p') { e.preventDefault(); setType(b, 'p'); delete b.dataset.fresh; renumber(); paintBar(); }
+          else if (+b.dataset.i) { e.preventDefault(); setIndent(b, +b.dataset.i - 1); }
+        }
       }
     });
-    ed.addEventListener('input', function (e) { normalize(); if (!e.isComposing && /^insert/.test(e.inputType || 'insert') && e.inputType !== 'insertFromPaste') marks(e.data ? e.data.length : 1); });
+    ed.addEventListener('input', function (e) { normalize(); renumber(); if (!e.isComposing && /^insert/.test(e.inputType || 'insert') && e.inputType !== 'insertFromPaste') marks(e.data ? e.data.length : 1); });
     ed.addEventListener('compositionend', function (e) { var k = e.data ? e.data.length : 1; setTimeout(function () { marks(k); }, 0); });
     ed.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); enter(); return; }
+      if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); indent(e.shiftKey ? -1 : 1); return; }
       var mod = e.ctrlKey || e.metaKey, c = e.code, cmd = null;
       if (mod && !e.shiftKey && !e.altKey) cmd = { KeyB: 'bold', KeyI: 'italic', KeyU: 'underline' }[c];
       else if (mod && e.shiftKey && !e.altKey) cmd = { Digit8: 'ul', Digit7: 'ol', Digit9: 'cl', KeyX: 'strikeThrough' }[c];

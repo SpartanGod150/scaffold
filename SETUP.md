@@ -102,7 +102,6 @@ It stays off until you press **Resume**.
 
 - Reminders get **more frequent** near the deadline: every 10 min in the last hour.
 - **Snooze:** 10 minutes, twice per task per day.
-- 🌱 **Tiny version** (optional): the smallest version that still counts. It unlocks the devices and counts as **half**.
 - Locks end at **23:30** at the latest.
 - **Always allowed during locks:** WhatsApp, calls, Settings, alarms, and any apps you choose per task.
 - **On computers**, each task either covers the whole screen (for tasks away from the computer) or only closes distracting apps (for computer tasks). The list of distracting apps is in Settings.

@@ -4,7 +4,7 @@
    node scaffold-cli.js list <habits|todos|projects|notes|events|vault>
    node scaffold-cli.js put <map> '<json>'         create, or update by "id" (only the given fields change)
    node scaffold-cli.js del <map> <id>
-   node scaffold-cli.js done <id> [tiny]
+   node scaffold-cli.js done <id>
    Maps: habits (stored as "tasks"), todos, projects, notes, events. */
 const fs = require('fs');
 const os = require('os');

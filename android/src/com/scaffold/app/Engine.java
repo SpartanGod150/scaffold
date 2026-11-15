@@ -389,6 +389,8 @@ public final class Engine {
         StringBuilder out = new StringBuilder();
         for (String l : (text == null ? "" : text).split("\n", -1)) {
             if (out.length() > 0) out.append('\n');
+            int ind = 0; while (ind < l.length() && l.charAt(ind) == '\t') { out.append("  "); ind++; }
+            l = l.substring(ind);
             if (l.matches("^- \\[[xX]\\] .*")) l = "☑ " + l.substring(6);
             else if (l.startsWith("- [ ] ")) l = "☐ " + l.substring(6);
             else if (l.startsWith("- ")) l = "• " + l.substring(2);

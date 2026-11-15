@@ -250,11 +250,12 @@
     if (next && !inHours(note, next)) next = 0;
     return { last: last, next: next };
   }
-  // Note text is light Markdown (# heading, - bullet, 1. numbered, - [ ] checklist, **bold** *italic* ~~strike~~ ++underline++).
+  // Note text is light Markdown (a tab per indent level; # heading, - bullet, 1. numbered, - [ ] checklist, **bold** *italic* ~~strike~~ ++underline++).
   // plainNote: the same text without the marks, for notifications.
   function plainNote(text) {
     return String(text || '').split('\n').map(function (l) {
-      return l.replace(/^(#{1,2} |- \[[ xX]\] |- |\d+\. )/, function (m) { return /\[[xX]\]/.test(m) ? '☑ ' : /\[ \]/.test(m) ? '☐ ' : /^- /.test(m) ? '• ' : /^\d/.test(m) ? m : ''; })
+      var ind = /^\t*/.exec(l)[0]; l = l.slice(ind.length);
+      return ind.replace(/\t/g, '  ') + l.replace(/^(#{1,2} |- \[[ xX]\] |- |\d+\. )/, function (m) { return /\[[xX]\]/.test(m) ? '☑ ' : /\[ \]/.test(m) ? '☐ ' : /^- /.test(m) ? '• ' : /^\d/.test(m) ? m : ''; })
         .replace(/\\(.)|\*\*|~~|\+\+|\*/g, function (m, c) { return c || ''; });
     }).join('\n');
   }

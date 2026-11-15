@@ -205,6 +205,7 @@ t('notes only pop on their active days; a night window belongs to the day it sta
   assert.strictEqual(E.notePops(s.notes.n2, at('23:30')).next, at('00:00') + E.DAY, 'runs into Tuesday 00:00');
   assert.strictEqual(E.notePops(s.notes.n2, at('01:30') + E.DAY).next, at('22:00') + 7 * E.DAY, 'then waits for next Monday');
   assert.strictEqual(E.plainNote('# T\n- [ ] a **b** ++c++'), 'T\n☐ a b c');
+  assert.strictEqual(E.plainNote('- a\n\t- [x] b\n\t\t1. c'), '• a\n  ☑ b\n    1. c');
 });
 
 t('calendar agenda', () => {
