@@ -127,7 +127,13 @@ async function syncOnce(ctx) {
       Object.assign(patch.events, { [id]: Object.assign({}, e, { gid: r.gid, gupd: r.upd, synced: now + 3, ts: now + 3, by }) });
     }
     pushed++; changed = true;
-    } catch (err) { fails.push(`“${e.title}”: ${err.message}`); console.error('calendar push', id, err.message); }
+    } catch (err) {
+      // "Delete this and following" that Google refuses because nothing is left from that day on: it already holds.
+      const gone = e.del && e.scope === 'following' && /Bad Request/i.test(err.message) && e.series && e.ostart &&
+        !(res.same ? Object.values(prevGev || {}) : google).some((g) => g && g.series === e.series && (typeof g.ostart === 'number' && g.ostart ? g.ostart : g.start) >= e.ostart);
+      if (gone) { Object.assign(patch.events, { [id]: Object.assign({}, e, { synced: now + 3, ts: now + 3, by }) }); continue; }
+      fails.push(`“${e.title}”: ${err.message}`); console.error('calendar push', id, err.message);
+    }
   }
   for (const id of Object.keys(todos)) {
     if (patch.todos[id]) continue; // just moved from Google this round
