@@ -14,16 +14,17 @@ import java.util.UUID;
 /** Mirror of shared/engine.js. Keep both in sync; MainActivity's self-test checks them against tests/fixture-out.json. */
 public final class Engine {
     static final long MIN = 60000L, DAY = 1440 * MIN;
-    static final String NAG_STOP = "23:30", NUDGE_AT = "09:00";
+    static final String NAG_STOP = "23:30";
     static final int MAX_SNOOZES = 2;
     static final int SNOOZE_MIN = 10;
-    static final String[] MAPS = {"tasks", "todos", "projects", "events", "notes", "acks", "vault", "comps", "snoozes", "log", "cfg", "marks"};
+    static final String[] MAPS = {"tasks", "todos", "projects", "events", "notes", "acks", "vault", "comps", "snoozes", "log", "cfg", "marks", "sess"};
 
     static final class Item {
         String id, type, key, sKey, status, doneKind, deadlineDay;
         JSONObject task;
-        long start, due, stop, snoozedUntil, nudge;
-        boolean done, locked;
+        long start, due, stop, rEnd, snoozedUntil;
+        boolean done, locked, hasDue, dueToday, future;
+        String push;
         int snoozesLeft;
     }
 
@@ -137,46 +138,87 @@ public final class Engine {
     private static JSONObject map(JSONObject state, String m) { JSONObject o = state.optJSONObject(m); return o == null ? new JSONObject() : o; }
 
     // ---------- habits ----------
-    static boolean scheduledOn(JSONObject task, long t) {
-        if (task == null || task.optBoolean("del", false) || !task.optBoolean("active", true)) return false;
+    // repeat: "weekdays" (default: picked weekdays, none = every day; each day is a period), "week", "month", "every" (every N days).
+    static boolean weekdayOk(JSONObject task, long t) {
         JSONArray days = task.optJSONArray("days");
-        if (days != null && days.length() > 0) {
-            int wd = cal(t).get(Calendar.DAY_OF_WEEK) - 1;
-            boolean found = false;
-            for (int i = 0; i < days.length(); i++) if (days.optInt(i, -1) == wd) { found = true; break; }
-            if (!found) return false;
-        }
-        return dateKey(t).compareTo(task.optString("from", "0000-00-00")) >= 0;
+        if (days == null || days.length() == 0) return true;
+        int wd = cal(t).get(Calendar.DAY_OF_WEEK) - 1;
+        for (int i = 0; i < days.length(); i++) if (days.optInt(i, -1) == wd) return true;
+        return false;
+    }
+    /** {key, first, deadline} or null. */
+    static String[] habitPeriod(JSONObject task, long t) {
+        if (task == null || task.optBoolean("del", false) || !task.optBoolean("active", true)) return null;
+        String today = dateKey(t), rep = task.optString("repeat", "weekdays");
+        if (today.compareTo(task.optString("from", "0000-00-00")) < 0) return null;
+        try {
+            if (rep.equals("week") || rep.equals("month")) {
+                JSONObject p = new JSONObject(); p.put("repeat", rep); if (task.has("dueDay") && !task.isNull("dueDay")) p.put("dueDay", task.opt("dueDay"));
+                return periodOf(p, t);
+            }
+            if (rep.equals("every")) {
+                JSONObject p = new JSONObject(); p.put("repeat", "days"); p.put("every", task.optInt("every", 2));
+                String d = task.optString("date", ""); p.put("date", d.isEmpty() ? task.optString("from", "") : d);
+                return periodOf(p, t);
+            }
+        } catch (Exception e) { throw new RuntimeException(e); }
+        if (!weekdayOk(task, t)) return null;
+        return new String[]{today, today, today};
+    }
+    static boolean scheduledOn(JSONObject task, long t) { return habitPeriod(task, t) != null; }
+
+    // ---------- how hard Scaffold pushes (see engine.js) ----------
+    static String pushOf(JSONObject task, String kind) {
+        String p = task.optString("push", "");
+        if (!p.isEmpty()) return p;
+        if ("todo".equals(kind) && task.optString("date", "").isEmpty() && isNone(task.optString("repeat", "none"))) return "off";
+        return task.optInt("level", 1) == 1 ? "nudge" : "nag";
+    }
+    static boolean lockOf(JSONObject task) { return task.has("lock") && !task.isNull("lock") ? task.optBoolean("lock", false) : task.optInt("level", 1) >= 3; }
+    static boolean hasDue(JSONObject task, String kind) {
+        if ("todo".equals(kind)) return !task.optString("date", "").isEmpty() || !isNone(task.optString("repeat", "none"));
+        return task.has("dueOn") && !task.isNull("dueOn") ? task.optBoolean("dueOn", false) : !task.optString("due", "").isEmpty();
+    }
+    private static boolean isNone(String rep) { return rep.isEmpty() || rep.equals("none"); }
+    private static String orStr(JSONObject o, String a, String b, String def) {
+        String x = o.optString(a, ""); if (!x.isEmpty()) return x;
+        x = b == null ? "" : o.optString(b, ""); return x.isEmpty() ? def : x;
     }
 
-    static long[] windowOf(JSONObject task, long t) {
-        long start = at(t, task.optString("start", "00:00")), due = at(t, task.optString("due", "23:00"));
-        if (task.optString("start", "").isEmpty()) start = at(t, "00:00");
-        if (task.optString("due", "").isEmpty()) due = at(t, "23:00");
-        if (due < start) due = start;
-        long stop = Math.max(at(t, NAG_STOP), due + 30 * MIN);
-        stop = Math.min(stop, midnightAfter(t) - MIN);
-        return new long[]{start, due, stop};
+    static final class Timing { long start, due, rEnd, stop; boolean hasDue, dueToday, lock, future; String push; }
+    static Timing timing(JSONObject task, String kind, String deadline, long now) {
+        Timing w = new Timing();
+        w.push = pushOf(task, kind);
+        String from = orStr(task, "rfrom", "start", "09:00"), to = orStr(task, "rto", "due", "21:00"), day = dateKey(now);
+        long end = midnightAfter(now) - MIN;
+        long due = deadline != null && hasDue(task, kind) ? at(fromKey(deadline), task.optString("due", "").isEmpty() ? "23:59" : task.optString("due")) : 0;
+        w.hasDue = due != 0; w.dueToday = w.hasDue && deadline.equals(day);
+        w.start = "off".equals(w.push) ? at(now, "00:00") : at(now, from);
+        w.rEnd = to.compareTo(from) <= 0 ? end : Math.min(end, at(now, to));
+        w.stop = w.dueToday ? Math.min(Math.max(at(now, NAG_STOP), due + 30 * MIN), end) : w.rEnd;
+        w.due = w.hasDue ? due : end;
+        w.lock = lockOf(task) && w.dueToday;
+        w.future = w.hasDue && deadline.compareTo(day) > 0;
+        return w;
     }
 
-    static List<Long> reminderTimes(JSONObject task, long start, long due, long stop, long nudge) {
+    static List<Long> reminderTimes(JSONObject task, Item w) {
         List<Long> out = new ArrayList<>();
-        if (nudge > 0) { out.add(nudge); return out; }
+        if ("off".equals(w.push)) return out;
         long every = Math.max(1, task.optInt("remind", 30));
-        long t = start, lastHour = due - 60 * MIN;
-        while (t < stop && out.size() < 1500) {
+        long lastHour = w.dueToday ? w.due - 60 * MIN : Long.MAX_VALUE, end = w.dueToday ? Math.min(w.rEnd, w.due) : w.rEnd, t = w.start;
+        while (t < end && out.size() < 1500) {
             out.add(t);
-            long step = t >= due ? 20 : (t >= lastHour ? Math.min(10, every) : every);
-            long nt = t + step * MIN;
-            if (t < due && nt > due) nt = due;
+            long nt = t + (t >= lastHour ? Math.min(10, every) : every) * MIN;
             if (t < lastHour && nt > lastHour) nt = lastHour;
             t = nt;
         }
+        if (w.dueToday) for (t = w.due; t < w.stop && out.size() < 1500; t += 20 * MIN) out.add(t);
         return out;
     }
 
     // ---------- tasks (todos) ----------
-    /** {key, first, deadline} or null. */
+    /** {key, first, deadline} or null. Also serves habit periods and old repeating tasks. */
     static String[] periodOf(JSONObject todo, long t) {
         String rep = todo.optString("repeat", "none"), today = dateKey(t);
         if (rep.isEmpty()) rep = "none";
@@ -230,31 +272,30 @@ public final class Engine {
         while (keys.hasNext()) {
             String id = keys.next();
             JSONObject task = tasks.optJSONObject(id);
-            if (!scheduledOn(task, now)) continue;
-            long[] w = windowOf(task, now);
-            push(r, state, now, id, task, "habit", compKey(id, r.day), w[0], w[1], w[2], 0, null);
+            String[] p = habitPeriod(task, now);
+            if (p != null) push(r, state, now, id, task, "habit", compKey(id, p[0]), p[2]);
         }
         keys = todos.keys();
         while (keys.hasNext()) {
             String id = keys.next();
             JSONObject todo = todos.optJSONObject(id);
             if (!todoActive(todo)) continue;
-            String rep = todo.optString("repeat", "none");
-            if (!rep.equals("none") && !rep.isEmpty() && r.day.compareTo(todo.optString("from", "0000-00-00")) < 0) continue;
-            String[] p = periodOf(todo, now);
-            if (p == null) continue;
-            String key = compKey(id, p[0]);
-            JSONObject c = comps.optJSONObject(key);
-            boolean done = c != null && !c.optBoolean("undone", false);
-            if (p[0].equals("once") && p[2].compareTo(r.day) < 0 && done) continue;
-            if (p[0].equals("once") && p[2].compareTo(r.day) > 0) continue;
-            if (p[2].equals(r.day)) {
-                long[] w = windowOf(todo, now);
-                push(r, state, now, id, todo, "todo", key, w[0], w[1], w[2], 0, p[2]);
-            } else {
-                long dueT = at(fromKey(p[2]), todo.optString("due", "").isEmpty() ? "21:00" : todo.optString("due"));
-                push(r, state, now, id, todo, "todo", key, dueT, dueT, dueT, at(now, NUDGE_AT), p[2]);
+            if (!isNone(todo.optString("repeat", "none"))) {   // old repeating task
+                if (r.day.compareTo(todo.optString("from", "0000-00-00")) < 0) continue;
+                String[] p = periodOf(todo, now);
+                if (p != null) push(r, state, now, id, todo, "todo", compKey(id, p[0]), p[2]);
+                continue;
             }
+            String key = compKey(id, "once"), date = todo.optString("date", "");
+            String deadline = date.isEmpty() ? null : date;
+            JSONObject c = comps.optJSONObject(key);
+            if (c != null && !c.optBoolean("undone", false)) {
+                if (dateKey(c.optLong("ts", 0)).equals(r.day)) push(r, state, now, id, todo, "todo", key, deadline);
+                continue;
+            }
+            boolean off = "off".equals(pushOf(todo, "todo"));
+            if (deadline == null ? off : (deadline.compareTo(r.day) > 0 && off)) continue;
+            push(r, state, now, id, todo, "todo", key, deadline);
         }
         Collections.sort(r.items, (a, b) -> {
             if (a.due != b.due) return a.due < b.due ? -1 : 1;
@@ -268,22 +309,21 @@ public final class Engine {
         return r;
     }
 
-    private static void push(Result r, JSONObject state, long now, String id, JSONObject task, String type, String key,
-                             long start, long due, long stop, long nudge, String deadlineDay) {
+    private static void push(Result r, JSONObject state, long now, String id, JSONObject task, String type, String key, String deadline) {
         JSONObject comps = map(state, "comps"), snoozes = map(state, "snoozes");
+        Timing w = timing(task, type, deadline, now);
         Item it = new Item();
         it.id = id; it.type = type; it.task = task; it.key = key; it.sKey = compKey(id, r.day);
-        it.start = start; it.due = due; it.stop = stop; it.nudge = nudge; it.deadlineDay = deadlineDay;
+        it.start = w.start; it.due = w.due; it.stop = w.stop; it.rEnd = w.rEnd; it.hasDue = w.hasDue; it.dueToday = w.dueToday; it.future = w.future; it.push = w.push;
+        it.deadlineDay = w.hasDue ? deadline : null;
         JSONObject c = comps.optJSONObject(key);
         it.done = c != null && !c.optBoolean("undone", false);
         it.doneKind = it.done ? c.optString("kind", "full") : null;
         JSONObject s = snoozes.optJSONObject(it.sKey);
         it.snoozedUntil = (s != null && s.optLong("until", 0) > now) ? s.optLong("until", 0) : 0;
         it.snoozesLeft = MAX_SNOOZES - (s != null ? s.optInt("n", 0) : 0);
-        it.status = it.done ? "done" : now < start ? "upcoming" : now < due ? "open" : "late";
-        int level = task.optInt("level", 1);
-        boolean lockable = nudge == 0 && ((level >= 4 && now >= start) || (level >= 3 && now >= due));
-        it.locked = !r.paused && !it.done && lockable && now < stop && it.snoozedUntil == 0;
+        it.status = it.done ? "done" : (w.hasDue && now >= w.due) ? "late" : now < w.start ? "upcoming" : "open";
+        it.locked = !r.paused && !it.done && w.lock && now >= w.due && now < w.stop && it.snoozedUntil == 0;
         r.items.add(it);
     }
 
@@ -292,8 +332,9 @@ public final class Engine {
         if (paused) return best;
         for (Item it : items) {
             if (it.done) continue;
-            List<Long> c = reminderTimes(it.task, it.start, it.due, it.stop, it.nudge);
-            if (it.nudge == 0) { c.add(it.start); c.add(it.due); c.add(it.stop); }
+            List<Long> c = reminderTimes(it.task, it);
+            c.add(it.start);
+            if (it.dueToday) { c.add(it.due); c.add(it.stop); }
             if (it.snoozedUntil > 0) c.add(it.snoozedUntil);
             for (long t : c) if (t > now && t < best) best = t;
         }
@@ -315,12 +356,12 @@ public final class Engine {
         for (Item it : r.items) {
             if (it.done || it.snoozedUntil > 0) continue;
             long hit = 0;
-            for (long t : reminderTimes(it.task, it.start, it.due, it.stop, it.nudge)) if (t > from && t <= to) hit = t;
+            for (long t : reminderTimes(it.task, it)) if (t > from && t <= to) hit = t;
             JSONObject s = snoozes.optJSONObject(it.sKey);
             if (s != null) { long u = s.optLong("until", 0); if (u > from && u <= to) hit = Math.max(hit, u); }
             if (hit > 0) {
                 Reminder rm = new Reminder();
-                rm.item = it; rm.at = hit; rm.popup = it.nudge == 0 && (it.task.optInt("level", 1) >= 2 || hit >= it.due);
+                rm.item = it; rm.at = hit; rm.popup = "nag".equals(it.push) || (it.dueToday && hit >= it.due);
                 out.add(rm);
             }
         }
@@ -435,9 +476,10 @@ public final class Engine {
     }
 
     static String itemKey(JSONObject state, String id, long now) {
-        JSONObject todo = map(state, "todos").optJSONObject(id);
-        if (todo != null) { String[] p = periodOf(todo, now); return compKey(id, p != null ? p[0] : "once"); }
-        return compKey(id, dateKey(now));
+        JSONObject todo = map(state, "todos").optJSONObject(id), habit = map(state, "tasks").optJSONObject(id);
+        if (todo != null) { String[] p = isNone(todo.optString("repeat", "none")) ? null : periodOf(todo, now); return compKey(id, p != null ? p[0] : "once"); }
+        String[] hp = habitPeriod(habit, now);
+        return compKey(id, hp != null ? hp[0] : dateKey(now));
     }
 
     static JSONObject opComplete(JSONObject state, String id, String kind, String by, long now) {
@@ -532,7 +574,7 @@ public final class Engine {
 
     /** An old copy of a Google event (or a deletion Google already has): every device pulls Google itself now. */
     static boolean isPulledCopy(JSONObject e, long now) {
-        if (e == null || e.optString("gid").isEmpty() || !e.has("synced")) return false;
+        if (e == null || e.optString("gid").isEmpty() || !e.has("synced") || e.has("link")) return false;
         long ts = e.optLong("ts", 0);
         return e.optLong("synced", 0) >= ts && ts < now - 3600_000L;
     }

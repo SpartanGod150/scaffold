@@ -135,7 +135,7 @@ function evaluate() {
   local.lastCheck = now; saveLocalSoon();
   rem.forEach((x) => {
     const it = x.item;
-    const when = it.nudge ? (it.status === 'late' ? 'overdue since ' + it.deadlineDay : 'due ' + it.deadlineDay + ' ' + hm(it.due)) : it.status === 'upcoming' ? 'starts ' + hm(it.start) : it.status === 'open' ? 'due ' + hm(it.due) : 'late since ' + hm(it.due);
+    const when = !it.hasDue ? 'no deadline' : it.status === 'late' ? (it.dueToday ? 'late since ' + hm(it.due) : 'overdue since ' + it.deadlineDay) : it.future ? 'due ' + it.deadlineDay + ' ' + hm(it.due) : 'due ' + hm(it.due);
     notify(`${it.task.emoji || '⏰'} ${it.task.title}`, `Time for this · ${when}`);
     if (x.popup && !(r.lock && it.task.desktop !== 'none')) showPopup(it.id);
   });

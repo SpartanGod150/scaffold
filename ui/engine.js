@@ -3,13 +3,14 @@
 
    State is a set of last-writer-wins records, so any two copies merge the same way on every device:
    tasks    habits (kept under the old name so existing data still works)
-   todos    tasks: one-time or recurring, optional deadline, optional project
+   todos    tasks: done once, optional deadline, optional project (old repeating ones are turned into habits)
    projects user projects, optionally linked to a vault project
    events   calendar events (two-way with Google Calendar through the desktop bridge)
    notes    reminder notes that pop up every N minutes until dismissed
    acks     note dismissals { noteId: { at } }
    vault    catalog of active Obsidian projects, published by the desktops
-   comps    completions { id@period }, snoozes { id@day }, log { id: event }, pause { on } */
+   comps    completions { id@period }, snoozes { id@day }, log { id: event }, pause { on }
+   sess     sessions of designated periods (events linked to a task, habit or project) */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.Engine = factory();
@@ -17,10 +18,9 @@
   'use strict';
   var MIN = 60000, DAY = 1440 * MIN;
   var NAG_STOP = '23:30';
-  var NUDGE_AT = '09:00';
   var MAX_SNOOZES = 2;
   var SNOOZE_MIN = 10;
-  var MAPS = ['tasks', 'todos', 'projects', 'events', 'notes', 'acks', 'vault', 'comps', 'snoozes', 'log', 'cfg', 'marks'];   // cfg.relay = Google backup mailbox {url, secret}; marks = "Show in monthly" per event (key: event id, or 'gid:'+gid for repeating Google events)
+  var MAPS = ['tasks', 'todos', 'projects', 'events', 'notes', 'acks', 'vault', 'comps', 'snoozes', 'log', 'cfg', 'marks', 'sess'];   // cfg.relay = Google backup mailbox {url, secret}; marks = "Show in monthly" per event (key: event id, or 'gid:'+gid for repeating Google events)
 
   function pad(n) { return (n < 10 ? '0' : '') + n; }
   function dateKey(t) { var d = new Date(t); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
@@ -65,39 +65,69 @@
   }
 
   // ---------- habits ----------
-  function scheduledOn(task, t) {
-    if (!task || task.del || task.active === false) return false;
+  // Habits repeat forever and keep a record of each period. repeat: 'weekdays' (the default: on the picked weekdays,
+  // none = every day; each day is a period), 'week' (dueDay 0=Mon..6=Sun), 'month' (dueDay 1..31), 'every' (every N days from date).
+  function weekdayOk(task, t) {
     var wd = new Date(t).getDay();
-    if (task.days && task.days.length && task.days.indexOf(wd) < 0) return false;
-    return dateKey(t) >= (task.from || '0000-00-00');
+    return !task.days || !task.days.length || task.days.indexOf(wd) >= 0;
+  }
+  function habitPeriod(task, t) {
+    if (!task || task.del || task.active === false) return null;
+    var today = dateKey(t), rep = task.repeat || 'weekdays';
+    if (today < (task.from || '0000-00-00')) return null;
+    if (rep === 'week' || rep === 'month') return periodOf({ repeat: rep, dueDay: task.dueDay }, t);
+    if (rep === 'every') return periodOf({ repeat: 'days', every: task.every, date: task.date || task.from }, t);
+    if (!weekdayOk(task, t)) return null;
+    return { key: today, first: today, deadline: today };
+  }
+  function scheduledOn(task, t) { return !!habitPeriod(task, t); }
+
+  // ---------- how hard Scaffold pushes (habits and tasks alike) ----------
+  // push: 'off' | 'nudge' (notifications) | 'nag' (pop-ups), every `remind` minutes inside the reminder window rfrom–rto,
+  // every day until it is done. lock: every device locks at the deadline until it is done (needs a deadline).
+  // Habit deadline: dueOn + due (a time each day of the period's deadline day; blank = end of day). Task deadline: date + due.
+  // Older records had level 1–4 (3 = lock at deadline, 4 = lock from start) and a start–due window: read the same way here.
+  function pushOf(task, kind) {
+    if (task.push) return task.push;
+    if (kind === 'todo' && !task.date && (task.repeat || 'none') === 'none') return 'off';   // old someday tasks never reminded
+    return (task.level || 1) === 1 ? 'nudge' : 'nag';
+  }
+  function lockOf(task) { return task.lock != null ? !!task.lock : (task.level || 1) >= 3; }
+  function hasDue(task, kind) {
+    if (kind === 'todo') return !!task.date || (task.repeat || 'none') !== 'none';
+    return task.dueOn != null ? !!task.dueOn : !!task.due;
+  }
+  function remindWindow(task) { return { from: task.rfrom || task.start || '09:00', to: task.rto || task.due || '21:00' }; }
+
+  // Timing of one item on the day of `now`, for a period p ({key, first, deadline}; deadline null = none).
+  function timing(task, kind, p, now) {
+    var push = pushOf(task, kind), rw = remindWindow(task), day = dateKey(now), end = midnightAfter(now) - MIN;
+    var due = p.deadline && hasDue(task, kind) ? at(fromKey(p.deadline), task.due || '23:59') : 0, dueToday = !!due && p.deadline === day;
+    var start = push === 'off' ? at(now, '00:00') : at(now, rw.from), rEnd = rw.to <= rw.from ? end : Math.min(end, at(now, rw.to));
+    var stop = dueToday ? Math.min(Math.max(at(now, NAG_STOP), due + 30 * MIN), end) : rEnd;
+    return { start: start, due: due || end, hasDue: !!due, dueToday: dueToday, rEnd: rEnd, stop: stop, push: push, lock: lockOf(task) && dueToday, future: !!due && p.deadline > day };
   }
 
-  function windowOf(task, t) {
-    var start = at(t, task.start || '00:00'), due = at(t, task.due || '23:00');
-    if (due < start) due = start;
-    var stop = Math.max(at(t, NAG_STOP), due + 30 * MIN);
-    stop = Math.min(stop, midnightAfter(t) - MIN);
-    return { start: start, due: due, stop: stop };
-  }
-
-  // When to remind: at the start, every `remind` minutes, every 10 min in the last hour, exactly at the deadline, then every 20 min while late.
-  // Tasks whose deadline is on another day get one nudge, at 09:00.
+  // When to remind: every `remind` minutes inside the window (every 10 min in the last hour before a deadline that day),
+  // exactly at the deadline, then every 20 min while late. No reminders when push is off.
   function reminderTimes(task, w) {
-    if (w.nudge) return [w.nudge];
-    var out = [], every = Math.max(1, task.remind || 30), t = w.start, lastHour = w.due - 60 * MIN;
-    while (t < w.stop && out.length < 1500) {
+    if (w.push === 'off') return [];
+    var out = [], every = Math.max(1, task.remind || 30), lastHour = w.dueToday ? w.due - 60 * MIN : Infinity;
+    var end = w.dueToday ? Math.min(w.rEnd, w.due) : w.rEnd, t = w.start;
+    while (t < end && out.length < 1500) {
       out.push(t);
-      var step = t >= w.due ? 20 : (t >= lastHour ? Math.min(10, every) : every);
-      var nt = t + step * MIN;
-      if (t < w.due && nt > w.due) nt = w.due;
+      var nt = t + (t >= lastHour ? Math.min(10, every) : every) * MIN;
       if (t < lastHour && nt > lastHour) nt = lastHour;
       t = nt;
     }
+    if (w.dueToday) for (t = w.due; t < w.stop && out.length < 1500; t += 20 * MIN) out.push(t);
     return out;
   }
 
   // ---------- tasks (todos) ----------
-  // repeat: 'none' (date optional: no date = someday), 'custom' (picked weekdays), 'week' (dueDay 0=Mon..6=Sun), 'month' (dueDay 1..31), 'days' (every N days from date)
+  // A task is done once and then it is gone. date = its deadline day (none = no deadline), due = the deadline time.
+  // periodOf also serves habit periods, and old repeating tasks until they are turned into habits.
+  // repeat: 'none', 'custom' (picked weekdays), 'week' (dueDay 0=Mon..6=Sun), 'month' (dueDay 1..31), 'days' (every N days from date)
   function periodOf(todo, t) {
     var rep = todo.repeat || 'none', today = dateKey(t);
     if (rep === 'week') {
@@ -128,44 +158,41 @@
   function todoActive(todo) { return todo && !todo.del && todo.active !== false; }
 
   // ---------- today ----------
+  // Habits show on their days (every day of a longer period until it is done). A task shows on its deadline day and after it
+  // until done; before it (or with no deadline) only while it has reminders. A finished task stays on the day it was finished.
   function compute(state, now) {
     var day = dateKey(now), paused = !!(state.pause && state.pause.on), items = [];
     var comps = state.comps || {}, snoozes = state.snoozes || {};
-    function push(id, task, kind, key, w, extra) {
-      var c = comps[key], done = !!(c && !c.undone);
+    function push(id, task, kind, key, p) {
+      var c = comps[key], done = !!(c && !c.undone), w = timing(task, kind, p, now);
       var sKey = compKey(id, day), s = snoozes[sKey], snoozedUntil = s && s.until > now ? s.until : 0;
-      var status = done ? 'done' : now < w.start ? 'upcoming' : now < w.due ? 'open' : 'late';
-      var lv = task.level || 1;
-      var lockable = !w.nudge && ((lv >= 4 && now >= w.start) || (lv >= 3 && now >= w.due));
+      var status = done ? 'done' : w.hasDue && now >= w.due ? 'late' : now < w.start ? 'upcoming' : 'open';
       var it = {
-        id: id, type: kind, task: task, key: key, sKey: sKey, start: w.start, due: w.due, stop: w.stop, nudge: w.nudge || 0,
+        id: id, type: kind, task: task, key: key, sKey: sKey, start: w.start, due: w.due, stop: w.stop, rEnd: w.rEnd,
+        hasDue: w.hasDue, dueToday: w.dueToday, future: w.future, push: w.push, deadlineDay: w.hasDue ? p.deadline : null,
         status: status, done: done, doneKind: done ? (c.kind || 'full') : null,
         snoozedUntil: snoozedUntil, snoozesLeft: MAX_SNOOZES - (s ? s.n || 0 : 0),
-        locked: !paused && !done && lockable && now < w.stop && !snoozedUntil
+        locked: !paused && !done && w.lock && now >= w.due && now < w.stop && !snoozedUntil
       };
-      for (var k in extra) it[k] = extra[k];
       items.push(it);
     }
     Object.keys(state.tasks || {}).forEach(function (id) {
-      var task = state.tasks[id];
-      if (!scheduledOn(task, now)) return;
-      push(id, task, 'habit', compKey(id, day), windowOf(task, now), {});
+      var task = state.tasks[id], p = habitPeriod(task, now);
+      if (p) push(id, task, 'habit', compKey(id, p.key), p);
     });
     Object.keys(state.todos || {}).forEach(function (id) {
       var todo = state.todos[id];
-      if (!todoActive(todo) || dateKey(now) < (todo.from || '0000-00-00') && (todo.repeat || 'none') !== 'none') return;
-      var p = periodOf(todo, now);
-      if (!p) return;
-      var key = compKey(id, p.key), c = comps[key], done = !!(c && !c.undone);
-      if (p.key === 'once' && p.deadline < day && done) return; // finished in the past
-      if (p.key === 'once' && p.deadline > day) return;           // not yet
-      if (p.deadline === day) {
-        push(id, todo, 'todo', key, windowOf(todo, now), { deadlineDay: p.deadline });
-      } else {
-        var dueT = at(fromKey(p.deadline), todo.due || '21:00');
-        var nudge = at(now, NUDGE_AT);
-        push(id, todo, 'todo', key, { start: dueT, due: dueT, stop: dueT, nudge: nudge }, { deadlineDay: p.deadline });
+      if (!todoActive(todo)) return;
+      if ((todo.repeat || 'none') !== 'none') {   // old repeating task
+        if (day < (todo.from || '0000-00-00')) return;
+        var rp = periodOf(todo, now);
+        if (rp) push(id, todo, 'todo', compKey(id, rp.key), rp);
+        return;
       }
+      var key = compKey(id, 'once'), c = comps[key];
+      if (c && !c.undone) { if (dateKey(c.ts || 0) === day) push(id, todo, 'todo', key, { key: 'once', deadline: todo.date || null }); return; }
+      if (todo.date ? todo.date > day && pushOf(todo, 'todo') === 'off' : pushOf(todo, 'todo') === 'off') return;
+      push(id, todo, 'todo', key, { key: 'once', deadline: todo.date || null });
     });
     items.sort(function (a, b) { return (a.due - b.due) || (a.start - b.start) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0); });
     var lock = null, done = 0;
@@ -179,7 +206,7 @@
     if (paused) return best;
     items.forEach(function (it) {
       if (it.done) return;
-      var cands = reminderTimes(it.task, it).concat(it.nudge ? [] : [it.start, it.due, it.stop]);
+      var cands = reminderTimes(it.task, it).concat([it.start], it.dueToday ? [it.due, it.stop] : []);
       if (it.snoozedUntil) cands.push(it.snoozedUntil);
       cands.forEach(function (t) { if (t > now && t < best) best = t; });
     });
@@ -191,6 +218,7 @@
   }
 
   // Reminders that fall in (from, to]. At most one per item; stale ones (over 30 min old) are skipped.
+  // Nag reminders pop up; nudges are notifications, except at and after a deadline.
   function dueReminders(state, from, to) {
     var r = compute(state, to);
     if (r.paused) return [];
@@ -202,7 +230,7 @@
       reminderTimes(it.task, it).forEach(function (t) { if (t > from && t <= to) hit = t; });
       var s = (state.snoozes || {})[it.sKey];
       if (s && s.until > from && s.until <= to) hit = Math.max(hit, s.until);
-      if (hit) out.push({ id: it.id, item: it, at: hit, popup: !it.nudge && ((it.task.level || 1) >= 2 || hit >= it.due) });
+      if (hit) out.push({ id: it.id, item: it, at: hit, popup: it.push === 'nag' || (it.dueToday && hit >= it.due) });
     });
     return out;
   }
@@ -287,9 +315,10 @@
   function opTask(task, by, now) { return opPut('tasks', task, by, now); }
   function opDelete(task, by, now) { return opDel('tasks', task, by, now); }
   function itemKey(state, id, now) {
-    var todo = (state.todos || {})[id];
-    if (todo) { var p = periodOf(todo, now); return compKey(id, p ? p.key : 'once'); }
-    return compKey(id, dateKey(now));
+    var todo = (state.todos || {})[id], habit = (state.tasks || {})[id];
+    if (todo) { var p = (todo.repeat || 'none') !== 'none' ? periodOf(todo, now) : null; return compKey(id, p ? p.key : 'once'); }
+    var hp = habit && habitPeriod(habit, now);
+    return compKey(id, hp ? hp.key : dateKey(now));
   }
   function opComplete(id, kind, by, now, state) { return one('comps', state ? itemKey(state, id, now) : compKey(id, dateKey(now)), { kind: kind || 'full', ts: now, by: by }); }
   function opUndo(id, by, now, state) { return one('comps', state ? itemKey(state, id, now) : compKey(id, dateKey(now)), { undone: true, ts: now, by: by }); }
@@ -315,10 +344,12 @@
       var cells = [], tSum = 0, tCount = 0, streak = 0;
       for (var i = days - 1; i >= 0; i--) {
         var t = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() - i, 12).getTime(), day = dateKey(t);
-        if (!scheduledOn(task, t)) { cells.push({ day: day, s: 'none' }); continue; }
-        var c = (state.comps || {})[compKey(id, day)], done = c && !c.undone, s;
+        var p = habitPeriod(task, t);
+        if (!p) { cells.push({ day: day, s: 'none' }); continue; }
+        var c = (state.comps || {})[compKey(id, p.key)], done = c && !c.undone, s;
+        if (p.key !== day && (done ? dateKey(c.ts || 0) !== day : day !== p.deadline)) { cells.push({ day: day, s: 'none' }); continue; }   // a longer period shows once: the day it was done, or its deadline day
         if (done) s = c.kind === 'tiny' ? 'tiny' : 'full';
-        else if (day === today && now < windowOf(task, now).due) s = 'pending';
+        else if (day === today && now < timing(task, 'habit', p, now).due) s = 'pending';
         else s = 'miss';
         cells.push({ day: day, s: s });
         if (s !== 'pending' && i < 7) { tCount++; tSum += s === 'full' ? 1 : s === 'tiny' ? 0.5 : 0; }
@@ -393,6 +424,59 @@
     return out;
   }
 
+  // ---------- designated periods: events linked to a task, a habit or a project ----------
+  // A Scaffold event carries link { k: 'todo' | 'habit' | 'project' | '' (unlinked), id, o (the first linked event's id) }.
+  // Google's copies have no link: they find it through the Scaffold record by id, gid or series (the newest record wins).
+  // sess holds each session (one occurrence): key o@YYYY-MM-DD → { done: when "End Session" was pressed, tasks: [task ids] (project sessions) }.
+  function linkIndex(state) {
+    var ix = {};
+    function put(k, e, id) { if (k && (!ix[k] || (ix[k].ts || 0) < (e.ts || 0))) ix[k] = { link: e.link, o: e.link.o || id, ts: e.ts || 0 }; }
+    Object.keys(state.events || {}).forEach(function (id) {
+      var e = state.events[id];
+      if (!e || !e.link || e.del) return;
+      put('i:' + id, e, id);
+      if (e.gid) put('g:' + e.gid, e, id);
+      if (e.series && e.scope && e.scope !== 'one') put('g:' + e.series, e, id);
+    });
+    return ix;
+  }
+  function linkOf(ix, e) {
+    var L = ix['i:' + (e.virt || e.id)] || (e.gid && ix['g:' + e.gid]) || (e.series && ix['g:' + e.series]) || null;
+    return L && L.link && L.link.k ? L : null;
+  }
+  function sessKey(L, e) { return L.o + '@' + dateKey(e.ostart || e.start); }
+  // The time blocks of one task / habit / project between from and to, soonest first. A task also gets the project
+  // sessions it was given. Each: { e (the event), key (its session key), start, end, done (session ended), via ('project' or '') }.
+  function blocksFor(state, k, id, from, to) {
+    var ix = linkIndex(state), evs = eventsFor(state), sess = state.sess || {}, out = [], pid = k === 'todo' && state.todos && state.todos[id] ? state.todos[id].project : '';
+    Object.keys(evs).forEach(function (eid) {
+      var e = evs[eid];
+      if (!e || e.del || e.start >= to || (e.end || e.start) <= from) return;
+      var L = linkOf(ix, e); if (!L) return;
+      var key = sessKey(L, e), s = sess[key], via = '';
+      if (L.link.k !== k || L.link.id !== id) {
+        if (!(k === 'todo' && L.link.k === 'project' && L.link.id === pid && s && (s.tasks || []).indexOf(id) >= 0)) return;
+        via = 'project';
+      }
+      out.push({ e: e, link: L.link, key: key, start: e.start, end: e.end || e.start, done: !!(s && s.done), via: via });
+    });
+    out.sort(function (a, b) { return a.start - b.start; });
+    return out;
+  }
+  // Every linked block between from and to (for the calendar and the Today session card).
+  function linkedBlocks(state, from, to) {
+    var ix = linkIndex(state), evs = eventsFor(state), sess = state.sess || {}, out = [];
+    Object.keys(evs).forEach(function (eid) {
+      var e = evs[eid];
+      if (!e || e.del || e.start >= to || (e.end || e.start) <= from) return;
+      var L = linkOf(ix, e); if (!L) return;
+      var key = sessKey(L, e), s = sess[key];
+      out.push({ e: e, link: L.link, key: key, start: e.start, end: e.end || e.start, done: !!(s && s.done), tasks: (s && s.tasks) || [] });
+    });
+    out.sort(function (a, b) { return a.start - b.start; });
+    return out;
+  }
+
   // Repeat rules (Google's RRULE). The simple ones Scaffold can edit: daily, weekly on days, monthly, yearly; ends by count or date.
   var RDAYS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
   function parseRule(text) {
@@ -439,7 +523,7 @@
     return out;
   }
   // Old pulled copies (unchanged since they came from Google, or deletions Google already has) are dropped: each device now pulls Google itself.
-  function isPulledCopy(e, now) { return !!(e && e.gid && e.synced && e.synced >= (e.ts || 0) && (e.ts || 0) < now - 3600000); }   // older than 1 h: every device has pulled the Google version by then
+  function isPulledCopy(e, now) { return !!(e && e.gid && !e.link && e.synced && e.synced >= (e.ts || 0) && (e.ts || 0) < now - 3600000); }   // older than 1 h: every device has pulled the Google version by then
   function dropPulledCopies(state, now) {
     var n = 0;
     Object.keys(state.events || {}).forEach(function (k) { if (isPulledCopy(state.events[k], now)) { delete state.events[k]; n++; } });
@@ -454,20 +538,11 @@
       if (e.del || e.task) return;
       if (e.start < end && (e.end || e.start) > start) out.push({ kind: 'event', id: id, rec: e, t: e.allDay ? start : e.start });
     });
-    Object.keys(state.todos || {}).forEach(function (id) {
+    Object.keys(state.todos || {}).forEach(function (id) {   // task deadlines (habits and tasks themselves show through their designated events)
       var td = state.todos[id];
-      if (!todoActive(td)) return;
-      if ((td.repeat || 'none') !== 'none' && day < (td.from || '0000-00-00')) return;
-      var p = periodOf(td, t);
-      if (!p || p.deadline !== day) return;
-      var c = (state.comps || {})[compKey(id, p.key)];
-      out.push({ kind: 'todo', id: id, rec: td, t: at(t, td.start || td.due || '09:00'), done: !!(c && !c.undone) });
-    });
-    Object.keys(state.tasks || {}).forEach(function (id) {
-      var h = state.tasks[id];
-      if (!scheduledOn(h, t)) return;
-      var c = (state.comps || {})[compKey(id, day)];
-      out.push({ kind: 'habit', id: id, rec: h, t: at(t, h.start || '00:00'), done: !!(c && !c.undone) });
+      if (!todoActive(td) || (td.repeat || 'none') !== 'none' || td.date !== day) return;
+      var c = (state.comps || {})[compKey(id, 'once')];
+      out.push({ kind: 'todo', id: id, rec: td, t: at(t, td.due || '23:59'), done: !!(c && !c.undone) });
     });
     out.sort(function (a, b) { return a.t - b.t; });
     return out;
@@ -526,9 +601,9 @@
   return {
     MIN: MIN, DAY: DAY, MAPS: MAPS, MAX_SNOOZES: MAX_SNOOZES, SNOOZE_MIN: SNOOZE_MIN,
     pad: pad, dateKey: dateKey, fromKey: fromKey, addDays: addDays, at: at, hhmm: hhmm, compKey: compKey, uid: uid, emptyState: emptyState,
-    newer: newer, merge: merge, eventsFor: eventsFor, parseRule: parseRule, buildRule: buildRule, expandRule: expandRule, dropPulledCopies: dropPulledCopies, isPulledCopy: isPulledCopy, scheduledOn: scheduledOn, windowOf: windowOf, reminderTimes: reminderTimes, periodOf: periodOf,
+    newer: newer, merge: merge, eventsFor: eventsFor, parseRule: parseRule, buildRule: buildRule, expandRule: expandRule, dropPulledCopies: dropPulledCopies, isPulledCopy: isPulledCopy, scheduledOn: scheduledOn, habitPeriod: habitPeriod, pushOf: pushOf, lockOf: lockOf, hasDue: hasDue, timing: timing, reminderTimes: reminderTimes, periodOf: periodOf,
     compute: compute, dueReminders: dueReminders, notePops: notePops, pendingNotes: pendingNotes, plainNote: plainNote, stats: stats,
-    projectProgress: projectProgress, dayAgenda: dayAgenda, vaultProjects: vaultProjects, itemKey: itemKey,
+    projectProgress: projectProgress, dayAgenda: dayAgenda, linkIndex: linkIndex, linkOf: linkOf, sessKey: sessKey, blocksFor: blocksFor, linkedBlocks: linkedBlocks, vaultProjects: vaultProjects, itemKey: itemKey,
     chunks: chunks, snapshot: snapshot,
     opPut: opPut, opDel: opDel, opTask: opTask, opDelete: opDelete, opComplete: opComplete, opUndo: opUndo, opSnooze: opSnooze, opPause: opPause, opAck: opAck
   };

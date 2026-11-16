@@ -33,13 +33,9 @@ function call(url, body, redirects) {
 }
 
 function hashId(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
-function todoSlot(Engine, t) {
-  if (!t || t.del || t.active === false || (t.repeat || 'none') !== 'none' || !t.date || !t.start) return null;
-  const day = Engine.fromKey(t.date), start = Engine.at(day, t.start);
-  let end = Engine.at(day, t.due || t.start);
-  if (end <= start) end = start + 30 * 60000;
-  return { title: (t.emoji ? t.emoji + ' ' : '') + t.title, start, end };
-}
+// Tasks no longer have a time of their own (they show through their designated events), so none goes up any more:
+// the ones put on Google by older versions are removed there.
+function todoSlot() { return null; }
 
 /* Google events -> this device's own copy, keyed like Scaffold events. res = the bridge's pull reply (or, from an old
    caller, its events array); prev = the last copy (kept when the bridge says nothing changed).

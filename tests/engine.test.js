@@ -11,10 +11,10 @@ const day = new Date(2026, 10, 9); // Mon 9 Nov 2026
 const at = (hhmm) => E.at(day.getTime(), hhmm);
 const base = () => {
   const s = E.emptyState();
-  Object.assign(s.tasks, E.opTask({ id: 'read', title: 'Read', emoji: '📖', start: '20:00', due: '21:00', level: 3, kind: 'timer', minutes: 20, remind: 30 }, 'A', at('08:00')).tasks);
-  Object.assign(s.tasks, E.opTask({ id: 'teeth', title: 'Brush teeth', emoji: '🪥', start: '07:00', due: '08:00', level: 4, kind: 'check', remind: 15 }, 'A', at('06:00')).tasks);
-  Object.assign(s.tasks, E.opTask({ id: 'study', title: 'Study', emoji: '📚', start: '14:00', due: '18:00', level: 2, days: [1, 3, 5], remind: 60 }, 'A', at('06:00')).tasks);
-  Object.assign(s.tasks, E.opTask({ id: 'gym', title: 'Gym', emoji: '🏋️', start: '10:00', due: '11:00', level: 1, days: [2, 4] }, 'A', at('06:00')).tasks);
+  Object.assign(s.tasks, E.opTask({ id: 'read', title: 'Read', emoji: '📖', dueOn: true, due: '21:00', rfrom: '20:00', rto: '21:00', push: 'nag', lock: true, kind: 'timer', minutes: 20, remind: 30 }, 'A', at('08:00')).tasks);
+  Object.assign(s.tasks, E.opTask({ id: 'teeth', title: 'Brush teeth', emoji: '🪥', dueOn: true, due: '07:00', rfrom: '06:30', rto: '07:00', push: 'nag', lock: true, kind: 'check', remind: 15 }, 'A', at('06:00')).tasks);
+  Object.assign(s.tasks, E.opTask({ id: 'study', title: 'Study', emoji: '📚', dueOn: true, due: '18:00', rfrom: '14:00', rto: '18:00', push: 'nag', days: [1, 3, 5], remind: 60 }, 'A', at('06:00')).tasks);
+  Object.assign(s.tasks, E.opTask({ id: 'gym', title: 'Gym', emoji: '🏋️', dueOn: true, due: '11:00', rfrom: '10:00', rto: '11:00', push: 'nudge', days: [2, 4] }, 'A', at('06:00')).tasks);
   return s;
 };
 
@@ -23,20 +23,36 @@ t('scheduling by weekday', () => {
   assert.deepStrictEqual(r.items.map(i => i.id), ['teeth', 'study', 'read']);
 });
 
-t('level 4 locks from start until done', () => {
+t('lock at deadline, until done or 23:30', () => {
   const s = base();
   assert.strictEqual(E.compute(s, at('06:59')).lock, null);
   assert.strictEqual(E.compute(s, at('07:00')).lock.id, 'teeth');
   E.merge(s, E.opComplete('teeth', 'full', 'B', at('07:05')));
   assert.strictEqual(E.compute(s, at('07:06')).lock, null);
-});
-
-t('level 3 locks at deadline, not before', () => {
-  const s = base();
-  E.merge(s, E.opComplete('teeth', 'full', 'B', at('07:05')));
   assert.strictEqual(E.compute(s, at('20:59')).lock, null);
   assert.strictEqual(E.compute(s, at('21:00')).lock.id, 'read');
   assert.strictEqual(E.compute(s, at('23:31')).lock, null, 'lock ends at 23:30');
+});
+
+t('old levels read as push + lock', () => {
+  assert.strictEqual(E.pushOf({ level: 1 }, 'habit'), 'nudge');
+  assert.strictEqual(E.pushOf({ level: 4 }, 'habit'), 'nag');
+  assert.strictEqual(E.lockOf({ level: 3 }), true);
+  assert.strictEqual(E.lockOf({ level: 2 }), false);
+  assert.strictEqual(E.pushOf({ level: 1 }, 'todo'), 'off', 'old someday task');
+  const s = E.emptyState();
+  Object.assign(s.tasks, E.opTask({ id: 'old', title: 'Old', start: '07:00', due: '08:00', level: 4, remind: 15 }, 'A', at('06:00')).tasks);
+  assert.strictEqual(E.compute(s, at('07:30')).lock, null, 'no more lock from start');
+  assert.strictEqual(E.compute(s, at('08:00')).lock.id, 'old');
+  assert.deepStrictEqual(E.reminderTimes(s.tasks.old, E.compute(s, at('06:00')).items[0]).slice(0, 3).map(E.hhmm), ['07:00', '07:10', '07:20']);
+});
+
+t('lock needs a deadline; push off means no reminders', () => {
+  const s = E.emptyState();
+  Object.assign(s.tasks, E.opTask({ id: 'h', title: 'H', push: 'off', lock: true }, 'A', at('06:00')).tasks);
+  assert.strictEqual(E.compute(s, at('23:50')).lock, null);
+  assert.deepStrictEqual(E.dueReminders(s, at('00:00'), at('23:59')), []);
+  assert.strictEqual(E.compute(s, at('23:50')).items[0].status, 'open', 'no deadline: never late');
 });
 
 t('pause frees everything and is last-writer-wins', () => {
@@ -59,17 +75,16 @@ t('snooze lifts a lock for 10 min, max 2 per day', () => {
   assert.strictEqual(E.opSnooze(s, 'teeth', 'A', at('07:20')), null);
 });
 
-t('reminder times escalate', () => {
+t('reminder times: window, last hour, deadline, late', () => {
   const s = base();
   const it = E.compute(s, at('12:00')).items.find(i => i.id === 'read');
-  const times = E.reminderTimes(it.task, it).map(x => new Date(x).toTimeString().slice(0, 5));
+  const times = E.reminderTimes(it.task, it).map(E.hhmm);
   assert.deepStrictEqual(times.slice(0, 8), ['20:00', '20:10', '20:20', '20:30', '20:40', '20:50', '21:00', '21:20']);
   const st = E.compute(s, at('12:00')).items.find(i => i.id === 'study');
-  const t2 = E.reminderTimes(st.task, st).map(x => new Date(x).toTimeString().slice(0, 5));
-  assert.deepStrictEqual(t2.slice(0, 6), ['14:00', '15:00', '16:00', '17:00', '17:10', '17:20']);
+  assert.deepStrictEqual(E.reminderTimes(st.task, st).map(E.hhmm).slice(0, 6), ['14:00', '15:00', '16:00', '17:00', '17:10', '17:20']);
 });
 
-t('due reminders: one per task, popup by level', () => {
+t('due reminders: one per task, popup for nag', () => {
   const s = base();
   E.merge(s, E.opComplete('teeth', 'full', 'A', at('07:10')));
   const r = E.dueReminders(s, at('13:59'), at('14:00'));
@@ -118,7 +133,7 @@ t('stats', () => {
 });
 
 t('late tasks keep nagging every 20 min', () => {
-  const r = E.dueReminders(base(), at('08:19'), at('08:20'));
+  const r = E.dueReminders(base(), at('07:19'), at('07:20'));
   assert.deepStrictEqual(r.map(x => x.id + ':' + x.popup), ['teeth:true']);
 });
 
@@ -130,35 +145,56 @@ t('inactive habits are skipped', () => {
 
 const addTodo = (s, o) => Object.assign(s.todos, E.opPut('todos', o, 'A', at('06:00')).todos);
 
-t('one-time task: shows on its date, then stays late until done', () => {
+t('task with a deadline: on its day, then late until done; reminders every day before it', () => {
   const s = base();
-  addTodo(s, { id: 'buy', title: 'Buy X', date: '2026-11-10', start: '10:00', due: '12:00', level: 1 });
-  assert.ok(!E.compute(s, at('12:00')).items.some(i => i.id === 'buy'), 'not before its date');
+  addTodo(s, { id: 'buy', title: 'Buy X', date: '2026-11-10', due: '12:00', push: 'off', lock: true });
+  assert.ok(!E.compute(s, at('12:00')).items.some(i => i.id === 'buy'), 'no reminders: not before its day');
   const tue = E.fromKey('2026-11-10'), wed = E.fromKey('2026-11-11');
   const it = E.compute(s, E.at(tue, '11:00')).items.find(i => i.id === 'buy');
-  assert.strictEqual(it.status, 'open'); assert.strictEqual(it.nudge, 0);
+  assert.strictEqual(it.status, 'open'); assert.strictEqual(it.dueToday, true);
+  assert.strictEqual(E.compute(s, E.at(tue, '12:00')).items.find(i => i.id === 'buy').locked, true);
   const late = E.compute(s, E.at(wed, '08:00')).items.find(i => i.id === 'buy');
-  assert.strictEqual(late.status, 'late'); assert.ok(late.nudge > 0);
+  assert.strictEqual(late.status, 'late'); assert.strictEqual(late.locked, false, 'locks only on the deadline day');
   E.merge(s, E.opComplete('buy', 'full', 'A', E.at(wed, '08:30'), s));
+  assert.ok(E.compute(s, E.at(wed, '09:00')).items.find(i => i.id === 'buy').done, 'shows as done the day it was done');
   assert.ok(!E.compute(s, E.at(E.fromKey('2026-11-12'), '08:00')).items.some(i => i.id === 'buy'), 'gone once done');
+  addTodo(s, { id: 'pay', title: 'Pay', date: '2026-11-11', due: '', push: 'nudge', rfrom: '09:00', rto: '17:00', remind: 120 });
+  const mon = E.compute(s, at('12:00')).items.find(i => i.id === 'pay');
+  assert.strictEqual(mon.future, true);
+  assert.deepStrictEqual(E.reminderTimes(mon.task, mon).map(E.hhmm), ['09:00', '11:00', '13:00', '15:00']);
+  assert.strictEqual(mon.due, E.at(wed, '23:59'), 'blank time = end of the day');
 });
 
-t('someday task (no date) never shows on Today', () => {
+t('task with no deadline shows only with reminders on', () => {
   const s = base(); addTodo(s, { id: 'fix', title: 'Fix Y' });
   assert.ok(!E.compute(s, at('12:00')).items.some(i => i.id === 'fix'));
+  addTodo(s, { id: 'fix2', title: 'Fix Z', push: 'nag', rfrom: '10:00', rto: '12:00', remind: 60, lock: true });
+  const it = E.compute(s, at('12:00')).items.find(i => i.id === 'fix2');
+  assert.strictEqual(it.hasDue, false); assert.strictEqual(it.locked, false);
+  assert.deepStrictEqual(E.reminderTimes(it.task, it).map(E.hhmm), ['10:00', '11:00']);
 });
 
-t('weekly task: nudged during the week, real window on the deadline day, one completion per week', () => {
+t('old weekly task still works until it becomes a habit', () => {
   const s = base();
   addTodo(s, { id: 'chap', title: 'Read a chapter', repeat: 'week', dueDay: 6, start: '18:00', due: '21:00', level: 3 });
   const mon = E.compute(s, at('12:00')).items.find(i => i.id === 'chap');
-  assert.strictEqual(mon.key, 'chap@W2026-11-09'); assert.ok(mon.nudge); assert.strictEqual(mon.locked, false);
-  assert.deepStrictEqual(E.dueReminders(s, at('08:59'), at('09:00')).map(x => x.id + ':' + x.popup).filter(x => x.startsWith('chap')), ['chap:false']);
+  assert.strictEqual(mon.key, 'chap@W2026-11-09'); assert.strictEqual(mon.locked, false);
   const sun = E.fromKey('2026-11-15');
   assert.strictEqual(E.compute(s, E.at(sun, '21:05')).items.find(i => i.id === 'chap').locked, true, 'locks at the Sunday deadline');
   E.merge(s, E.opComplete('chap', 'full', 'A', at('13:00'), s));
   assert.ok(E.compute(s, E.at(sun, '21:05')).items.find(i => i.id === 'chap').done, 'Monday completion covers the week');
-  assert.ok(!E.compute(s, E.at(E.fromKey('2026-11-16'), '12:00')).items.find(i => i.id === 'chap').done, 'new week resets');
+});
+
+t('weekly habit: one completion per week, shown once in the tracker', () => {
+  const s = E.emptyState();
+  Object.assign(s.tasks, E.opTask({ id: 'wk', title: 'Clean', repeat: 'week', dueDay: 6, dueOn: true, due: '20:00', push: 'nag', rfrom: '10:00', rto: '20:00', remind: 120 }, 'A', at('06:00')).tasks);
+  const mon = E.compute(s, at('12:00')).items[0];
+  assert.strictEqual(mon.key, 'wk@W2026-11-09'); assert.strictEqual(mon.future, true);
+  E.merge(s, E.opComplete('wk', 'full', 'A', E.at(E.fromKey('2026-11-11'), '13:00'), s));
+  assert.ok(E.compute(s, E.at(E.fromKey('2026-11-15'), '12:00')).items[0].done);
+  const st = E.stats(s, E.at(E.fromKey('2026-11-15'), '22:00'), 7).tasks[0];
+  assert.deepStrictEqual(st.cells.map(c => c.s), ['none', 'none', 'full', 'none', 'none', 'none', 'none']);
+  assert.ok(!E.compute(s, E.at(E.fromKey('2026-11-16'), '12:00')).items[0].done, 'new week resets');
 });
 
 t('monthly and every-N-days periods', () => {
@@ -166,12 +202,29 @@ t('monthly and every-N-days periods', () => {
   assert.deepStrictEqual(m, { key: '2026-11', first: '2026-11-01', deadline: '2026-11-30' });
   const d = E.periodOf({ repeat: 'days', every: 3, date: '2026-11-01' }, E.fromKey('2026-11-09'));
   assert.deepStrictEqual(d, { key: 'D2026-11-07', first: '2026-11-07', deadline: '2026-11-09' });
+  assert.deepStrictEqual(E.habitPeriod({ repeat: 'every', every: 3, date: '2026-11-01' }, E.fromKey('2026-11-09')), d);
 });
 
 t('custom weekday repeat', () => {
   assert.deepStrictEqual(E.periodOf({ repeat: 'custom', days: [1, 3] }, E.fromKey('2026-11-09')), { key: 'C2026-11-09', first: '2026-11-09', deadline: '2026-11-09' });
   assert.strictEqual(E.periodOf({ repeat: 'custom', days: [1, 3] }, E.fromKey('2026-11-10')), null);
-  assert.strictEqual(E.periodOf({ repeat: 'custom', days: [] }, E.fromKey('2026-11-10')).key, 'C2026-11-10');
+});
+
+t('designated periods: linked blocks, Google copies, project sessions', () => {
+  const s = base();
+  addTodo(s, { id: 'hit', title: 'Fix hitbox', project: 'game' });
+  Object.assign(s.events, E.opPut('events', { id: 'ev1', title: 'Math', start: at('15:00'), end: at('16:00'), rrule: 'RRULE:FREQ=DAILY;COUNT=3', link: { k: 'todo', id: 'buy' } }, 'A', at('06:00')).events);
+  Object.assign(s.events, E.opPut('events', { id: 'ev2', title: 'Game dev', start: at('18:00'), end: at('19:00'), link: { k: 'project', id: 'game' } }, 'A', at('06:00')).events);
+  let b = E.blocksFor(s, 'todo', 'buy', at('00:00'), at('00:00') + 10 * E.DAY);
+  assert.deepStrictEqual(b.map(x => x.key), ['ev1@2026-11-09', 'ev1@2026-11-10', 'ev1@2026-11-11']);
+  assert.strictEqual(E.blocksFor(s, 'todo', 'hit', 0, Infinity).length, 0);
+  s.sess['ev2@2026-11-09'] = { tasks: ['hit'], ts: 1, by: 'A' };
+  assert.deepStrictEqual(E.blocksFor(s, 'todo', 'hit', 0, Infinity).map(x => x.via), ['project']);
+  // once on Google: the Scaffold record hides, Google's copies carry no link but find it by gid / series
+  s.events.ev2 = Object.assign({}, s.events.ev2, { gid: 'G2', synced: at('06:01'), ts: at('06:00') });
+  s.gev = { ev2: { id: 'ev2', v: 2, gid: 'G2', title: 'Game dev', start: at('18:00'), end: at('19:00'), gupd: at('06:02') } };
+  assert.strictEqual(E.blocksFor(s, 'project', 'game', 0, Infinity)[0].e.gupd, at('06:02'));
+  assert.strictEqual(E.isPulledCopy(s.events.ev2, at('12:00')), false, 'linked records are kept');
 });
 
 t('project progress', () => {
@@ -213,7 +266,7 @@ t('calendar agenda', () => {
   Object.assign(s.events, E.opPut('events', { id: 'e1', title: 'Dentist', start: at('15:00'), end: at('16:00') }, 'A', at('06:00')).events);
   addTodo(s, { id: 'buy', title: 'Buy X', date: '2026-11-09', start: '10:00', due: '12:00' });
   const a = E.dayAgenda(s, at('12:00'));
-  assert.deepStrictEqual(a.map(x => x.kind + ':' + x.id), ['habit:teeth', 'todo:buy', 'habit:study', 'event:e1', 'habit:read']);
+  assert.deepStrictEqual(a.map(x => x.kind + ':' + x.id), ['todo:buy', 'event:e1'], 'habits and tasks show through their events; task deadlines show');
 });
 
 t('vault catalog parts join back', () => {
@@ -226,16 +279,21 @@ t('vault catalog parts join back', () => {
 const fx = base();
 E.merge(fx, E.opSnooze(fx, 'teeth', 'A', at('07:00')));
 addTodo(fx, { id: 'chap', title: 'Chapter', repeat: 'week', dueDay: 0, start: '18:00', due: '21:00', level: 3 });
-addTodo(fx, { id: 'buy', title: 'Buy', date: '2026-11-08', due: '12:00' });
-addTodo(fx, { id: 'mon', title: 'Bills', repeat: 'month', dueDay: 9, start: '10:00', due: '11:00', level: 2 });
+addTodo(fx, { id: 'buy', title: 'Buy', date: '2026-11-08', due: '12:00', push: 'nudge', rfrom: '09:00', rto: '18:00', remind: 90 });
+addTodo(fx, { id: 'pay', title: 'Pay', date: '2026-11-09', due: '', push: 'off', lock: true });
+addTodo(fx, { id: 'fut', title: 'Later', date: '2026-11-12', due: '10:00', push: 'nag', rfrom: '13:00', rto: '17:30', remind: 45, lock: true });
+addTodo(fx, { id: 'some', title: 'Someday', push: 'nudge', rfrom: '10:00', rto: '11:00', remind: 30 });
+addTodo(fx, { id: 'old', title: 'Old someday', level: 2 });
 addTodo(fx, { id: 'cus', title: 'Gym', repeat: 'custom', days: [1, 4], due: '23:59', start: '18:00', level: 4 });
-addTodo(fx, { id: 'ev3', title: 'Water plants', repeat: 'days', every: 3, date: '2026-11-03', start: '17:00', due: '17:30', level: 1 });
+Object.assign(fx.tasks, E.opTask({ id: 'wk', title: 'Clean', repeat: 'week', dueDay: 0, dueOn: true, due: '17:00', push: 'nag', rfrom: '16:00', rto: '22:00', remind: 20 }, 'A', at('06:00')).tasks);
+Object.assign(fx.tasks, E.opTask({ id: 'free', title: 'Free', push: 'nudge', rfrom: '21:00', rto: '20:00', remind: 60, lock: true }, 'A', at('06:00')).tasks);
+Object.assign(fx.tasks, E.opTask({ id: 'mo', title: 'Bills', repeat: 'month', dueDay: 9, dueOn: false, push: 'nag', rfrom: '10:00', rto: '10:30', remind: 15 }, 'A', at('06:00')).tasks);
 Object.assign(fx.notes, E.opPut('notes', { id: 'n1', text: 'x', every: 45, from: '08:00', to: '22:00' }, 'A', at('07:10')).notes);
 Object.assign(fx.notes, E.opPut('notes', { id: 'n2', text: '- [ ] y', every: 90, from: '20:00', to: '01:00', days: [1, 3] }, 'A', at('07:10')).notes);
 Object.assign(fx.notes, E.opPut('notes', { id: 'n3', text: 'z', every: 30, from: '09:00', to: '09:00', days: [2] }, 'A', at('07:10')).notes);
 fx.tasks.gym.active = false;
 E.merge(fx, E.opAck('n1', 'B', at('13:00')));
-const instants = ['06:59', '07:00', '07:05', '07:10', '08:00', '09:00', '10:30', '13:59', '14:00', '17:05', '17:30', '20:59', '21:00', '21:10', '23:31'];
+const instants = ['06:59', '07:00', '07:05', '07:10', '08:00', '09:00', '10:00', '10:30', '12:00', '13:59', '14:00', '16:00', '17:00', '17:05', '17:30', '20:59', '21:00', '21:10', '23:31', '23:59'];
 const out = instants.map(h => {
   const now = at(h), r = E.compute(fx, now);
   return { now, lock: r.lock ? r.lock.id : null, next: r.next, done: r.done, total: r.total, rem: E.dueReminders(fx, now - 60000, now).map(x => x.id + ':' + x.popup), notes: r.notes.map(n => n.id + ':' + n.since), keys: r.items.map(i => i.key + ':' + i.status), pops: Object.keys(fx.notes).sort().map(id => { const p = E.notePops(fx.notes[id], now); return id + ':' + p.last + ':' + p.next; }) };

@@ -66,8 +66,9 @@ public final class Notif {
     }
 
     static void reminder(Context c, Engine.Item it, boolean popup) {
-        String when = "upcoming".equals(it.status) ? "Starts " + hm(it.start) : "open".equals(it.status) ? "Due " + hm(it.due) : "Late · deadline was " + hm(it.due);
-        if (it.task.optInt("level", 1) == 3 && !"late".equals(it.status)) when += " · devices lock at " + hm(it.due);
+        String when = !it.hasDue ? "Reminder" : "late".equals(it.status) ? "Late · deadline was " + (it.dueToday ? "" : it.deadlineDay + " ") + hm(it.due)
+                : it.future ? "Due " + it.deadlineDay + " " + hm(it.due) : "Due " + hm(it.due);
+        if (Engine.lockOf(it.task) && it.dueToday && !"late".equals(it.status)) when += " · devices lock at " + hm(it.due);
         int id = 1000 + Math.abs(it.id.hashCode() % 100000);
         Notification.Builder b = new Notification.Builder(c, popup ? CH_URGENT : CH_REMIND)
                 .setSmallIcon(R.drawable.ic_stat)

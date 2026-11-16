@@ -47,7 +47,7 @@ if (cmd === 'today') {
   const r = E.compute(state, now);
   show({
     paused: r.paused, done: r.done, total: r.total,
-    items: r.items.map((i) => ({ id: i.id, type: i.type, title: i.task.title, status: i.status, done: i.done, locked: i.locked, window: i.nudge ? null : E.hhmm(i.start) + '-' + E.hhmm(i.due), deadlineDay: i.deadlineDay || E.dateKey(now) })),
+    items: r.items.map((i) => ({ id: i.id, type: i.type, title: i.task.title, status: i.status, done: i.done, locked: i.locked, push: i.push, deadline: i.hasDue ? i.deadlineDay + ' ' + E.hhmm(i.due) : null })),
     notesWaiting: r.notes.map((n) => n.note.text)
   });
 } else if (cmd === 'list') {

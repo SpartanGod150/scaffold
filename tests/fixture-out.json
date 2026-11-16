@@ -11,9 +11,12 @@
     "id": "read",
     "title": "Read",
     "emoji": "📖",
-    "start": "20:00",
+    "dueOn": true,
     "due": "21:00",
-    "level": 3,
+    "rfrom": "20:00",
+    "rto": "21:00",
+    "push": "nag",
+    "lock": true,
     "kind": "timer",
     "minutes": 20,
     "remind": 30,
@@ -25,9 +28,12 @@
     "id": "teeth",
     "title": "Brush teeth",
     "emoji": "🪥",
-    "start": "07:00",
-    "due": "08:00",
-    "level": 4,
+    "dueOn": true,
+    "due": "07:00",
+    "rfrom": "06:30",
+    "rto": "07:00",
+    "push": "nag",
+    "lock": true,
     "kind": "check",
     "remind": 15,
     "from": "2026-11-09",
@@ -38,9 +44,11 @@
     "id": "study",
     "title": "Study",
     "emoji": "📚",
-    "start": "14:00",
+    "dueOn": true,
     "due": "18:00",
-    "level": 2,
+    "rfrom": "14:00",
+    "rto": "18:00",
+    "push": "nag",
     "days": [
      1,
      3,
@@ -55,9 +63,11 @@
     "id": "gym",
     "title": "Gym",
     "emoji": "🏋️",
-    "start": "10:00",
+    "dueOn": true,
     "due": "11:00",
-    "level": 1,
+    "rfrom": "10:00",
+    "rto": "11:00",
+    "push": "nudge",
     "days": [
      2,
      4
@@ -66,6 +76,47 @@
     "ts": 1794214800000,
     "by": "A",
     "active": false
+   },
+   "wk": {
+    "id": "wk",
+    "title": "Clean",
+    "repeat": "week",
+    "dueDay": 0,
+    "dueOn": true,
+    "due": "17:00",
+    "push": "nag",
+    "rfrom": "16:00",
+    "rto": "22:00",
+    "remind": 20,
+    "from": "2026-11-09",
+    "ts": 1794214800000,
+    "by": "A"
+   },
+   "free": {
+    "id": "free",
+    "title": "Free",
+    "push": "nudge",
+    "rfrom": "21:00",
+    "rto": "20:00",
+    "remind": 60,
+    "lock": true,
+    "from": "2026-11-09",
+    "ts": 1794214800000,
+    "by": "A"
+   },
+   "mo": {
+    "id": "mo",
+    "title": "Bills",
+    "repeat": "month",
+    "dueDay": 9,
+    "dueOn": false,
+    "push": "nag",
+    "rfrom": "10:00",
+    "rto": "10:30",
+    "remind": 15,
+    "from": "2026-11-09",
+    "ts": 1794214800000,
+    "by": "A"
    }
   },
   "todos": {
@@ -86,17 +137,53 @@
     "title": "Buy",
     "date": "2026-11-08",
     "due": "12:00",
+    "push": "nudge",
+    "rfrom": "09:00",
+    "rto": "18:00",
+    "remind": 90,
     "from": "2026-11-09",
     "ts": 1794214800000,
     "by": "A"
    },
-   "mon": {
-    "id": "mon",
-    "title": "Bills",
-    "repeat": "month",
-    "dueDay": 9,
-    "start": "10:00",
-    "due": "11:00",
+   "pay": {
+    "id": "pay",
+    "title": "Pay",
+    "date": "2026-11-09",
+    "due": "",
+    "push": "off",
+    "lock": true,
+    "from": "2026-11-09",
+    "ts": 1794214800000,
+    "by": "A"
+   },
+   "fut": {
+    "id": "fut",
+    "title": "Later",
+    "date": "2026-11-12",
+    "due": "10:00",
+    "push": "nag",
+    "rfrom": "13:00",
+    "rto": "17:30",
+    "remind": 45,
+    "lock": true,
+    "from": "2026-11-09",
+    "ts": 1794214800000,
+    "by": "A"
+   },
+   "some": {
+    "id": "some",
+    "title": "Someday",
+    "push": "nudge",
+    "rfrom": "10:00",
+    "rto": "11:00",
+    "remind": 30,
+    "from": "2026-11-09",
+    "ts": 1794214800000,
+    "by": "A"
+   },
+   "old": {
+    "id": "old",
+    "title": "Old someday",
     "level": 2,
     "from": "2026-11-09",
     "ts": 1794214800000,
@@ -113,19 +200,6 @@
     "due": "23:59",
     "start": "18:00",
     "level": 4,
-    "from": "2026-11-09",
-    "ts": 1794214800000,
-    "by": "A"
-   },
-   "ev3": {
-    "id": "ev3",
-    "title": "Water plants",
-    "repeat": "days",
-    "every": 3,
-    "date": "2026-11-03",
-    "start": "17:00",
-    "due": "17:30",
-    "level": 1,
     "from": "2026-11-09",
     "ts": 1794214800000,
     "by": "A"
@@ -191,7 +265,8 @@
   },
   "log": {},
   "cfg": {},
-  "marks": {}
+  "marks": {},
+  "sess": {}
  },
  "cases": [
   {
@@ -199,18 +274,22 @@
    "lock": null,
    "next": 1794218400000,
    "done": 0,
-   "total": 8,
+   "total": 12,
    "rem": [],
    "notes": [],
    "keys": [
     "buy@once:late",
-    "teeth@2026-11-09:upcoming",
-    "mon@2026-11:upcoming",
+    "teeth@2026-11-09:open",
+    "wk@W2026-11-09:upcoming",
     "study@2026-11-09:upcoming",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:upcoming",
+    "some@once:upcoming",
     "cus@C2026-11-09:upcoming",
-    "ev3@D2026-11-09:upcoming"
+    "free@2026-11-09:upcoming",
+    "fut@once:upcoming"
    ],
    "pops": [
     "n1:0:1794219000000",
@@ -223,18 +302,22 @@
    "lock": null,
    "next": 1794219000000,
    "done": 0,
-   "total": 8,
+   "total": 12,
    "rem": [],
    "notes": [],
    "keys": [
     "buy@once:late",
-    "teeth@2026-11-09:open",
-    "mon@2026-11:upcoming",
+    "teeth@2026-11-09:late",
+    "wk@W2026-11-09:upcoming",
     "study@2026-11-09:upcoming",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:upcoming",
+    "some@once:upcoming",
     "cus@C2026-11-09:upcoming",
-    "ev3@D2026-11-09:upcoming"
+    "free@2026-11-09:upcoming",
+    "fut@once:upcoming"
    ],
    "pops": [
     "n1:0:1794219000000",
@@ -247,18 +330,22 @@
    "lock": null,
    "next": 1794219000000,
    "done": 0,
-   "total": 8,
+   "total": 12,
    "rem": [],
    "notes": [],
    "keys": [
     "buy@once:late",
-    "teeth@2026-11-09:open",
-    "mon@2026-11:upcoming",
+    "teeth@2026-11-09:late",
+    "wk@W2026-11-09:upcoming",
     "study@2026-11-09:upcoming",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:upcoming",
+    "some@once:upcoming",
     "cus@C2026-11-09:upcoming",
-    "ev3@D2026-11-09:upcoming"
+    "free@2026-11-09:upcoming",
+    "fut@once:upcoming"
    ],
    "pops": [
     "n1:0:1794219000000",
@@ -271,20 +358,24 @@
    "lock": "teeth",
    "next": 1794219600000,
    "done": 0,
-   "total": 8,
+   "total": 12,
    "rem": [
     "teeth:true"
    ],
    "notes": [],
    "keys": [
     "buy@once:late",
-    "teeth@2026-11-09:open",
-    "mon@2026-11:upcoming",
+    "teeth@2026-11-09:late",
+    "wk@W2026-11-09:upcoming",
     "study@2026-11-09:upcoming",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:upcoming",
+    "some@once:upcoming",
     "cus@C2026-11-09:upcoming",
-    "ev3@D2026-11-09:upcoming"
+    "free@2026-11-09:upcoming",
+    "fut@once:upcoming"
    ],
    "pops": [
     "n1:0:1794224400000",
@@ -297,7 +388,7 @@
    "lock": "teeth",
    "next": 1794223200000,
    "done": 0,
-   "total": 8,
+   "total": 12,
    "rem": [
     "teeth:true"
    ],
@@ -305,12 +396,16 @@
    "keys": [
     "buy@once:late",
     "teeth@2026-11-09:late",
-    "mon@2026-11:upcoming",
+    "wk@W2026-11-09:upcoming",
     "study@2026-11-09:upcoming",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:upcoming",
+    "some@once:upcoming",
     "cus@C2026-11-09:upcoming",
-    "ev3@D2026-11-09:upcoming"
+    "free@2026-11-09:upcoming",
+    "fut@once:upcoming"
    ],
    "pops": [
     "n1:0:1794224400000",
@@ -323,25 +418,60 @@
    "lock": "teeth",
    "next": 1794226800000,
    "done": 0,
-   "total": 8,
+   "total": 12,
    "rem": [
     "buy:false",
-    "teeth:true",
-    "ev3:false"
+    "teeth:true"
    ],
    "notes": [],
    "keys": [
     "buy@once:late",
     "teeth@2026-11-09:late",
-    "mon@2026-11:upcoming",
+    "wk@W2026-11-09:upcoming",
     "study@2026-11-09:upcoming",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:upcoming",
+    "some@once:upcoming",
     "cus@C2026-11-09:upcoming",
-    "ev3@D2026-11-09:upcoming"
+    "free@2026-11-09:upcoming",
+    "fut@once:upcoming"
    ],
    "pops": [
     "n1:1794224400000:1794227100000",
+    "n2:0:1794267600000",
+    "n3:0:1794280200000"
+   ]
+  },
+  {
+   "now": 1794229200000,
+   "lock": "teeth",
+   "next": 1794229800000,
+   "done": 0,
+   "total": 12,
+   "rem": [
+    "teeth:true",
+    "mo:true",
+    "some:false"
+   ],
+   "notes": [],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "wk@W2026-11-09:upcoming",
+    "study@2026-11-09:upcoming",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:open",
+    "some@once:open",
+    "cus@C2026-11-09:upcoming",
+    "free@2026-11-09:upcoming",
+    "fut@once:upcoming"
+   ],
+   "pops": [
+    "n1:1794227100000:1794229800000",
     "n2:0:1794267600000",
     "n3:0:1794280200000"
    ]
@@ -351,23 +481,59 @@
    "lock": "teeth",
    "next": 1794231600000,
    "done": 0,
-   "total": 8,
+   "total": 12,
    "rem": [
-    "mon:true"
+    "buy:false",
+    "some:false"
    ],
    "notes": [],
    "keys": [
     "buy@once:late",
     "teeth@2026-11-09:late",
-    "mon@2026-11:open",
+    "wk@W2026-11-09:upcoming",
     "study@2026-11-09:upcoming",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:open",
+    "some@once:open",
     "cus@C2026-11-09:upcoming",
-    "ev3@D2026-11-09:upcoming"
+    "free@2026-11-09:upcoming",
+    "fut@once:upcoming"
    ],
    "pops": [
     "n1:1794229800000:1794232500000",
+    "n2:0:1794267600000",
+    "n3:0:1794280200000"
+   ]
+  },
+  {
+   "now": 1794236400000,
+   "lock": "teeth",
+   "next": 1794237600000,
+   "done": 0,
+   "total": 12,
+   "rem": [
+    "buy:false",
+    "teeth:true"
+   ],
+   "notes": [],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "wk@W2026-11-09:upcoming",
+    "study@2026-11-09:upcoming",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:open",
+    "some@once:open",
+    "cus@C2026-11-09:upcoming",
+    "free@2026-11-09:upcoming",
+    "fut@once:upcoming"
+   ],
+   "pops": [
+    "n1:1794235200000:1794237900000",
     "n2:0:1794267600000",
     "n3:0:1794280200000"
    ]
@@ -377,7 +543,7 @@
    "lock": "teeth",
    "next": 1794243600000,
    "done": 0,
-   "total": 8,
+   "total": 12,
    "rem": [],
    "notes": [
     "n1:1794243300000"
@@ -385,12 +551,16 @@
    "keys": [
     "buy@once:late",
     "teeth@2026-11-09:late",
-    "mon@2026-11:late",
+    "wk@W2026-11-09:upcoming",
     "study@2026-11-09:upcoming",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:open",
+    "some@once:open",
     "cus@C2026-11-09:upcoming",
-    "ev3@D2026-11-09:upcoming"
+    "free@2026-11-09:upcoming",
+    "fut@once:open"
    ],
    "pops": [
     "n1:1794243300000:1794246000000",
@@ -403,10 +573,9 @@
    "lock": "teeth",
    "next": 1794244800000,
    "done": 0,
-   "total": 8,
+   "total": 12,
    "rem": [
     "teeth:true",
-    "mon:true",
     "study:true"
    ],
    "notes": [
@@ -415,15 +584,88 @@
    "keys": [
     "buy@once:late",
     "teeth@2026-11-09:late",
-    "mon@2026-11:late",
+    "wk@W2026-11-09:upcoming",
     "study@2026-11-09:open",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:open",
+    "some@once:open",
     "cus@C2026-11-09:upcoming",
-    "ev3@D2026-11-09:upcoming"
+    "free@2026-11-09:upcoming",
+    "fut@once:open"
    ],
    "pops": [
     "n1:1794243300000:1794246000000",
+    "n2:0:1794267600000",
+    "n3:0:1794280200000"
+   ]
+  },
+  {
+   "now": 1794250800000,
+   "lock": "teeth",
+   "next": 1794251400000,
+   "done": 0,
+   "total": 12,
+   "rem": [
+    "teeth:true",
+    "wk:true",
+    "study:true",
+    "fut:true"
+   ],
+   "notes": [
+    "n1:1794248700000"
+   ],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "wk@W2026-11-09:open",
+    "study@2026-11-09:open",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:open",
+    "some@once:open",
+    "cus@C2026-11-09:upcoming",
+    "free@2026-11-09:upcoming",
+    "fut@once:open"
+   ],
+   "pops": [
+    "n1:1794248700000:1794251400000",
+    "n2:0:1794267600000",
+    "n3:0:1794280200000"
+   ]
+  },
+  {
+   "now": 1794254400000,
+   "lock": "teeth",
+   "next": 1794255000000,
+   "done": 0,
+   "total": 12,
+   "rem": [
+    "teeth:true",
+    "wk:true",
+    "study:true"
+   ],
+   "notes": [
+    "n1:1794254100000"
+   ],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "wk@W2026-11-09:late",
+    "study@2026-11-09:open",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:open",
+    "some@once:open",
+    "cus@C2026-11-09:upcoming",
+    "free@2026-11-09:upcoming",
+    "fut@once:open"
+   ],
+   "pops": [
+    "n1:1794254100000:1794256800000",
     "n2:0:1794267600000",
     "n3:0:1794280200000"
    ]
@@ -433,7 +675,7 @@
    "lock": "teeth",
    "next": 1794255000000,
    "done": 0,
-   "total": 8,
+   "total": 12,
    "rem": [],
    "notes": [
     "n1:1794254100000"
@@ -441,12 +683,16 @@
    "keys": [
     "buy@once:late",
     "teeth@2026-11-09:late",
-    "mon@2026-11:late",
+    "wk@W2026-11-09:late",
     "study@2026-11-09:open",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:open",
+    "some@once:open",
     "cus@C2026-11-09:upcoming",
-    "ev3@D2026-11-09:upcoming"
+    "free@2026-11-09:upcoming",
+    "fut@once:open"
    ],
    "pops": [
     "n1:1794254100000:1794256800000",
@@ -459,7 +705,7 @@
    "lock": "teeth",
    "next": 1794256800000,
    "done": 0,
-   "total": 8,
+   "total": 12,
    "rem": [
     "study:true"
    ],
@@ -469,12 +715,16 @@
    "keys": [
     "buy@once:late",
     "teeth@2026-11-09:late",
-    "mon@2026-11:late",
+    "wk@W2026-11-09:late",
     "study@2026-11-09:open",
     "chap@W2026-11-09:upcoming",
     "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:open",
+    "some@once:open",
     "cus@C2026-11-09:upcoming",
-    "ev3@D2026-11-09:upcoming"
+    "free@2026-11-09:upcoming",
+    "fut@once:open"
    ],
    "pops": [
     "n1:1794254100000:1794256800000",
@@ -487,7 +737,7 @@
    "lock": "teeth",
    "next": 1794268800000,
    "done": 0,
-   "total": 8,
+   "total": 12,
    "rem": [],
    "notes": [
     "n1:1794267600000",
@@ -496,12 +746,16 @@
    "keys": [
     "buy@once:late",
     "teeth@2026-11-09:late",
-    "mon@2026-11:late",
+    "wk@W2026-11-09:late",
     "study@2026-11-09:late",
     "chap@W2026-11-09:open",
     "read@2026-11-09:open",
+    "pay@once:open",
+    "mo@2026-11:open",
+    "some@once:open",
     "cus@C2026-11-09:open",
-    "ev3@D2026-11-09:upcoming"
+    "free@2026-11-09:upcoming",
+    "fut@once:open"
    ],
    "pops": [
     "n1:1794267600000:1794270300000",
@@ -514,14 +768,15 @@
    "lock": "teeth",
    "next": 1794270000000,
    "done": 0,
-   "total": 8,
+   "total": 12,
    "rem": [
     "teeth:true",
-    "mon:true",
+    "wk:true",
     "study:true",
     "chap:true",
     "read:true",
-    "cus:true"
+    "cus:true",
+    "free:false"
    ],
    "notes": [
     "n1:1794267600000",
@@ -530,12 +785,16 @@
    "keys": [
     "buy@once:late",
     "teeth@2026-11-09:late",
-    "mon@2026-11:late",
+    "wk@W2026-11-09:late",
     "study@2026-11-09:late",
     "chap@W2026-11-09:late",
     "read@2026-11-09:late",
+    "pay@once:open",
+    "mo@2026-11:open",
+    "some@once:open",
     "cus@C2026-11-09:open",
-    "ev3@D2026-11-09:upcoming"
+    "free@2026-11-09:open",
+    "fut@once:open"
    ],
    "pops": [
     "n1:1794267600000:1794270300000",
@@ -548,7 +807,7 @@
    "lock": "teeth",
    "next": 1794270000000,
    "done": 0,
-   "total": 8,
+   "total": 12,
    "rem": [],
    "notes": [
     "n1:1794267600000",
@@ -557,12 +816,16 @@
    "keys": [
     "buy@once:late",
     "teeth@2026-11-09:late",
-    "mon@2026-11:late",
+    "wk@W2026-11-09:late",
     "study@2026-11-09:late",
     "chap@W2026-11-09:late",
     "read@2026-11-09:late",
+    "pay@once:open",
+    "mo@2026-11:open",
+    "some@once:open",
     "cus@C2026-11-09:open",
-    "ev3@D2026-11-09:upcoming"
+    "free@2026-11-09:open",
+    "fut@once:open"
    ],
    "pops": [
     "n1:1794267600000:1794270300000",
@@ -572,10 +835,10 @@
   },
   {
    "now": 1794277860000,
-   "lock": "cus",
+   "lock": null,
    "next": 1794278340000,
    "done": 0,
-   "total": 8,
+   "total": 12,
    "rem": [],
    "notes": [
     "n1:1794270300000",
@@ -584,16 +847,51 @@
    "keys": [
     "buy@once:late",
     "teeth@2026-11-09:late",
-    "mon@2026-11:late",
+    "wk@W2026-11-09:late",
     "study@2026-11-09:late",
     "chap@W2026-11-09:late",
     "read@2026-11-09:late",
+    "pay@once:open",
+    "mo@2026-11:open",
+    "some@once:open",
     "cus@C2026-11-09:open",
-    "ev3@D2026-11-09:upcoming"
+    "free@2026-11-09:open",
+    "fut@once:open"
    ],
    "pops": [
     "n1:1794270300000:1794310800000",
     "n2:1794273000000:1794278400000",
+    "n3:0:1794280200000"
+   ]
+  },
+  {
+   "now": 1794279540000,
+   "lock": null,
+   "next": 1794279601000,
+   "done": 0,
+   "total": 12,
+   "rem": [],
+   "notes": [
+    "n1:1794270300000",
+    "n2:1794278400000"
+   ],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "wk@W2026-11-09:late",
+    "study@2026-11-09:late",
+    "chap@W2026-11-09:late",
+    "read@2026-11-09:late",
+    "pay@once:late",
+    "mo@2026-11:open",
+    "some@once:open",
+    "cus@C2026-11-09:late",
+    "free@2026-11-09:open",
+    "fut@once:open"
+   ],
+   "pops": [
+    "n1:1794270300000:1794310800000",
+    "n2:1794278400000:1794440400000",
     "n3:0:1794280200000"
    ]
   }

@@ -45,11 +45,10 @@ srv.listen(0, async () => {
     E.merge(state, E.opDel('events', state.events.b, 'phone', Date.now()));
     assert.ok(!find((e) => e.id === 'b'), 'deleted event hidden before Google catches up');
     await run(); assert.ok(!g[bg]); ok('push delete');
+    g.oldt = { gid: 'oldt', sid: 't1', title: '🎯 Make HUD Sprites', start: E.at(now, '15:00'), end: E.at(now, '17:00'), upd: tick() };
+    local.calMap = { t1: { gid: 'oldt', sig: 'x' } };   // put on Google by an older version
     E.merge(state, E.opPut('todos', { id: 't1', title: 'Make HUD Sprites', emoji: '🎯', date: day, start: '15:00', due: '17:00' }, 'phone', Date.now()));
-    await run(); const tg = Object.values(g).find((e) => e.sid === 't1'); assert.ok(tg && tg.title === '🎯 Make HUD Sprites'); ok('task -> google');
-    await new Promise((r) => setTimeout(r, 5));
-    Object.assign(tg, { start: E.at(now, '18:00'), end: E.at(now, '19:30'), upd: Date.now() + 1000 });
-    await run(); assert.strictEqual(state.todos.t1.start, '18:00'); assert.strictEqual(state.todos.t1.due, '19:30'); assert.strictEqual(E.hhmm(tg.start), '18:00', 'google keeps the new time'); ok('google moves task');
+    await run(); assert.ok(!Object.values(g).some((e) => e.sid === 't1'), 'tasks have no time of their own any more: the old copy goes'); assert.ok(!local.calMap.t1); ok('tasks stay off google');
     const st = await run();
     assert.ok(!/ in, /.test(st), 'idempotent: ' + st); ok('steady state');
     console.log(pass + ' calendar sync checks passed');

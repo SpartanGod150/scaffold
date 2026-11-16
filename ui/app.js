@@ -18,20 +18,20 @@
   var WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   var DAYNAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  var LEVELS = [
-    null,
-    { icon: '🔔', name: 'Nudge', desc: 'Notifications only.' },
-    { icon: '📣', name: 'Nag', desc: 'Pop-ups that take over the screen.' },
-    { icon: '🔒', name: 'Lock at deadline', desc: 'Not done by the deadline? Every device locks until it is.' },
-    { icon: '⛓️', name: 'Lock from start', desc: 'Every device stays locked from the start time until it is done.' }
-  ];
+  var PUSH = {
+    off: { icon: '🔕', name: 'Off', desc: 'No reminders.' },
+    nudge: { icon: '🔔', name: 'Nudge', desc: 'Notifications.' },
+    nag: { icon: '📣', name: 'Nag', desc: 'Pop-ups that take over the screen.' }
+  };
+  function pushIcons(t, kind) { var p = PUSH[E.pushOf(t, kind)] || PUSH.nudge; return p.icon + (E.lockOf(t) && E.hasDue(t, kind) ? '🔒' : ''); }
+  function pushLabel(t, kind) { var p = PUSH[E.pushOf(t, kind)] || PUSH.nudge; return p.icon + ' ' + p.name + (E.lockOf(t) && E.hasDue(t, kind) ? ' · 🔒 lock at deadline' : ''); }
   var TEMPLATES = [
-    { emoji: '🪥', title: 'Brush teeth', start: '07:00', due: '08:00', level: 4, kind: 'check', remind: 15, color: '#5cc8ff', desktop: 'lock' },
-    { emoji: '🛏️', title: 'Make the bed', start: '07:00', due: '09:00', level: 2, kind: 'check', remind: 30, color: '#c58cff', desktop: 'none' },
-    { emoji: '📖', title: 'Read', start: '20:00', due: '21:30', level: 3, kind: 'timer', minutes: 20, remind: 30, color: '#ffb86b', desktop: 'lock' },
-    { emoji: '📚', title: 'Study', start: '14:00', due: '18:00', level: 3, kind: 'timer', minutes: 45, remind: 45, color: '#7c9cff', desktop: 'focus' },
-    { emoji: '💻', title: 'Work on a project', start: '15:00', due: '20:00', level: 2, kind: 'timer', minutes: 30, remind: 60, color: '#5ed3a8', desktop: 'focus' },
-    { emoji: '🧹', title: 'Tidy up', start: '18:00', due: '21:00', level: 2, kind: 'timer', minutes: 10, remind: 45, color: '#ffd75e', desktop: 'none' }
+    { emoji: '🪥', title: 'Brush teeth', dueOn: true, due: '08:00', rfrom: '07:00', rto: '08:00', push: 'nag', lock: true, kind: 'check', remind: 15, color: '#5cc8ff', desktop: 'lock' },
+    { emoji: '🛏️', title: 'Make the bed', dueOn: true, due: '09:00', rfrom: '07:00', rto: '09:00', push: 'nag', lock: false, kind: 'check', remind: 30, color: '#c58cff', desktop: 'none' },
+    { emoji: '📖', title: 'Read', dueOn: true, due: '21:30', rfrom: '20:00', rto: '21:30', push: 'nag', lock: true, kind: 'timer', minutes: 20, remind: 30, color: '#ffb86b', desktop: 'lock' },
+    { emoji: '📚', title: 'Study', dueOn: true, due: '18:00', rfrom: '14:00', rto: '18:00', push: 'nag', lock: true, kind: 'timer', minutes: 45, remind: 45, color: '#7c9cff', desktop: 'focus' },
+    { emoji: '💻', title: 'Work on a project', dueOn: true, due: '20:00', rfrom: '15:00', rto: '20:00', push: 'nag', lock: false, kind: 'timer', minutes: 30, remind: 60, color: '#5ed3a8', desktop: 'focus' },
+    { emoji: '🧹', title: 'Tidy up', dueOn: true, due: '21:00', rfrom: '18:00', rto: '21:00', push: 'nag', lock: false, kind: 'timer', minutes: 10, remind: 45, color: '#ffd75e', desktop: 'none' }
   ];
   var WORDS = ('amber anchor apple arrow aspen atlas badge bamboo basil beacon berry birch blaze bloom breeze brook cabin cactus candle canyon cedar cherry cliff clover cobalt comet coral cosmic cotton crane crystal dawn delta dune eagle echo ember fable falcon fern fjord flame forest fox frost galaxy garnet ginger glacier grove harbor hazel honey indigo iris island ivory jade jasmine jungle kayak kite lagoon lantern lemon lily lotus lunar maple marble meadow mint mist moss nebula nectar north oak ocean olive onyx orbit otter panda pearl pebble pepper pine planet plum polar prism quartz raven reef river robin ruby saffron sage salt sierra silver sky snow solar spruce star stone storm sunny thunder tiger topaz tulip tundra valley velvet violet willow winter wolf zephyr').split(' ');
 
@@ -76,6 +76,7 @@
     S.local = JSON.parse(B.getLocal());
     E.MAPS.forEach(function (m) { S.state[m] = S.state[m] || {}; });
     S.r = E.compute(S.state, now());
+    S.lb = null;
   }
 
   // ---------- actions ----------
@@ -166,11 +167,30 @@
       if (e) { delete e.synced; delete e.gupd; }
       openEventEditor(e);
     },
+    period: function (kid) {
+      var i = kid.indexOf(':'), k = kid.slice(0, i), id = kid.slice(i + 1);
+      var bl = myBlocks(k, id).filter(function (b) { return b.end > now(); });
+      if (!bl.length) return newPeriod(k, id);
+      S.calHi = { k: k, id: id }; S.view = 'calendar'; S.project = '';
+      S.calDay = E.dateKey(bl[0].start); S.calScroll = Math.max(0, (new Date(bl[0].start).getHours() - 1) * HOUR_PX);
+      if (calView() !== 'week' && calView() !== 'day') { S.calView = 'week'; lsSet('scaffold-calview', 'week'); }
+      closeModal(); window.scrollTo(0, 0);
+    },
+    addPeriod: function () { if (S.calHi) newPeriod(S.calHi.k, S.calHi.id); },
+    hiOff: function () { S.calHi = null; render(); },
+    sessEnd: function (key) { sessPut(key, { done: now() }); toast('⏹ Session ended'); if (S.modalOpen) closeModal(); },
+    sessConclude: function (key, id) { concludeTask(id); sessPut(key, { done: now() }); toast('✅ Task concluded'); if (S.modalOpen) closeModal(); },
+    sessHabit: function (key, id) { apply(E.opComplete(id, 'full', by(), now(), S.state)); sessPut(key, { done: now() }); toast('✅ Done for today'); if (S.modalOpen) closeModal(); },
+    sessTick: function (key, id) { concludeTask(id); toast('✅ Task concluded'); if (S.modalOpen) closeModal(); },
+    sessAdd: function (key, pid) {
+      var have = ((S.state.sess || {})[key] || {}).tasks || [];
+      pickTasks('Add tasks to this session', openTasksOf(pid).filter(function (t) { return have.indexOf(t.id) < 0; }), function (ids) { sessPut(key, { tasks: have.concat(ids) }); if (S.modalOpen) closeModal(); });
+    },
     perm: function (n) { B.openPermission(n); },
     test: function (k) {
       if (k === 'lock') {
         var d = new Date(); d.setSeconds(0, 0);
-        apply(E.opTask({ title: 'Test lock: tap “I did it”', emoji: '🧪', start: hm(d), due: hm(d), days: [d.getDay()], level: 4, kind: 'check', remind: 30, color: '#ff7a90', desktop: 'lock', test: true }, by(), now()));
+        apply(E.opTask({ title: 'Test lock: tap “I did it”', emoji: '🧪', dueOn: true, due: hm(d), rfrom: hm(d), rto: hm(d), days: [d.getDay()], push: 'nag', lock: true, kind: 'check', remind: 30, color: '#ff7a90', desktop: 'lock', test: true }, by(), now()));
         toast('🧪 Test lock sent to all devices');
       } else if (k === 'remind') {
         var p = { log: {} }; p.log[E.uid()] = { type: 'test-remind', ts: now(), by: by() };
@@ -280,26 +300,27 @@
     var r = S.r, st = E.stats(S.state, now(), 7);
     if (!live('tasks').length && !live('todos').length) return welcome();
     var pct = st.week == null ? null : Math.round(st.week * 100);
-    var todayItems = r.items.filter(function (i) { return !i.nudge || i.status === 'late' || i.done; });
-    var later = r.items.filter(function (i) { return i.nudge && i.status !== 'late' && !i.done; });
+    var isLater = function (i) { return i.type === 'todo' && !i.done && i.status !== 'late' && (i.future || !i.hasDue); };
+    var todayItems = r.items.filter(function (i) { return !isLater(i); }), later = r.items.filter(isLater);
+    var sessions = blocksNow().map(sessionCard).join('');
     var next = todayItems.filter(function (i) { return !i.done; })[0];
     var hero = '<section class="hero">' +
       ring(pct == null ? 0 : pct / 100, 132, 12, pctColor(pct), '<b>' + (pct == null ? '–' : pct + '%') + '</b><small>habits · 7d</small>') +
       '<div class="hero-txt"><div class="big">' + r.done + ' / ' + r.total + ' <span>done</span></div>' +
       '<div class="goal">Goal: <b>80%</b> of habits, every week</div>' +
-      (next ? '<div class="next">Next: ' + esc(next.task.emoji) + ' <b>' + esc(next.task.title) + '</b> · ' + (next.status === 'upcoming' ? 'starts ' + hm(next.start) : next.status === 'open' ? '<span data-left="' + next.due + '"></span> left' : '<span class="late-t">late</span>') + '</div>' : (r.total ? '<div class="next good">Everything done today 🎉</div>' : '')) +
+      (next ? '<div class="next">Next: ' + esc(next.task.emoji) + ' <b>' + esc(next.task.title) + '</b> · ' + (next.status === 'late' ? '<span class="late-t">late</span>' : next.hasDue ? '<span data-left="' + next.due + '"></span> left' : 'today') + '</div>' : (r.total ? '<div class="next good">Everything done today 🎉</div>' : '')) +
       '</div></section>';
     var pending = function (list) { return list.filter(function (i) { return !i.done; }).concat(list.filter(function (i) { return i.done; })); };
     return hero + '<section class="today-cal">' + calTimeline([E.dateKey(now())], true) + '</section>' +
-      '<section class="cards">' + (todayItems.length ? pending(todayItems).map(card).join('') : '<p class="empty">Nothing due today. Enjoy it.</p>') + '</section>' +
-      (later.length ? '<h3 class="mt">Due later</h3><section class="cards">' + later.map(card).join('') + '</section>' : '');
+      '<section class="cards">' + sessions + (todayItems.length ? pending(todayItems).map(card).join('') : sessions ? '' : '<p class="empty">Nothing due today. Enjoy it.</p>') + '</section>' +
+      (later.length ? '<h3 class="mt">Due later or no deadline</h3><section class="cards">' + later.map(card).join('') + '</section>' : '');
   }
 
   function welcome() {
     return '<section class="welcome"><h1>Hi! 👋</h1><p>Scaffold keeps you on track across your phone, tablet and computers.</p>' +
-      '<p><b>🔁 Habits</b>: things you do every day (or on set weekdays).<br><b>✅ Tasks</b>: one-time or repeating, with deadlines, grouped in projects.<br><b>📌 Notes</b>: thoughts that pop up until you read them.<br><b>📅 Calendar</b>: all of it, plus your Google Calendar.</p>' +
+      '<p><b>🔁 Habits</b>: things you do again and again (every day, on set days, every week…).<br><b>✅ Tasks</b>: done once, with or without a deadline, grouped in projects.<br><b>📌 Notes</b>: thoughts that pop up until you read them.<br><b>📅 Calendar</b>: all of it, plus your Google Calendar.</p>' +
       '<h3>Quick start: a habit</h3><div class="tpl-grid">' + TEMPLATES.map(function (t, i) {
-        return '<button class="tpl" data-a="template" data-id="' + i + '" style="--c:' + t.color + '"><span>' + t.emoji + '</span>' + esc(t.title) + '<small>' + LEVELS[t.level].icon + ' ' + LEVELS[t.level].name + '</small></button>';
+        return '<button class="tpl" data-a="template" data-id="' + i + '" style="--c:' + t.color + '"><span>' + t.emoji + '</span>' + esc(t.title) + '<small>' + pushLabel(t, 'habit') + '</small></button>';
       }).join('') + '</div><div class="row-btns"><button class="btn" data-a="editHabit">＋ Habit</button><button class="btn" data-a="editTodo">＋ Task</button><button class="btn" data-a="editNote">＋ Note</button></div></section>';
   }
 
@@ -307,11 +328,11 @@
     if (it.done) return '<span class="chip done">' + (it.doneKind === 'tiny' ? '🌱 tiny win' : '✓ done') + '</span>';
     if (it.locked) return '<span class="chip lock">🔒 locked</span>';
     if (it.snoozedUntil) return '<span class="chip">⏸ until ' + hm(it.snoozedUntil) + '</span>';
-    if (it.nudge && it.status !== 'late') return '<span class="chip">due ' + niceDay(it.deadlineDay) + ' ' + hm(it.due) + '</span>';
-    if (it.nudge) return '<span class="chip late">late · was due ' + niceDay(it.deadlineDay) + '</span>';
-    if (it.status === 'upcoming') return '<span class="chip">starts ' + hm(it.start) + '</span>';
-    if (it.status === 'open') return '<span class="chip open">⏳ <span data-left="' + it.due + '"></span> left</span>';
-    return '<span class="chip late">late · since ' + hm(it.due) + '</span>';
+    if (it.status === 'late') return '<span class="chip late">late · ' + (it.dueToday ? 'since ' + hm(it.due) : 'was due ' + niceDay(it.deadlineDay)) + '</span>';
+    if (it.future) return '<span class="chip">due ' + niceDay(it.deadlineDay) + (it.task.due && it.task.due !== '23:59' ? ' ' + hm(it.due) : '') + '</span>';
+    if (!it.hasDue) return '<span class="chip">no deadline</span>';
+    if (it.status === 'upcoming') return '<span class="chip">reminders from ' + hm(it.start) + '</span>';
+    return '<span class="chip open">⏳ <span data-left="' + it.due + '"></span> left</span>';
   }
 
   function actions(it, compact) {
@@ -319,21 +340,104 @@
     var t = it.task, h = '';
     if (t.kind === 'timer') h += '<button class="btn primary" data-a="timer" data-id="' + it.id + '">▶ Start ' + (t.minutes || 20) + ' min</button>';
     else h += '<button class="btn primary" data-a="done" data-id="' + it.id + '">✓ I did it</button>';
-    if (!compact && !it.nudge && it.status !== 'upcoming' && it.snoozesLeft > 0 && !it.snoozedUntil) h += '<button class="btn ghost sm" data-a="snooze" data-id="' + it.id + '">⏸ ' + E.SNOOZE_MIN + ' min (' + it.snoozesLeft + ' left)</button>';
+    if (!compact && it.status !== 'upcoming' && (it.push !== 'off' || it.locked) && it.snoozesLeft > 0 && !it.snoozedUntil) h += '<button class="btn ghost sm" data-a="snooze" data-id="' + it.id + '">⏸ ' + E.SNOOZE_MIN + ' min (' + it.snoozesLeft + ' left)</button>';
     return h;
   }
 
   function card(it) {
     var t = it.task, proj = projectOf(t);
-    var frac = it.nudge ? 0 : it.status === 'open' ? (now() - it.start) / Math.max(1, it.due - it.start) : it.status === 'late' ? 1 : 0;
-    var when = it.nudge ? '' : hm(it.start) + (it.due !== it.start ? '–' + hm(it.due) : '') + ' · ';
+    var frac = it.status === 'late' ? 1 : it.dueToday ? Math.max(0, now() - it.start) / Math.max(1, it.due - it.start) : 0;
+    var when = it.dueToday ? 'by ' + hm(it.due) + ' · ' : '';
     return '<article class="card s-' + it.status + (it.done ? ' is-done' : '') + '" style="--c:' + taskColor(t) + '">' +
       '<div class="card-top"><div class="emoji">' + esc(t.emoji || '•') + '</div>' +
-      '<div class="card-main"><div class="kind">' + (it.type === 'habit' ? '🔁 Habit' : '✅ Task' + (proj ? ' · ' + esc(proj.emoji || '') + ' ' + esc(proj.name) : '')) + '</div><h3>' + esc(t.title) + '</h3><div class="meta">' + when + LEVELS[t.level || 1].icon + ' ' + LEVELS[t.level || 1].name + (t.kind === 'timer' ? ' · ⏱ ' + (t.minutes || 20) + ' min' : '') + '</div>' +
-      statusChip(it) + '</div></div>' +
-      (!it.done && !it.nudge ? '<div class="time-bar"><i style="width:' + Math.round(frac * 100) + '%"></i></div>' : '') +
+      '<div class="card-main"><div class="kind">' + (it.type === 'habit' ? '🔁 Habit' : '✅ Task' + (proj ? ' · ' + esc(proj.emoji || '') + ' ' + esc(proj.name) : '')) + '</div><h3>' + esc(t.title) + '</h3><div class="meta">' + when + pushLabel(t, it.type) + (t.kind === 'timer' ? ' · ⏱ ' + (t.minutes || 20) + ' min' : '') + '</div>' +
+      statusChip(it) + '</div>' + (it.done ? '' : periodSquare(it.type, it.id, t)) + '</div>' +
+      (!it.done && it.dueToday ? '<div class="time-bar"><i style="width:' + Math.round(frac * 100) + '%"></i></div>' : '') +
       '<div class="card-actions">' + actions(it) + '</div></article>';
   }
+
+
+  // ---------- designated periods (events linked to a task, habit or project) and their sessions ----------
+  function allBlocks() { if (!S.lb) S.lb = E.linkedBlocks(S.state, now() - E.DAY, now() + 120 * E.DAY); return S.lb; }
+  function blockMatch(b, k, id) {
+    if (b.link.k === k && b.link.id === id) return true;
+    var td = k === 'todo' && (S.state.todos || {})[id];
+    return !!(td && b.link.k === 'project' && b.link.id === td.project && (b.tasks || []).indexOf(id) >= 0);
+  }
+  function myBlocks(k, id) { return allBlocks().filter(function (b) { return blockMatch(b, k, id); }); }
+  function linkRec(L) { var m = { todo: 'todos', habit: 'tasks', project: 'projects' }[L.k]; var r = m && (S.state[m] || {})[L.id]; return r && !r.del ? r : null; }
+  function blocksNow() { var n = now(); return allBlocks().filter(function (b) { return b.start <= n && b.end > n && !b.done && linkRec(b.link); }); }
+  // The square next to a task or habit: dotted and empty when it has no time blocks, else its next session.
+  function periodSquare(k, id, t) {
+    var bl = myBlocks(k, id).filter(function (b) { return b.end > now() && !b.done; }), nx = bl[0], kid = k + ':' + id;
+    if (!nx) return '<button class="psq" data-a="period" data-id="' + esc(kid) + '" title="Designate a time period"></button>';
+    var d = new Date(nx.start), diff = Math.round((E.fromKey(E.dateKey(nx.start)) - E.fromKey(E.dateKey(now()))) / E.DAY);
+    var day = nx.start <= now() ? 'Now' : diff === 0 ? 'Today' : diff < 7 ? DAYNAMES[d.getDay()] : d.getDate() + ' ' + MONTHS[d.getMonth()].slice(0, 3);
+    var rep = !!(nx.e.rrule || nx.e.series || nx.e.virt);
+    return '<button class="psq on" data-a="period" data-id="' + esc(kid) + '" style="--c:' + taskColor(t) + ';--ink:' + inkOn(taskColor(t)) + '" title="' + bl.length + ' time block' + (bl.length > 1 ? 's' : '') + '"><b>' + day + '</b><small>' + (nx.start <= now() ? 'until ' + hm(nx.end) : hm(nx.start)) + '</small>' + (rep ? '<i>↻</i>' : '') + '</button>';
+  }
+  // Session buttons, on the Today card while the block runs and in the event's pop-up.
+  function sessionControls(b) {
+    var L = b.link, r = linkRec(L), key = esc(b.key); if (!r) return '';
+    var done = function (id) { var c = (S.state.comps || {})[E.itemKey(S.state, id, now())]; return !!(c && !c.undone); };
+    var end = b.done ? '<span class="chip done">✓ Session ended</span>' : '<button type="button" class="btn ghost sm" data-a="sessEnd" data-id="' + key + '">⏹ End Session</button>';
+    if (L.k === 'todo') return '<div class="sess-acts">' + end + (done(L.id) ? '<span class="chip done">✓ Task concluded</span>' : '<button type="button" class="btn primary sm" data-a="sessConclude" data-id="' + key + '" data-k="' + esc(L.id) + '">✓ Task Concluded</button>') + '</div>';
+    if (L.k === 'habit') return '<div class="sess-acts">' + end + (done(L.id) ? '<span class="chip done">✓ Done for today</span>' : '<button type="button" class="btn primary sm" data-a="sessHabit" data-id="' + key + '" data-k="' + esc(L.id) + '">✓ Done for today</button>') + '</div>';
+    var ts = (b.tasks || []).filter(function (id) { var t = (S.state.todos || {})[id]; return t && !t.del; }), all = ts.every(done);
+    return '<div class="sess-tasks">' + (ts.length ? ts.map(function (id) {
+        var t = S.state.todos[id];
+        return done(id) ? '<span class="st dn">☑ ' + esc(t.title) + '</span>' : '<button type="button" class="st" data-a="sessTick" data-id="' + key + '" data-k="' + esc(id) + '">☐ ' + esc(t.title) + '</button>';
+      }).join('') : '<span class="muted">No tasks picked for this session.</span>') + '</div>' +
+      '<div class="sess-acts">' + end + (all ? '<button type="button" class="btn sm" data-a="sessAdd" data-id="' + key + '" data-k="' + esc(L.id) + '">＋ Add tasks</button>' : '') + '</div>';
+  }
+  function sessionCard(b) {
+    var r = linkRec(b.link);
+    return '<article class="card sess" style="--c:' + taskColor(r) + '"><div class="card-top"><div class="emoji">' + esc(r.emoji || '🗂️') + '</div><div class="card-main">' +
+      '<div class="kind">🟢 Session now · ' + hm(b.start) + '–' + hm(b.end) + '</div><h3>' + esc(r.title || r.name) + '</h3><div class="meta">' + esc(b.e.title) + '</div></div></div>' +
+      '<div class="card-actions">' + sessionControls(b) + '</div></article>';
+  }
+  function hiBar() {
+    var hi = S.calHi, r = hi && linkRec(hi); if (!r) return '';
+    return '<div class="hi-bar" style="--c:' + taskColor(r) + '"><span>Time blocks of <b>' + esc((r.emoji ? r.emoji + ' ' : '') + (r.title || r.name)) + '</b></span><span class="sp"></span>' +
+      '<button class="btn sm" data-a="addPeriod">＋ Add period</button><button class="btn ghost sm" data-a="hiOff">✕</button></div>';
+  }
+  function newPeriod(k, id) {
+    var r = linkRec({ k: k, id: id }); if (!r) return;
+    var s0 = Math.ceil((now() + 1) / 3600000) * 3600000;
+    openEventEditor({ title: r.title || r.name, link: { k: k, id: id }, allDay: false, start: s0, end: s0 + 3600000 });
+  }
+  function sessPut(key, ch) { var o = JSON.parse(JSON.stringify((S.state.sess || {})[key] || {})); delete o.ts; delete o.by; o.id = key; for (var f in ch) o[f] = ch[f]; apply(E.opPut('sess', o, by(), now())); }
+  // "Task Concluded": the task is done and its later time blocks go (a repeating one is cut where the next block would be).
+  function concludeTask(id) {
+    apply(E.opComplete(id, 'full', by(), now(), S.state));
+    var later = E.blocksFor(S.state, 'todo', id, now(), now() + 400 * E.DAY).filter(function (b) { return !b.via && b.start > now(); }), seen = {};
+    later.forEach(function (b) {
+      var e = b.e, g = e.virt || (e.rrule && !e.series ? e.id : '') ? 'v:' + (e.virt || e.id) : e.series ? 's:' + e.series : 'i:' + e.id;
+      if (seen[g]) return; seen[g] = 1;
+      if (g.charAt(0) === 'v') {   // still only in Scaffold: end the repeat the day before
+        var base = S.state.events[e.virt || e.id]; if (!base) return;
+        if (base.start > now()) return apply(E.opDel('events', base, by(), now()));
+        var rr = E.parseRule(base.rrule); if (!rr || !rr.simple) return;
+        var c0 = JSON.parse(JSON.stringify(base)); c0.rrule = E.buildRule({ freq: rr.freq, days: rr.days, count: 0, until: E.dateKey(E.addDays(e.start, -1)) }, c0.allDay);
+        return apply(E.opPut('events', c0, by(), now()));
+      }
+      var c = JSON.parse(JSON.stringify(e)); delete c.synced; delete c.gupd;
+      if (e.series) c.scope = 'following';
+      apply(E.opDel('events', c, by(), now()));
+    });
+  }
+  function pickTasks(title, list, fn) {
+    var el = document.createElement('div');
+    el.className = 'modal-bg top-layer';
+    el.innerHTML = '<div class="modal small"><h2>' + esc(title) + '</h2>' + (list.length ? '<div class="apps">' + list.map(function (t) { return '<label class="check sm"><input type="checkbox" value="' + esc(t.id) + '"> ' + esc((t.emoji || '') + ' ' + t.title) + '</label>'; }).join('') + '</div>' : '<p class="muted">No other open tasks in this project.</p>') +
+      '<div class="modal-actions"><span class="sp"></span><button class="btn ghost" data-no>Cancel</button><button class="btn primary" data-yes>Add</button></div></div>';
+    document.body.appendChild(el);
+    el.addEventListener('click', function (e) {
+      if (e.target.closest('[data-yes]')) { var ids = [].map.call(el.querySelectorAll('input:checked'), function (x) { return x.value; }); el.remove(); if (ids.length) fn(ids); }
+      else if (e.target.closest('[data-no]') || e.target === el) el.remove();
+    });
+  }
+  function openTasksOf(pid) { return live('todos').filter(function (t) { var c = (S.state.comps || {})[E.itemKey(S.state, t.id, now())]; return t.project === pid && (t.repeat || 'none') === 'none' && !(c && !c.undone); }); }
 
   // ---------- full-screen modes ----------
   function blockView(it) {
@@ -359,8 +463,8 @@
 
   function remindView(it) {
     var t = it.task;
-    var when = it.nudge ? 'Due ' + niceDay(it.deadlineDay) + ' ' + hm(it.due) : it.status === 'upcoming' ? 'Starts ' + hm(it.start) : it.status === 'open' ? 'Due ' + hm(it.due) + ' · <span data-left="' + it.due + '"></span> left' : 'Late · deadline was ' + hm(it.due);
-    var lockWarn = ((t.level || 1) === 3 && it.status !== 'late') ? '<div class="warn">🔒 Devices lock at ' + hm(it.due) + (it.nudge ? ' on ' + niceDay(it.deadlineDay) : '') + ' if this is not done.</div>' : '';
+    var when = it.status === 'late' ? 'Late · deadline was ' + (it.dueToday ? '' : niceDay(it.deadlineDay) + ' ') + hm(it.due) : !it.hasDue ? 'No deadline' : it.future ? 'Due ' + niceDay(it.deadlineDay) + ' ' + hm(it.due) : 'Due ' + hm(it.due) + ' · <span data-left="' + it.due + '"></span> left';
+    var lockWarn = (E.lockOf(t) && it.hasDue && it.status !== 'late') ? '<div class="warn">🔒 Devices lock at ' + hm(it.due) + (it.future ? ' on ' + niceDay(it.deadlineDay) : '') + ' if this is not done.</div>' : '';
     return '<section class="remind" style="--c:' + taskColor(t) + '"><div class="remind-emoji">' + esc(t.emoji) + '</div>' +
       '<h2>' + esc(t.title) + '</h2><div class="remind-sub">' + when + '</div>' + lockWarn +
       '<div class="remind-actions">' + actions(it) + '<button class="btn ghost sm" data-a="close">Later</button></div></section>';
@@ -451,7 +555,7 @@
       '<div class="cal-bar">' + seg([['month', 'Month'], ['week', 'Week'], ['day', 'Day']].concat(calRange() ? [['range', calRange().n + ' days']] : []), 'calView', v) +
       (v === 'day' ? seg([['cv', 'Timeline'], ['list', 'List']], 'calMode', calList() ? 'list' : 'cv') : '') +
       (gcals().length ? '<button class="btn ghost sm cal-cals-btn" data-a="calCals">Calendars</button>' : '') +
-      '<span class="sp"></span><button class="btn primary sm" data-a="editEvent">＋ Event</button></div>' + body +
+      '<span class="sp"></span><button class="btn primary sm" data-a="editEvent">＋ Event</button></div>' + hiBar() + body +
       '<div class="legend cal-legend">' + (cal.status ? '<span class="lg-note">Google: ' + esc(cal.status) + '</span>' : '<span class="lg-note">Google Calendar: not connected (Settings)</span>') + '</div></div></div>';
   }
 
@@ -508,7 +612,7 @@
     var rows = shownAgenda(E.fromKey(key)).map(function (a) {
       var r = a.rec;
       if (a.kind === 'event') return '<button class="ag-row ev" data-a="editEvent" data-id="' + a.id + '" style="--c:' + evColor(r) + '"><span class="ag-t">' + (r.allDay ? 'all day' : hm(r.start) + '–' + hm(r.end)) + '</span><span class="ag-x">' + (r.gid ? '<i class="gtag">G</i>' : '📅') + ' ' + esc(r.title) + '</span></button>';
-      if (a.kind === 'todo') return '<button class="ag-row td' + (a.done ? ' dn' : '') + '" data-a="editTodo" data-id="' + a.id + '" style="--c:' + taskColor(r) + '"><span class="ag-t">' + esc(r.start || '') + (r.due ? '–' + esc(r.due) : '') + '</span><span class="ag-x">' + (a.done ? '✓ ' : '') + esc(r.emoji || '✅') + ' ' + esc(r.title) + '</span></button>';
+      if (a.kind === 'todo') return '<button class="ag-row td' + (a.done ? ' dn' : '') + '" data-a="editTodo" data-id="' + a.id + '" style="--c:' + taskColor(r) + '"><span class="ag-t">⏰ ' + esc(r.due || 'end of day') + '</span><span class="ag-x">' + (a.done ? '✓ ' : '') + esc(r.emoji || '✅') + ' ' + esc(r.title) + '</span></button>';
       return '<button class="ag-row hb' + (a.done ? ' dn' : '') + '" data-a="editHabit" data-id="' + a.id + '" style="--c:' + taskColor(r) + '"><span class="ag-t">' + esc(r.start || '') + '</span><span class="ag-x">' + (a.done ? '✓ ' : '') + '🔁 ' + esc(r.title) + '</span></button>';
     }).join('');
     return '<section class="agenda">' + (rows || '<p class="empty">Nothing on this day.</p>') + '</section>';
@@ -531,7 +635,7 @@
 
   // Week / day timeline: events solid, habits dotted and see-through (done ones stronger). Tap empty time = new event.
   function calTimeline(keys, viewOnly) {
-    var today = E.dateKey(now()), heads = '', alls = '', cols = '', anyAll = false;
+    var today = E.dateKey(now()), heads = '', alls = '', cols = '', anyAll = false, ix = E.linkIndex(S.state), hi = !viewOnly && S.calHi;
     keys.forEach(function (k) {
       var t = E.fromKey(k), d0 = E.at(t, '00:00'), d1 = E.at(E.addDays(t, 1), "00:00"), items = [], ad = [];
       shownAgenda(t).forEach(function (a) {
@@ -539,11 +643,9 @@
         if (a.kind === 'event') {
           var s = Math.max(r.start, d0), e = Math.min(r.end || r.start + 30 * E.MIN, d1);
           if (r.allDay || e - s >= d1 - d0) { ad.push(a); return; }
-          items.push({ a: a, s: s, e: Math.max(e, s + 15 * E.MIN), color: evColor(r), drag: !viewOnly && !r.ro && !r.virt && r.start >= d0 && (r.end || 0) <= d1 });
-        } else if (a.kind === 'habit') {
-          var hs = E.at(t, r.start || '00:00'), he = r.due ? E.at(t, r.due) : hs + 30 * E.MIN;
-          if (he <= hs) he = hs + 30 * E.MIN;
-          items.push({ a: a, s: hs, e: he, color: taskColor(r) });
+          var L = E.linkOf(ix, r), sk = L ? E.sessKey(L, r) : '', ss = sk ? (S.state.sess || {})[sk] : null;
+          items.push({ a: a, s: s, e: Math.max(e, s + 15 * E.MIN), color: evColor(r), drag: !viewOnly && !r.ro && !r.virt && r.start >= d0 && (r.end || 0) <= d1,
+            link: L && L.link, sdone: !!(ss && ss.done), hi: !!(hi && L && blockMatch({ link: L.link, tasks: (ss && ss.tasks) || [] }, hi.k, hi.id)) });
         }
       });
       anyAll = anyAll || ad.length > 0;
@@ -552,17 +654,18 @@
       alls += '<div class="cv-ad">' + ad.map(function (a) { return '<button class="chip ev" data-a="editEvent" data-id="' + a.id + '" style="background:' + evColor(a.rec) + ';color:' + inkOn(evColor(a.rec)) + '">' + esc(a.rec.title) + '</button>'; }).join('') + '</div>';
       var blocks = layoutDay(items).map(function (it) {
         var a = it.a, r = a.rec, top = (it.s - d0) / 3600000 * HOUR_PX, h = Math.max(16, (it.e - it.s) / 3600000 * HOUR_PX - 2);
-        var cls = 'cv-ev ' + (a.kind === 'habit' ? 'hb' + (a.done ? ' dn' : '') : 'ev') + (it.drag ? ' drag' : '') + (h < 34 ? ' short' : '');
+        var cls = 'cv-ev ' + (a.kind === 'habit' ? 'hb' + (a.done ? ' dn' : '') : 'ev') + (it.drag ? ' drag' : '') + (h < 34 ? ' short' : '') + (it.link ? ' lk' : '') + (it.sdone ? ' sdn' : '') + (it.hi ? ' hi' : '');
+        var lr = it.link ? linkRec(it.link) : null;
         var act = a.kind === 'habit' ? 'editHabit' : 'editEvent';
         return '<div class="' + cls + '" data-a="' + act + '" data-id="' + a.id + '" data-ev="' + a.id + '" data-s="' + it.s + '" data-e="' + it.e + '" style="top:' + top + 'px;height:' + h + 'px;left:calc(' + (it.col / it.cols * 100) + '% + 1px);width:calc(' + (100 / it.cols) + '% - 3px);--c:' + it.color + ';--ink:' + inkOn(it.color) + '">' +
-          '<b>' + (a.kind === 'habit' && a.done ? '✓ ' : '') + esc((a.kind === 'habit' && r.emoji ? r.emoji + ' ' : '') + r.title) + '</b><small>' + hm(it.s) + '–' + hm(it.e) + '</small>' + (it.drag ? '<i class="rs"></i>' : '') + '</div>';
+          '<b>' + ((a.kind === 'habit' && a.done) || it.sdone ? '✓ ' : '') + esc((lr && lr.emoji ? lr.emoji + ' ' : '') + r.title) + '</b><small>' + hm(it.s) + '–' + hm(it.e) + '</small>' + (it.drag ? '<i class="rs"></i>' : '') + '</div>';
       }).join('');
       var nowLine = k === today ? '<i class="cv-now" style="top:' + ((now() - d0) / 3600000 * HOUR_PX) + 'px"></i>' : '';
       cols += '<div class="cv-col' + (k === today ? ' today' : '') + '" data-day="' + k + '">' + blocks + nowLine + '</div>';
     });
     var hours = ''; for (var hh = 1; hh < 24; hh++) hours += '<i style="top:' + hh * HOUR_PX + 'px">' + (hh < 10 ? '0' : '') + hh + ':00</i>';
     var grid = 'grid-template-columns: 44px repeat(' + keys.length + ', minmax(0, 1fr))';
-    return '<div class="cv n' + keys.length + (viewOnly ? ' cv-view' : '') + '" style="--h:' + HOUR_PX + 'px">' +
+    return '<div class="cv n' + keys.length + (viewOnly ? ' cv-view' : '') + (hi ? ' hiing' : '') + '" style="--h:' + HOUR_PX + 'px">' +
       (keys.length > 1 ? '<div class="cv-row" style="' + grid + '"><i></i>' + heads + '</div>' : '') +
       (anyAll ? '<div class="cv-row cv-alls" style="' + grid + '"><i class="cv-gut">all day</i>' + alls + '</div>' : '') +
       '<div class="cv-scroll"><div class="cv-body" style="' + grid + ';height:' + 24 * HOUR_PX + 'px"><div class="cv-hours">' + hours + '</div>' + cols + '</div></div></div>';
@@ -673,15 +776,16 @@
     var todos = live('todos').filter(function (t) { return !t.test; });
     var today = E.dateKey(now()), groups = { now: [], later: [], repeat: [], someday: [], done: [] };
     todos.forEach(function (t) {
-      var rep = t.repeat || 'none', p = E.periodOf(t, now()), c = p ? (S.state.comps || {})[E.compKey(t.id, p.key)] : null, done = c && !c.undone;
+      var rep = t.repeat || 'none', c = (S.state.comps || {})[E.itemKey(S.state, t.id, now())], done = c && !c.undone;
       if (rep !== 'none') groups.repeat.push(t);
-      else if (!t.date) groups.someday.push(t);
       else if (done) groups.done.push(t);
+      else if (!t.date) groups.someday.push(t);
       else if (t.date <= today) groups.now.push(t);
       else groups.later.push(t);
     });
     groups.later.sort(function (a, b) { return a.date.localeCompare(b.date); });
-    groups.done.sort(function (a, b) { return b.date.localeCompare(a.date); });
+    var doneAt = function (t) { var c = (S.state.comps || {})[E.compKey(t.id, 'once')]; return (c && c.ts) || 0; };
+    groups.done.sort(function (a, b) { return doneAt(b) - doneAt(a); });
     function sec(title, list) { return list.length ? '<h3 class="mt">' + title + '</h3><div class="grid-cards">' + list.map(todoRow).join('') + '</div>' : ''; }
     return '<div class="sec-head"><h2>Projects</h2><button class="btn sm" data-a="editProject">＋ Project</button></div>' +
       (projects.length ? '<div class="proj-grid">' + projects.map(projectCard).join('') + '</div>' : '<p class="empty">No projects yet.</p>') +
@@ -689,7 +793,7 @@
         return '<div class="row vrow"><span class="row-main"><b>' + esc(v.name) + '</b><small>' + (v.total || v.items.length) + ' open items' + (v.desc ? ' · ' + esc(v.desc.slice(0, 70)) : '') + '</small></span><button class="btn sm" data-a="bringIn" data-id="' + esc(v.key) + '">Bring in</button></div>';
       }).join('') + '</details>' : '') +
       '<div class="sec-head mt2"><h2>Tasks</h2><button class="btn primary sm" data-a="editTodo">＋ Task</button></div>' +
-      (todos.length ? sec('Today and overdue', groups.now) + sec('Coming up', groups.later) + sec('Repeating', groups.repeat) + sec('Someday (no date)', groups.someday) + sec('Done', groups.done.slice(0, 10)) : '<p class="empty">No tasks yet.</p>');
+      (todos.length ? sec('Today and overdue', groups.now) + sec('Coming up', groups.later) + sec('Repeating (old: will become habits)', groups.repeat) + sec('No deadline', groups.someday) + sec('Done', groups.done.slice(0, 10)) : '<p class="empty">No tasks yet.</p>');
   }
 
   function todoWhen(t) {
@@ -698,15 +802,15 @@
     if (rep === 'week') return 'Every week · by ' + WEEKDAYS[t.dueDay == null ? 6 : +t.dueDay] + ' ' + by;
     if (rep === 'month') return 'Every month · by day ' + (t.dueDay || 'last') + ' ' + by;
     if (rep === 'days') return 'Every ' + (t.every || 2) + ' days · by ' + by;
-    if (!t.date) return 'No date';
-    return niceDay(t.date) + (t.start ? ' ' + t.start : '') + (t.due ? '–' + t.due : '');
+    if (!t.date) return 'No deadline';
+    return 'Due ' + niceDay(t.date) + (t.due && t.due !== '23:59' ? ' ' + t.due : '');
   }
   function todoRow(t) {
-    var proj = projectOf(t), p = E.periodOf(t, now()), c = p ? (S.state.comps || {})[E.compKey(t.id, p.key)] : null, done = c && !c.undone;
+    var proj = projectOf(t), c = (S.state.comps || {})[E.itemKey(S.state, t.id, now())], done = c && !c.undone;
     var late = !done && (t.repeat || 'none') === 'none' && t.date && t.date < E.dateKey(now());
-    return '<button class="row' + (done ? ' dn' : '') + '" data-a="editTodo" data-id="' + t.id + '" style="--c:' + taskColor(t) + '">' +
+    return '<div class="row-wrap"><button class="row' + (done ? ' dn' : '') + '" data-a="editTodo" data-id="' + t.id + '" style="--c:' + taskColor(t) + '">' +
       '<span class="emoji sm">' + esc(t.emoji || '✅') + '</span><span class="row-main"><b>' + (done ? '✓ ' : '') + esc(t.title) + '</b><small' + (late ? ' class="late-t"' : '') + '>' + esc(todoWhen(t)) + (proj ? ' · ' + esc(proj.name) : '') + '</small></span>' +
-      '<span class="row-lvl">' + LEVELS[t.level || 1].icon + '</span></button>';
+      '<span class="row-lvl">' + pushIcons(t, 'todo') + '</span></button>' + (done ? '' : periodSquare('todo', t.id, t)) + '</div>';
   }
 
   function projectCard(p) {
@@ -737,16 +841,15 @@
   function habitsView() {
     var st = E.stats(S.state, now(), 28), pct = st.week == null ? null : Math.round(st.week * 100);
     var byId = {}, hadTiny = false; st.tasks.forEach(function (x) { byId[x.id] = x; if (x.cells.some(function (c) { return c.s === 'tiny'; })) hadTiny = true; });
-    var list = live('tasks').filter(function (t) { return !t.test; }).sort(function (a, b) { return ((a.active === false) - (b.active === false)) || (a.start || '').localeCompare(b.start || ''); });
+    var list = live('tasks').filter(function (t) { return !t.test; }).sort(function (a, b) { return ((a.active === false) - (b.active === false)) || (a.due || '').localeCompare(b.due || ''); });
     var lockedId = S.r.lock && S.r.lock.id;
     var rows = list.map(function (t) {
       var x = byId[t.id], on = t.active !== false;
-      var days = (t.days && t.days.length && t.days.length < 7) ? t.days.map(function (d) { return DAYNAMES[d]; }).join(' ') : 'Every day';
       var p = x && x.week != null ? Math.round(x.week * 100) + '%' : '–';
       return '<div class="stat-row' + (on ? '' : ' off') + '" style="--c:' + taskColor(t) + '"><div class="stat-head">' +
-        '<button class="habit-open" ' + (t.id === lockedId ? 'disabled title="Locked habits cannot be edited"' : 'data-a="editHabit" data-id="' + t.id + '"') + '><span class="emoji sm">' + esc(t.emoji) + '</span><span class="row-main"><b>' + esc(t.title) + '</b><small>' + esc(t.start) + '–' + esc(t.due) + ' · ' + days + ' · ' + LEVELS[t.level || 1].icon + '</small></span></button>' +
+        '<button class="habit-open" ' + (t.id === lockedId ? 'disabled title="Locked habits cannot be edited"' : 'data-a="editHabit" data-id="' + t.id + '"') + '><span class="emoji sm">' + esc(t.emoji) + '</span><span class="row-main"><b>' + esc(t.title) + '</b><small>' + esc(habitWhen(t)) + ' · ' + pushIcons(t, 'habit') + '</small></span></button>' +
         '<span class="stat-num">' + p + '</span>' + (x && x.streak ? '<span class="streak">🔥 ' + x.streak + '</span>' : '') +
-        '<button class="switch' + (on ? ' on' : '') + '" data-a="toggleHabit" data-id="' + t.id + '" title="' + (on ? 'Active' : 'Paused') + '"><i></i></button></div>' +
+        periodSquare('habit', t.id, t) + '<button class="switch' + (on ? ' on' : '') + '" data-a="toggleHabit" data-id="' + t.id + '" title="' + (on ? 'Active' : 'Paused') + '"><i></i></button></div>' +
         (x ? '<div class="heat">' + x.cells.map(function (c) { return '<i class="h-' + c.s + '" title="' + c.day + '"></i>'; }).join('') + '</div>' : '') + '</div>';
     }).join('');
     return '<div class="sec-head"><h2>Habits</h2><button class="btn primary sm" data-a="editHabit">＋ Habit</button></div>' +
@@ -756,7 +859,7 @@
       '<div class="legend"><span><i class="h-full"></i>done</span>' + (hadTiny ? '<span><i class="h-tiny"></i>tiny</span>' : '') + '<span><i class="h-miss"></i>missed</span><span><i class="h-none"></i>off day</span><span class="lg-note">last 4 weeks →</span></div>' +
       (rows ? '<div class="grid-cards wide">' + rows + '</div>' : '<p class="empty">No habits yet.</p>') +
       '<h3 class="mt">Templates</h3><div class="tpl-grid">' + TEMPLATES.map(function (t, i) {
-        return '<button class="tpl" data-a="template" data-id="' + i + '" style="--c:' + t.color + '"><span>' + t.emoji + '</span>' + esc(t.title) + '<small>' + LEVELS[t.level].icon + ' ' + LEVELS[t.level].name + '</small></button>';
+        return '<button class="tpl" data-a="template" data-id="' + i + '" style="--c:' + t.color + '"><span>' + t.emoji + '</span>' + esc(t.title) + '<small>' + pushLabel(t, 'habit') + '</small></button>';
       }).join('') + '</div>';
   }
 
@@ -848,20 +951,22 @@
   function sel(v, cur) { return String(v) === String(cur) ? ' selected' : ''; }
   function emojiField(t) { return '<div class="field">Picture<div class="emoji-grid">' + EMOJIS.map(function (e) { return '<button type="button" class="ep' + (e === t.emoji ? ' on' : '') + '" data-emoji="' + e + '">' + e + '</button>'; }).join('') + '</div></div>'; }
   function colorField(t) { return '<div class="field">Color<div class="color-row">' + COLORS.map(function (c) { return '<button type="button" class="cp' + (c === t.color ? ' on' : '') + '" data-color="' + c + '" style="background:' + c + '"></button>'; }).join('') + '</div></div>'; }
-  function levelField(t) {
-    return '<div class="field">How hard should Scaffold push?<div class="levels">' + [1, 2, 3, 4].map(function (l) {
-      return '<label class="lvl' + ((t.level || 1) === l ? ' on' : '') + '"><input type="radio" name="level" value="' + l + '"' + ((t.level || 1) === l ? ' checked' : '') + '><span class="lvl-ic">' + LEVELS[l].icon + '</span><span><b>' + LEVELS[l].name + '</b><small>' + LEVELS[l].desc + '</small></span></label>';
-    }).join('') + '</div></div>';
+  // Reminders (off / nudge / nag) with their window, plus the lock toggle (only with a deadline).
+  function pushField(t, kind) {
+    var cur = E.pushOf(t, kind), rw = { from: t.rfrom || t.start || '09:00', to: t.rto || t.due || '21:00' };
+    var every = +(t.remind || 30), pre = [1, 5, 15, 30, 45, 60, 90, 120], custom = pre.indexOf(every) < 0;
+    return '<div class="field">How hard should Scaffold push?<div class="levels three">' + ['off', 'nudge', 'nag'].map(function (k) {
+        return '<label class="lvl' + (cur === k ? ' on' : '') + '"><input type="radio" name="push" value="' + k + '"' + (cur === k ? ' checked' : '') + '><span class="lvl-ic">' + PUSH[k].icon + '</span><span><b>' + PUSH[k].name + '</b><small>' + PUSH[k].desc + '</small></span></label>';
+      }).join('') + '</div></div>' +
+      '<div class="f-rem"><div class="two"><label class="field">Remind me every<select name="remind">' + pre.map(function (m) { return '<option value="' + m + '"' + (!custom && every === m ? ' selected' : '') + '>' + m + (m === 1 ? ' minute' : ' minutes') + '</option>'; }).join('') +
+      '<option value="custom"' + (custom ? ' selected' : '') + '>Custom…</option></select></label>' +
+      '<label class="field f-remind">Minutes<input type="number" name="remindN" min="1" max="1440" value="' + every + '"></label></div>' +
+      '<div class="field">Reminder window' + (kind === 'todo' ? ' <small>(every day until it is done)</small>' : '') + '<div class="pair"><input type="time" name="rfrom" value="' + esc(rw.from) + '"><span>to</span><input type="time" name="rto" value="' + esc(rw.to) + '"></div></div></div>' +
+      '<label class="check f-lock"><input type="checkbox" name="lock"' + (E.lockOf(t) ? ' checked' : '') + '> 🔒 Lock at deadline <small class="f-locknote">(needs a deadline)</small></label>';
   }
   function doneFields(t) {
     return '<div class="field timer-row"><label class="check"><input type="checkbox" name="timer"' + (t.kind === 'timer' ? ' checked' : '') + '> ⏱ Timer</label>' +
       '<label class="f-minutes"><input type="number" name="minutes" min="1" max="240" value="' + esc(t.minutes || 20) + '"> minutes <small>(done when it finishes)</small></label></div>' +
-      (function () {
-        var cur = +(t.remind || 30), pre = [1, 5, 15, 30, 45, 60, 90, 120], custom = pre.indexOf(cur) < 0;
-        return '<div class="two"><label class="field">Remind me every<select name="remind">' + pre.map(function (m) { return '<option value="' + m + '"' + (!custom && cur === m ? ' selected' : '') + '>' + m + (m === 1 ? ' minute' : ' minutes') + '</option>'; }).join('') +
-          '<option value="custom"' + (custom ? ' selected' : '') + '>Custom…</option></select></label>' +
-          '<label class="field f-remind">Minutes<input type="number" name="remindN" min="1" max="1440" value="' + cur + '"></label></div>';
-      })() +
       '<label class="field">On computers, when locked<select name="desktop"><option value="lock"' + sel('lock', t.desktop) + '>Cover the whole screen (for tasks away from the computer)</option><option value="focus"' + sel('focus', t.desktop) + '>Only close distracting apps (for computer tasks)</option><option value="none"' + sel('none', t.desktop) + '>Do nothing on computers</option></select></label>';
   }
   function appsField(t, apps) {
@@ -889,84 +994,101 @@
     f.addEventListener('change', function (e) {
       if (f.timer && f.querySelector('.f-minutes')) f.querySelector('.f-minutes').style.display = f.timer.checked ? '' : 'none';
       if (f.remind && f.querySelector('.f-remind')) f.querySelector('.f-remind').style.display = f.remind.value === 'custom' ? '' : 'none';
-      if (e.target.name === 'level') f.querySelectorAll('.lvl').forEach(function (x) { x.classList.toggle('on', x.contains(e.target)); });
+      if (e.target.name === 'push') f.querySelectorAll('.lvl').forEach(function (x) { x.classList.toggle('on', x.contains(e.target)); });
+      pushVis(f);
       if (onChange) onChange(f, e);
     });
     f.addEventListener('submit', function (e) { e.preventDefault(); onSave(new FormData(f), f); });
     if (f.remind && f.querySelector('.f-remind')) f.querySelector('.f-remind').style.display = f.remind.value === 'custom' ? '' : 'none';
     if (f.timer && f.querySelector('.f-minutes')) f.querySelector('.f-minutes').style.display = f.timer.checked ? '' : 'none';
+    pushVis(f);
     if (onChange) onChange(f, {});
     return f;
   }
+  // Reminder fields only for Nudge / Nag; the lock only with a deadline (f.dl: task deadline, f.dueOn: habit deadline).
+  function pushVis(f) {
+    var pv = f.querySelector('input[name="push"]:checked'), rem = f.querySelector('.f-rem'); if (!rem) return;
+    rem.style.display = pv && pv.value !== 'off' ? '' : 'none';
+    var dl = f.dl || f.dueOn, has = !dl || dl.checked;
+    if (f.lock) { f.lock.disabled = !has; f.querySelector('.f-lock').classList.toggle('off', !has); f.querySelector('.f-locknote').style.display = has ? 'none' : ''; }
+  }
   function readDone(t, fd, apps) {
-    t.level = +fd.get('level') || 1; t.kind = fd.get('timer') ? 'timer' : 'check'; t.minutes = Math.max(1, Math.min(240, Math.round(+fd.get('minutes') || 20)));
-    delete t.tiny; t.remind = fd.get('remind') === 'custom' ? Math.min(1440, Math.max(1, Math.round(+fd.get('remindN') || 30))) : +fd.get('remind'); t.desktop = fd.get('desktop');
+    t.push = fd.get('push') || 'off'; t.lock = !!fd.get('lock'); t.rfrom = fd.get('rfrom') || '09:00'; t.rto = fd.get('rto') || '21:00';
+    t.kind = fd.get('timer') ? 'timer' : 'check'; t.minutes = Math.max(1, Math.min(240, Math.round(+fd.get('minutes') || 20)));
+    delete t.tiny; delete t.level; delete t.start; delete t.dueEnd;
+    t.remind = fd.get('remind') === 'custom' ? Math.min(1440, Math.max(1, Math.round(+fd.get('remindN') || 30))) : +fd.get('remind'); t.desktop = fd.get('desktop');
     if (apps.length) t.allowApps = fd.getAll('app');
   }
 
+  function habitWhen(t) {
+    var rep = t.repeat || 'weekdays', by = E.hasDue(t, 'habit') ? ' · by ' + (t.due && t.due !== '23:59' ? t.due : 'end of day') : '';
+    if (rep === 'week') return 'Every week' + (E.hasDue(t, 'habit') ? ' · by ' + WEEKDAYS[t.dueDay == null ? 6 : +t.dueDay] + ' ' + (t.due && t.due !== '23:59' ? t.due : '') : '');
+    if (rep === 'month') return 'Every month' + (E.hasDue(t, 'habit') ? ' · by day ' + (t.dueDay || 'last') + ' ' + (t.due && t.due !== '23:59' ? t.due : '') : '');
+    if (rep === 'every') return 'Every ' + (t.every || 2) + ' days' + by;
+    return ((t.days && t.days.length && t.days.length < 7) ? t.days.map(function (d) { return DAYNAMES[d]; }).join(' ') : 'Every day') + by;
+  }
   function openHabitEditor(task) {
     var isNew = !task || !task.id;
-    var t = Object.assign({ title: '', emoji: '📖', color: COLORS[0], start: '09:00', due: '10:00', days: [], level: 2, kind: 'check', minutes: 20, remind: 30, desktop: 'lock', allowApps: [], active: true }, task || {});
-    var apps = listApps();
+    var t = Object.assign({ title: '', emoji: '📖', color: COLORS[0], days: [], push: 'nag', remind: 30, kind: 'check', minutes: 20, desktop: 'lock', allowApps: [], active: true }, task || {});
+    var apps = listApps(), r = t.repeat || 'weekdays', dueOn = E.hasDue(t, 'habit');
     $modal.innerHTML = modalShell(isNew ? 'New habit' : 'Edit habit',
       '<label class="field">What?<input name="title" required maxlength="60" value="' + esc(t.title) + '" placeholder="e.g. Read"></label>' + emojiField(t) + colorField(t) +
-      '<div class="two"><label class="field">Window opens<input type="time" name="start" value="' + esc(t.start) + '" required></label><label class="field">Deadline<input type="time" name="due" value="' + esc(t.due) + '" required></label></div>' +
-      '<div class="field">Days <small>(none selected = every day)</small><div class="day-row">' + DAYS.map(function (d, i) { return '<button type="button" class="dp' + ((t.days || []).indexOf(i) >= 0 ? ' on' : '') + '" data-day="' + i + '">' + d + '</button>'; }).join('') + '</div></div>' +
+      '<label class="field">Repeats<select name="repeat"><option value="weekdays"' + sel('weekdays', r) + '>Every day / on set days</option><option value="week"' + sel('week', r) + '>Every week</option><option value="month"' + sel('month', r) + '>Every month</option><option value="every"' + sel('every', r) + '>Every few days</option></select></label>' +
+      '<div class="field f-days">Days <small>(none selected = every day)</small><div class="day-row">' + DAYS.map(function (d, i) { return '<button type="button" class="dp' + ((t.days || []).indexOf(i) >= 0 ? ' on' : '') + '" data-day="' + i + '">' + d + '</button>'; }).join('') + '</div></div>' +
+      '<div class="two"><label class="field f-dueday-w">By which day<select name="dueDayW">' + WEEKDAYS.map(function (w, i) { return '<option value="' + i + '"' + sel(i, t.dueDay == null ? 6 : t.dueDay) + '>' + w + '</option>'; }).join('') + '</select></label>' +
+      '<label class="field f-dueday-m">By which day of the month<input type="number" name="dueDayM" min="1" max="31" value="' + esc(r === 'month' ? t.dueDay || 28 : 28) + '"></label>' +
+      '<label class="field f-every">Every how many days<input type="number" name="every" min="2" max="365" value="' + esc(t.every || 2) + '"></label></div>' +
+      '<div class="field dl-row"><label class="check"><input type="checkbox" name="dueOn"' + (dueOn ? ' checked' : '') + '> ⏰ Deadline</label>' +
+      '<label class="f-dl">at <input type="time" name="due" value="' + esc(dueOn && t.due !== '23:59' ? t.due || '' : '') + '"> <small>(blank = end of the day)</small></label></div>' +
       '<label class="check"><input type="checkbox" name="active"' + (t.active !== false ? ' checked' : '') + '> Active (turn off to pause this habit)</label>' +
-      levelField(t) + doneFields(t) + appsField(t, apps), !isNew);
+      pushField(t, 'habit') + doneFields(t) + appsField(t, apps), !isNew);
     wire(t, function (fd) {
-      t.title = fd.get('title').trim(); t.start = fd.get('start'); t.due = fd.get('due');
-      if (t.due < t.start) return toast('The deadline must be after the window opens');
-      t.active = !!fd.get('active'); readDone(t, fd, apps);
+      t.title = fd.get('title').trim(); t.repeat = fd.get('repeat'); t.dueOn = !!fd.get('dueOn'); t.due = t.dueOn ? fd.get('due') || '' : '';
+      if (t.repeat !== 'weekdays') t.days = [];
+      if (t.repeat === 'week') t.dueDay = +fd.get('dueDayW');
+      if (t.repeat === 'month') t.dueDay = Math.min(31, Math.max(1, +fd.get('dueDayM') || 28));
+      if (t.repeat === 'every') { t.every = Math.max(2, +fd.get('every') || 2); if (!t.date) t.date = E.dateKey(now()); }
+      t.active = !!fd.get('active'); readDone(t, fd, apps); if (!t.dueOn) t.lock = false;
       apply(E.opPut('tasks', t, by(), now())); closeModal(); toast(isNew ? '✨ Habit added' : 'Saved');
-    }, function () { confirmBox('Delete “' + t.title + '”?', 'Its history stays in the tracker until it ages out.', 'Delete', function () { apply(E.opDel('tasks', t, by(), now())); closeModal(); }); });
+    }, function () { confirmBox('Delete “' + t.title + '”?', 'Its history stays in the tracker until it ages out.', 'Delete', function () { apply(E.opDel('tasks', t, by(), now())); closeModal(); }); },
+    function (f) {
+      var rep = f.repeat.value;
+      f.querySelector('.f-days').style.display = rep === 'weekdays' ? '' : 'none';
+      f.querySelector('.f-dueday-w').style.display = rep === 'week' ? '' : 'none';
+      f.querySelector('.f-dueday-m').style.display = rep === 'month' ? '' : 'none';
+      f.querySelector('.f-every').style.display = rep === 'every' ? '' : 'none';
+      f.querySelector('.f-dl').style.display = f.dueOn.checked ? '' : 'none';
+    });
   }
 
   function openTodoEditor(task) {
     var isNew = !task || !task.id;
-    var t = Object.assign({ title: '', emoji: '✅', color: COLORS[1], repeat: 'none', date: E.dateKey(now()), start: '', due: '', dueDay: 6, every: 2, level: 1, kind: 'check', minutes: 20, remind: 120, desktop: 'none', allowApps: [] }, task || {});
-    if (isNew && task && task.vault && !task.date) t.date = '';
-    var apps = listApps(), projects = live('projects');
-    var r = t.repeat || 'none';
+    var t = Object.assign({ title: '', emoji: '✅', color: COLORS[1], date: '', due: '', push: 'nudge', remind: 120, kind: 'check', minutes: 20, desktop: 'none', allowApps: [] }, task || {});
+    var apps = listApps(), projects = live('projects'), old = (t.repeat || 'none') !== 'none', dl = !!t.date && !old;
     $modal.innerHTML = modalShell(isNew ? 'New task' : 'Edit task',
       '<label class="field">What?<input name="title" required maxlength="80" value="' + esc(t.title) + '" placeholder="e.g. Buy batteries"></label>' +
       (t.vault ? '<p class="muted">🗂️ From the vault: “' + esc(cleanItem(t.vault.item)) + '”. Finishing it ticks it in Obsidian.</p>' : '') +
+      (old ? '<p class="muted">🔁 This is an old repeating task (' + esc(todoWhen(t)) + '). It is being turned into a habit.</p>' : '') +
       '<label class="field">Project<select name="project"><option value="">None</option>' + projects.map(function (p) { return '<option value="' + p.id + '"' + sel(p.id, t.project) + '>' + esc((p.emoji || '') + ' ' + p.name) + '</option>'; }).join('') + '</select></label>' +
-      '<label class="field">Repeats<select name="repeat"><option value="none"' + sel('none', r) + '>Once</option><option value="week"' + sel('week', r) + '>Every week</option><option value="month"' + sel('month', r) + '>Every month</option><option value="days"' + sel('days', r) + '>Every few days</option><option value="custom"' + sel('custom', r) + '>Custom days</option></select></label>' +
-      '<div class="field f-custom">Days <small>(none selected = every day)</small><div class="day-row">' + DAYS.map(function (d, i) { return '<button type="button" class="dp' + ((r === 'custom' ? t.days || [] : []).indexOf(i) >= 0 ? ' on' : '') + '" data-day="' + i + '">' + d + '</button>'; }).join('') + '</div></div>' +
-      '<div class="two"><label class="field f-date">Date <small>(empty = someday)</small><input type="date" name="date" value="' + esc(t.date || '') + '"></label>' +
-      '<label class="field f-dueday-w">Deadline day<select name="dueDayW">' + WEEKDAYS.map(function (w, i) { return '<option value="' + i + '"' + sel(i, t.dueDay) + '>' + w + '</option>'; }).join('') + '</select></label>' +
-      '<label class="field f-dueday-m">Deadline day of month<input type="number" name="dueDayM" min="1" max="31" value="' + esc(r === 'month' ? t.dueDay || 28 : 28) + '"></label>' +
-      '<label class="field f-every">Every how many days<input type="number" name="every" min="1" max="365" value="' + esc(t.every || 2) + '"></label></div>' +
-      '<label class="check f-monthly"><input type="checkbox" name="monthly"' + (t.monthly ? ' checked' : '') + '> Show in monthly <small>(marks the deadline day in the month view)</small></label>' +
-      '<div class="two f-times"><label class="field">Window opens <small class="f-wsmall">(on the deadline day)</small><input type="time" name="start" value="' + esc(t.start || '') + '"></label><label class="field">Deadline<select name="dueMode"><option value="time"' + (t.dueEnd ? '' : ' selected') + '>At a set time</option><option value="end"' + (t.dueEnd ? ' selected' : '') + '>By the end of the day</option></select></label>' +
-      '<label class="field f-duetime">Deadline time<input type="time" name="due" value="' + esc(t.dueEnd ? '' : t.due || '') + '"></label></div>' +
-      emojiField(t) + colorField(t) + levelField(t) + doneFields(t) + appsField(t, apps), !isNew);
+      (old ? '' : '<div class="field dl-row"><label class="check"><input type="checkbox" name="dl"' + (dl ? ' checked' : '') + '> ⏰ Deadline</label>' +
+        '<span class="f-dl"><input type="date" name="date" value="' + esc(t.date || E.dateKey(now())) + '"> <input type="time" name="due" value="' + esc(t.due && t.due !== '23:59' ? t.due : '') + '"> <small>(time: blank = end of the day)</small></span></div>' +
+        '<label class="check f-monthly"><input type="checkbox" name="monthly"' + (t.monthly ? ' checked' : '') + '> Show in monthly <small>(marks the deadline day in the month view)</small></label>') +
+      emojiField(t) + colorField(t) + pushField(t, 'todo') + doneFields(t) + appsField(t, apps), !isNew);
     wire(t, function (fd) {
-      t.title = fd.get('title').trim(); t.project = fd.get('project') || ''; t.repeat = fd.get('repeat');
-      t.date = fd.get('date') || ''; t.start = fd.get('start') || ''; t.due = fd.get('due') || '';
-      t.dueEnd = fd.get('dueMode') === 'end'; if (t.dueEnd) t.due = '23:59'; t.monthly = !!fd.get('monthly');
-      if (t.repeat !== 'custom') delete t.days;
-      if (t.repeat === 'week') t.dueDay = +fd.get('dueDayW');
-      if (t.repeat === 'month') t.dueDay = Math.min(31, Math.max(1, +fd.get('dueDayM') || 28));
-      if (t.repeat === 'days') { t.every = Math.max(1, +fd.get('every') || 2); if (!t.date) t.date = E.dateKey(now()); }
-      if (t.repeat !== 'none' || t.date) { if (!t.due) t.due = '21:00'; if (!t.start) t.start = t.due < '09:00' ? t.due : '09:00'; }
-      if (t.start && t.due && t.due < t.start) return toast('The deadline must be after the window opens');
-      readDone(t, fd, apps);
+      t.title = fd.get('title').trim(); t.project = fd.get('project') || '';
+      if (!old) {
+        var on = !!fd.get('dl');
+        if (on && !fd.get('date')) return toast('Pick the deadline day');
+        t.repeat = 'none'; t.date = on ? fd.get('date') : ''; t.due = on ? fd.get('due') || '' : ''; t.monthly = on && !!fd.get('monthly');
+        ['days', 'dueDay', 'every'].forEach(function (k) { delete t[k]; });
+      }
+      readDone(t, fd, apps); if (!old && !t.date) t.lock = false;
       apply(E.opPut('todos', t, by(), now())); closeModal(); toast(isNew ? '✨ Task added' : 'Saved');
     }, function () { confirmBox('Delete “' + t.title + '”?', 'This removes the task from every device.', 'Delete', function () { apply(E.opDel('todos', t, by(), now())); closeModal(); }); },
     function (f) {
-      var rep = f.repeat.value;
-      f.querySelector('.f-date').style.display = rep === 'none' || rep === 'days' ? '' : 'none';
-      f.querySelector('.f-date small').style.display = rep === 'none' ? '' : 'none';
-      f.querySelector('.f-dueday-w').style.display = rep === 'week' ? '' : 'none';
-      f.querySelector('.f-dueday-m').style.display = rep === 'month' ? '' : 'none';
-      f.querySelector('.f-every').style.display = rep === 'days' ? '' : 'none';
-      f.querySelector('.f-custom').style.display = rep === 'custom' ? '' : 'none';
-      f.querySelector('.f-wsmall').textContent = rep === 'custom' ? '(each day)' : '(on the deadline day)';
-      f.querySelector('.f-duetime').style.display = f.dueMode.value === 'end' ? 'none' : '';
-      f.querySelector('.f-times').style.display = rep === 'none' && !f.date.value ? 'none' : '';
-      f.querySelector('.f-monthly').style.display = rep === 'none' && !f.date.value ? 'none' : '';
+      if (!f.dl) return;
+      f.querySelector('.f-dl').style.display = f.dl.checked ? '' : 'none';
+      f.querySelector('.f-monthly').style.display = f.dl.checked ? '' : 'none';
     });
   }
 
@@ -1327,12 +1449,25 @@
     var rule = E.parseRule(t.rrule), canRule = !rule || rule.simple, desc0 = plainDesc(t.desc);
     var rf = rule && rule.simple ? rule.freq : rule ? 'custom' : 'none', rdays = rule && rule.days.length ? rule.days : [new Date(t.start).getDay()];
     var rend = rule && rule.count ? 'count' : rule && rule.until ? 'until' : 'never';
-    var orig = JSON.stringify([t.title, t.allDay, t.start, t.end, myCal, t.color || '', desc0, t.rrule || '']);
+    var L0 = isNew ? null : E.linkOf(E.linkIndex(S.state), t), link0 = L0 ? L0.link.k + ':' + L0.link.id : t.link && t.link.k ? t.link.k + ':' + t.link.id : '';
+    var sk0 = L0 ? E.sessKey(L0, t) : '', ss0 = sk0 ? (S.state.sess || {})[sk0] : null;
+    var orig = JSON.stringify([t.title, t.allDay, t.start, t.end, myCal, t.color || '', desc0, t.rrule || '', link0]);
+    var sessBox = L0 && !ro && t.start <= now() && linkRec(L0.link) ? '<div class="sess-box"><b>Session</b>' + sessionControls({ e: t, link: L0.link, key: sk0, done: !!(ss0 && ss0.done), tasks: (ss0 && ss0.tasks) || [] }) + '</div>' : '';
+    var linkSel = function () {
+      var o = function (k, r, label) { var v = k + ':' + r.id; return '<option value="' + esc(v) + '"' + (v === link0 ? ' selected' : '') + '>' + esc(label) + '</option>'; };
+      var todos = live('todos').filter(function (x) { var c = (S.state.comps || {})[E.itemKey(S.state, x.id, now())]; return !x.test && (!(c && !c.undone) || 'todo:' + x.id === link0); });
+      return '<label class="field">Linked to <small>(its designated period)</small><select name="link"><option value="">Nothing</option>' +
+        '<optgroup label="Tasks">' + todos.map(function (x) { return o('todo', x, (x.emoji || '✅') + ' ' + x.title); }).join('') + '</optgroup>' +
+        '<optgroup label="Habits">' + live('tasks').filter(function (x) { return !x.test; }).map(function (x) { return o('habit', x, (x.emoji || '🔁') + ' ' + x.title); }).join('') + '</optgroup>' +
+        '<optgroup label="Projects">' + live('projects').map(function (x) { return o('project', x, (x.emoji || '🗂️') + ' ' + x.name); }).join('') + '</optgroup></select></label>' +
+        '<div class="field f-stasks"></div>';
+    };
     var pal = palette(), colorBtns = '<button type="button" class="cp ecp' + (!t.color ? ' on' : '') + '" data-ecolor="" title="Calendar color" style="background:' + esc(gcal(myCal) ? calColor(gcal(myCal)) : EV_COLOR) + '"></button>' +
       Object.keys(pal).map(function (k) { return '<button type="button" class="cp ecp' + (t.color === k ? ' on' : '') + '" data-ecolor="' + k + '" title="' + (GCOLOR_NAMES[k] || '') + '" style="background:' + esc(pal[k]) + '"></button>'; }).join('');
     $modal.innerHTML = modalShell(isNew ? 'New event' : ro ? 'Event (read-only calendar)' : 'Edit event',
       (ro ? '<p class="muted">This calendar is read-only. Here you can only choose whether it shows in the month view.</p>' : '') +
-      '<label class="field">Title<input name="title" required maxlength="120" value="' + esc(t.title) + '"' + dis + '></label>' +
+      sessBox + '<label class="field">Title<input name="title" required maxlength="120" value="' + esc(t.title) + '"' + dis + '></label>' +
+      (ro ? '' : linkSel()) +
       (v2 && !ro ? '<label class="field">Calendar<select name="cal">' + cals.map(function (c) { return '<option value="' + esc(c.id) + '"' + (c.id === myCal ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></label>' : '') +
       '<label class="field">Date<input type="date" name="date" value="' + E.dateKey(t.start) + '" required' + dis + '></label>' +
       '<label class="check"><input type="checkbox" name="allDay"' + (t.allDay ? ' checked' : '') + dis + '> All day</label>' +
@@ -1345,7 +1480,18 @@
       '<label class="field">Description<textarea name="desc" rows="3"' + dis + '>' + esc(desc0) + '</textarea></label>' +
       '<label class="check"><input type="checkbox" name="monthly"' + (was ? ' checked' : '') + '> Show in monthly</label>' +
       (ro ? '' : t.gid ? '<p class="muted">Synced with Google Calendar.</p>' : (S.local.calUrl || (S.local.cal || {}).status ? '' : '<p class="muted">Connect Google Calendar on a computer to sync it there too.</p>')), !isNew && !ro);
-    var f = document.getElementById('editor'), color = t.color || '', rd = rdays.slice();
+    var f = document.getElementById('editor'), color = t.color || '', rd = rdays.slice(), stasks0 = (ss0 && ss0.tasks) || [];
+    // A project event: pick the tasks for this one session.
+    var paintSt = function () {
+      var box = f.querySelector('.f-stasks'); if (!box || !f.link) return;
+      var v = f.link.value, pid = v.indexOf('project:') === 0 ? v.slice(8) : '';
+      if (!pid) { box.innerHTML = ''; box.style.display = 'none'; return; }
+      var list = openTasksOf(pid), ids = {}; list.forEach(function (x) { ids[x.id] = 1; });
+      stasks0.forEach(function (id) { var x = (S.state.todos || {})[id]; if (x && !ids[id] && x.project === pid) list.push(x); });
+      box.style.display = '';
+      box.innerHTML = 'Tasks for this session <small>(this day only)</small>' + (list.length ? '<div class="apps">' + list.map(function (x) { return '<label class="check sm"><input type="checkbox" name="stask" value="' + esc(x.id) + '"' + (stasks0.indexOf(x.id) >= 0 ? ' checked' : '') + '> ' + esc((x.emoji || '') + ' ' + x.title) + '</label>'; }).join('') + '</div>' : '<p class="muted">This project has no open tasks.</p>');
+    };
+    paintSt(); if (f.link) f.link.addEventListener('change', paintSt);
     f.addEventListener('click', function (e) {
       var b = e.target.closest('button'); if (!b) return;
       if (b.hasAttribute('data-ecolor')) { color = b.getAttribute('data-ecolor'); f.querySelectorAll('.ecp').forEach(function (x) { x.classList.toggle('on', x === b); }); }
@@ -1364,17 +1510,24 @@
         var nf = fd.get('rf') || rf;
         if (nf !== 'custom') c.rrule = nf === 'none' ? '' : E.buildRule({ freq: nf, days: nf === 'weekly' ? rd : [], count: fd.get('rend') === 'count' ? Math.max(1, +fd.get('rcount') || 1) : 0, until: fd.get('rend') === 'until' ? fd.get('runtil') : '' }, c.allDay);
         var ruleChanged = !sameRule(c.rrule, t.rrule, t.start);
+        var lv = fd.get('link') || '', li = lv.indexOf(':');
+        if (!c.id) c.id = E.uid();
+        if (lv) c.link = { k: lv.slice(0, li), id: lv.slice(li + 1), o: (L0 && L0.o) || c.id };
+        else if (L0) c.link = { k: '', id: '', o: L0.o }; else delete c.link;
+        var stasks = lv.indexOf('project:') === 0 ? fd.getAll('stask') : null;
         if (nf === 'custom' || !ruleChanged) { c.rrule = t.rrule || ''; c.keepRule = true; } else delete c.keepRule;
-        var changed = isNew || JSON.stringify([c.title, c.allDay, c.start, c.end, c.cal || myCal, c.color || '', c.desc != null ? c.desc : desc0, c.rrule || '']) !== orig;
+        var changed = isNew || JSON.stringify([c.title, c.allDay, c.start, c.end, c.cal || myCal, c.color || '', c.desc != null ? c.desc : desc0, c.rrule || '', lv]) !== orig;
+        var saveTasks = function () { if (stasks && c.link && JSON.stringify(stasks) !== JSON.stringify(stasks0)) sessPut(E.sessKey({ o: c.link.o }, c), { tasks: stasks }); };
         var save = function (scope) {
           if (scope) c.scope = scope;
           if (!c.series) { if (!c.rrule) delete c.rrule; delete c.keepRule; }
-          var patch = E.opPut('events', c, by(), now()); t.id = Object.keys(patch.events)[0]; apply(patch);
+          var patch = E.opPut('events', c, by(), now()); t.id = Object.keys(patch.events)[0]; apply(patch); saveTasks();
           if (monthly !== was) apply(E.opPut('marks', { id: markKey(c), monthly: monthly }, by(), now()));
           S.calDay = fd.get('date'); closeModal(); toast(isNew ? '📅 Event added' : 'Saved');
         };
         if (changed && t.series) return scopeBox('Edit repeating event', ruleChanged || (c.cal !== myCal), save);
         if (changed) return save();
+        saveTasks();
       }
       if (monthly !== was) apply(E.opPut('marks', { id: markKey(t), monthly: monthly }, by(), now()));
       closeModal(); toast(isNew ? '📅 Event added' : 'Saved');
