@@ -962,7 +962,7 @@
       '<option value="custom"' + (custom ? ' selected' : '') + '>Custom…</option></select></label>' +
       '<label class="field f-remind">Minutes<input type="number" name="remindN" min="1" max="1440" value="' + every + '"></label></div>' +
       '<div class="field">Reminder window' + (kind === 'todo' ? ' <small>(every day until it is done)</small>' : '') + '<div class="pair"><input type="time" name="rfrom" value="' + esc(rw.from) + '"><span>to</span><input type="time" name="rto" value="' + esc(rw.to) + '"></div></div></div>' +
-      '<label class="check f-lock"><input type="checkbox" name="lock"' + (E.lockOf(t) ? ' checked' : '') + '> 🔒 Lock at deadline <small class="f-locknote">(needs a deadline)</small></label>';
+      '<label class="check f-lock"><input type="checkbox" name="lock"' + (E.lockOf(t) ? ' checked' : '') + '> 🔒 Lock at deadline <small class="f-locknote">(needs a deadline with a time)</small></label>';
   }
   function doneFields(t) {
     return '<div class="field timer-row"><label class="check"><input type="checkbox" name="timer"' + (t.kind === 'timer' ? ' checked' : '') + '> ⏱ Timer</label>' +
@@ -998,6 +998,7 @@
       pushVis(f);
       if (onChange) onChange(f, e);
     });
+    f.addEventListener('input', function (e) { if (e.target.name === 'due') pushVis(f); });
     f.addEventListener('submit', function (e) { e.preventDefault(); onSave(new FormData(f), f); });
     if (f.remind && f.querySelector('.f-remind')) f.querySelector('.f-remind').style.display = f.remind.value === 'custom' ? '' : 'none';
     if (f.timer && f.querySelector('.f-minutes')) f.querySelector('.f-minutes').style.display = f.timer.checked ? '' : 'none';
@@ -1009,7 +1010,7 @@
   function pushVis(f) {
     var pv = f.querySelector('input[name="push"]:checked'), rem = f.querySelector('.f-rem'); if (!rem) return;
     rem.style.display = pv && pv.value !== 'off' ? '' : 'none';
-    var dl = f.dl || f.dueOn, has = !dl || dl.checked;
+    var dl = f.dl || f.dueOn, has = !dl || (dl.checked && !!(f.due && f.due.value));   // "by the end of the day" can't lock
     if (f.lock) { f.lock.disabled = !has; f.querySelector('.f-lock').classList.toggle('off', !has); f.querySelector('.f-locknote').style.display = has ? 'none' : ''; }
   }
   function readDone(t, fd, apps) {
@@ -1048,7 +1049,7 @@
       if (t.repeat === 'week') t.dueDay = +fd.get('dueDayW');
       if (t.repeat === 'month') t.dueDay = Math.min(31, Math.max(1, +fd.get('dueDayM') || 28));
       if (t.repeat === 'every') { t.every = Math.max(2, +fd.get('every') || 2); if (!t.date) t.date = E.dateKey(now()); }
-      t.active = !!fd.get('active'); readDone(t, fd, apps); if (!t.dueOn) t.lock = false;
+      t.active = !!fd.get('active'); readDone(t, fd, apps); if (!t.dueOn || !t.due) t.lock = false;
       apply(E.opPut('tasks', t, by(), now())); closeModal(); toast(isNew ? '✨ Habit added' : 'Saved');
     }, function () { confirmBox('Delete “' + t.title + '”?', 'Its history stays in the tracker until it ages out.', 'Delete', function () { apply(E.opDel('tasks', t, by(), now())); closeModal(); }); },
     function (f) {
@@ -1082,7 +1083,7 @@
         t.repeat = 'none'; t.date = on ? fd.get('date') : ''; t.due = on ? fd.get('due') || '' : ''; t.monthly = on && !!fd.get('monthly');
         ['days', 'dueDay', 'every'].forEach(function (k) { delete t[k]; });
       }
-      readDone(t, fd, apps); if (!old && !t.date) t.lock = false;
+      readDone(t, fd, apps); if (!old && (!t.date || !t.due)) t.lock = false;
       apply(E.opPut('todos', t, by(), now())); closeModal(); toast(isNew ? '✨ Task added' : 'Saved');
     }, function () { confirmBox('Delete “' + t.title + '”?', 'This removes the task from every device.', 'Delete', function () { apply(E.opDel('todos', t, by(), now())); closeModal(); }); },
     function (f) {
