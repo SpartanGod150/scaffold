@@ -362,7 +362,7 @@ details.vault .row { background: var(--card); margin-top: 8px; border-left-color
 .cv-ev.hb.dn { background: color-mix(in srgb, var(--c) 42%, transparent); border-color: var(--c); opacity: 1; }
 .cv-ev.drag { touch-action: pan-y; }
 .cv-ev .rs { position: absolute; left: 0; right: 0; bottom: 0; height: 8px; cursor: ns-resize; }
-.cv-ev.dragging { z-index: 5; box-shadow: 0 8px 22px rgba(0,0,0,.5); opacity: .92; }
+.cv-ev.dragging { z-index: 50 !important; box-shadow: 0 8px 22px rgba(0,0,0,.5); opacity: .92; }
 .cv.n7 .cv-ev { padding: 2px 3px; font-size: 10.5px; }
 .cv.n7 .cv-ev small { display: none; }
 .ag-row.hb { cursor: pointer; }
