@@ -141,7 +141,7 @@ function evaluate() {
   rem.forEach((x) => {
     const it = x.item;
     const when = !it.hasDue ? 'no deadline' : it.status === 'late' ? (it.dueToday ? 'late since ' + hm(it.due) : 'overdue since ' + it.deadlineDay) : it.future ? 'due ' + it.deadlineDay + ' ' + hm(it.due) : 'due ' + hm(it.due);
-    notify(`${it.task.emoji || '⏰'} ${it.task.title}`, (it.task.desc ? it.task.desc + '\n' : '') + `Time for this · ${when}`);
+    notify(`${it.task.emoji || '⏰'} ${it.task.title}`, (it.task.desc ? Engine.plainNote(it.task.desc).trim() + '\n' : '') + `Time for this · ${when}`);
     if (x.popup && !r.lock) showPopup(it.id);
   });
   // deadline lock: Scaffold's window with the task and "I did it"; the lock's mode (Full Lock by default) handles the rest

@@ -144,6 +144,10 @@
       S.noteEdit = null; S.noteRte = null;
       apply(E.opPut('notes', c, by(), now())); render(); toast('Saved');
     },
+    tickDesc: function (id, line) {   // a checklist box in a task's or habit's description, on its pop-up or lock screen
+      var m = S.state.todos[id] ? 'todos' : 'tasks', r = S.state[m][id]; if (!r || !r.desc) return;
+      var c = JSON.parse(JSON.stringify(r)); c.desc = noteTick(c.desc, +line); apply(E.opPut(m, c, by(), now()));
+    },
     tickNote: function (id, line) { var n = S.state.notes[id]; if (!n) return; var c = JSON.parse(JSON.stringify(n)); c.anchor = c.anchor || c.ts; c.text = noteTick(c.text, +line); apply(E.opPut('notes', c, by(), now())); },
     dismissNote: function (id) { apply(E.opAck(id, by(), now())); delete S.noteSeen[id]; if (S.mode === 'note' && !E.pendingNotes(S.state, now()).filter(function (n) { return n.id !== id; }).length) B.closeWindow(); },
     calPrev: function () { calMove(-1); },
@@ -1214,9 +1218,11 @@
     return ((t.days && t.days.length && t.days.length < 7) ? t.days.map(function (d) { return DAYNAMES[d]; }).join(' ') : 'Every day') + by;
   }
   // Details shown with the task when it's time to do it: notifications, the reminder pop-up and the lock screen.
-  function descField(t, what) { return '<label class="field">' + what + ' description <small>(shows in its notifications, pop-up and lock screen)</small><textarea name="tdesc" rows="3" placeholder="e.g. Draw them standing upright, in their fighting clothes, weapons in hand">' + esc(t.desc || '') + '</textarea></label>'; }
-  function readDesc(t, fd) { var d = (fd.get('tdesc') || '').trim(); if (d) t.desc = d; else delete t.desc; }
-  function descBox(t) { return t.desc ? '<div class="task-desc">' + esc(t.desc) + '</div>' : ''; }
+  // Same editor as notes: formatting buttons, and the box grows as you write.
+  function descField(t, what) { return rteField(t.desc || '', what + ' description <small>(shows in its notifications, pop-up and lock screen)</small>', 'e.g. Draw them standing upright, in their fighting clothes, weapons in hand'); }
+  function wireDesc() { return wireRte($modal.querySelector('.rte'), $modal.querySelector('.rte-bar')); }
+  function readDesc(t, rte) { var d = rte.value(); if (E.plainNote(d).trim()) t.desc = d.replace(/\s+$/, ''); else delete t.desc; }
+  function descBox(t) { return t.desc ? '<div class="task-desc md">' + mdHtml(t.desc, t.id, 'tickDesc') + '</div>' : ''; }
 
   function openHabitEditor(task) {
     var isNew = !task || !task.id;
@@ -1233,8 +1239,9 @@
       '<label class="f-dl">at <input type="time" name="due" value="' + esc(dueOn && t.due !== '23:59' ? t.due || '' : '') + '"> <small>(blank = end of the day)</small></label></div>' +
       '<label class="check"><input type="checkbox" name="active"' + (t.active !== false ? ' checked' : '') + '> Active (turn off to pause this habit)</label>' +
       pushField(t, 'habit') + doneFields(t), !isNew);
+    var drte = wireDesc();
     wire(t, function (fd) {
-      t.title = fd.get('title').trim(); readDesc(t, fd); t.repeat = fd.get('repeat'); t.dueOn = !!fd.get('dueOn'); t.due = t.dueOn ? fd.get('due') || '' : '';
+      t.title = fd.get('title').trim(); readDesc(t, drte); t.repeat = fd.get('repeat'); t.dueOn = !!fd.get('dueOn'); t.due = t.dueOn ? fd.get('due') || '' : '';
       if (t.repeat !== 'weekdays') t.days = [];
       if (t.repeat === 'week') t.dueDay = +fd.get('dueDayW');
       if (t.repeat === 'month') t.dueDay = Math.min(31, Math.max(1, +fd.get('dueDayM') || 28));
@@ -1265,8 +1272,9 @@
         '<span class="f-dl"><input type="date" name="date" value="' + esc(t.date || E.dateKey(now())) + '"> <input type="time" name="due" value="' + esc(t.due && t.due !== '23:59' ? t.due : '') + '"> <small>(time: blank = end of the day)</small></span></div>' +
         '<label class="check f-monthly"><input type="checkbox" name="monthly"' + (t.monthly ? ' checked' : '') + '> Show in monthly <small>(marks the deadline day in the month view)</small></label>') +
       emojiField(t) + colorField(t) + pushField(t, 'todo') + doneFields(t), !isNew);
+    var drte = wireDesc();
     wire(t, function (fd) {
-      t.title = fd.get('title').trim(); readDesc(t, fd); t.project = fd.get('project') || '';
+      t.title = fd.get('title').trim(); readDesc(t, drte); t.project = fd.get('project') || '';
       if (!old) {
         var on = !!fd.get('dl');
         if (on && !fd.get('date')) return toast('Pick the deadline day');
@@ -1342,11 +1350,11 @@
   // tick: note id when checklist lines can be ticked (pop-up).
   // Numbered lines count per indent level (a deeper line in between doesn't restart the count).
   function olCounter() { var counts = []; return function (t, lvl) { counts.length = lvl + 1; counts[lvl] = t === 'ol' ? (counts[lvl] || 0) + 1 : 0; return counts[lvl]; }; }
-  function mdHtml(text, tick) {
+  function mdHtml(text, tick, act) {
     var num = olCounter();
     return String(text || '').split('\n').map(function (l, i) {
       var b = mdLine(l), inner = mdInline(b.s), n = num(b.t, b.i);
-      return '<div data-t="' + b.t + '"' + (b.i ? ' data-i="' + b.i + '"' : '') + (b.t === 'ol' ? ' data-n="' + n + '"' : '') + (b.c ? ' data-c="1"' : '') + (tick && b.t === 'cl' ? ' data-a="tickNote" data-id="' + esc(tick) + '" data-k="' + i + '"' : '') + '>' + (inner || '<br>') + '</div>';
+      return '<div data-t="' + b.t + '"' + (b.i ? ' data-i="' + b.i + '"' : '') + (b.t === 'ol' ? ' data-n="' + n + '"' : '') + (b.c ? ' data-c="1"' : '') + (tick && b.t === 'cl' ? ' data-a="' + (act || 'tickNote') + '" data-id="' + esc(tick) + '" data-k="' + i + '"' : '') + '>' + (inner || '<br>') + '</div>';
     }).join('');
   }
   function mdEsc(s) { return s.replace(/[\\*]/g, '\\$&').replace(/~~/g, '\\~\\~').replace(/\+\+/g, '\\+\\+'); }
@@ -1383,9 +1391,9 @@
   var RTE_TOOLS = [['bold', '<b>B</b>', 'Bold (' + (IS_MAC ? '⌘' : 'Ctrl+') + 'B)'], ['italic', '<i>I</i>', 'Italic (' + (IS_MAC ? '⌘' : 'Ctrl+') + 'I)'], ['underline', '<u>U</u>', 'Underline (' + (IS_MAC ? '⌘' : 'Ctrl+') + 'U)'], ['strikeThrough', '<s>S</s>', 'Strikethrough (' + (IS_MAC ? '⌘⇧X' : 'Alt+Shift+5') + ')'],
     ['|'], ['ul', '•', 'Bullets (' + (IS_MAC ? '⌘⇧8' : 'Ctrl+Shift+8') + ')'], ['ol', '1.', 'Numbered (' + (IS_MAC ? '⌘⇧7' : 'Ctrl+Shift+7') + ')'], ['cl', '☑', 'Checklist (' + (IS_MAC ? '⌘⇧9' : 'Ctrl+Shift+9') + ')'], ['h1', 'H', 'Heading (' + (IS_MAC ? '⌘⌥1' : 'Ctrl+Alt+1') + ')'], ['|'], ['outdent', '⇤', 'Move left (Shift+Tab)'], ['indent', '⇥', 'Move right (Tab)']];
   function rteBar() { return '<div class="rte-bar">' + RTE_TOOLS.map(function (t) { return t[0] === '|' ? '<i class="rte-sep"></i>' : '<button type="button" class="rte-b" data-fmt="' + t[0] + '" title="' + esc(t[2]) + '">' + t[1] + '</button>'; }).join('') + '</div>'; }
-  function rteField(text) {
-    return '<div class="field">Note' + rteBar() +
-      '<div class="rte md" contenteditable="true" spellcheck="true" data-ph="e.g. Reply to João about Saturday">' + (text ? mdHtml(text) : '<div data-t="p"><br></div>') + '</div></div>';
+  function rteField(text, label, ph) {
+    return '<div class="field">' + (label || 'Note') + rteBar() +
+      '<div class="rte md" contenteditable="true" spellcheck="true" data-ph="' + esc(ph || 'e.g. Reply to João about Saturday') + '">' + (text ? mdHtml(text) : '<div data-t="p"><br></div>') + '</div></div>';
   }
   function wireRte(ed, bar) {
     try { document.execCommand('styleWithCSS', false, false); } catch (e) {}
