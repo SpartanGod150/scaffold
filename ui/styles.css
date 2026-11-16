@@ -239,7 +239,9 @@ details.vault .row { background: var(--card); margin-top: 8px; border-left-color
 .note-open { flex: 1; min-width: 0; text-align: left; display: flex; flex-direction: column; gap: 6px; }
 .note-body { font-size: 15px; line-height: 1.45; white-space: normal; word-break: break-word; }
 .note-open small { color: var(--mute); font-size: 12px; }
-.note-pop { position: fixed; inset: 0; z-index: 9; overflow-y: auto; background: radial-gradient(circle at 50% 25%, color-mix(in srgb, var(--c) 28%, transparent), transparent 65%), var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px 18px; }
+.note-pop { position: fixed; inset: 0; z-index: 9; overflow-y: auto; background: radial-gradient(circle at 50% 25%, color-mix(in srgb, var(--c) 28%, transparent), transparent 65%), var(--bg); display: flex; flex-direction: column; align-items: center; text-align: center; padding: 30px 18px; }
+.note-pop > :first-child { margin-top: auto; }   /* centered when short, scrolls from the top when long */
+.note-pop > :last-child { margin-bottom: auto; }
 .note-kicker { color: #ffe9a8; font-weight: 700; font-size: 14px; letter-spacing: .3px; margin-bottom: 14px; }
 .note-text { width: 100%; max-width: 520px; text-align: left; font-size: 16px; font-weight: 400; line-height: 1.5; margin-bottom: 14px; word-break: break-word; color: #1d1a10;
   background: color-mix(in srgb, var(--c) 30%, #fff3b8); padding: 18px 20px 22px; border-radius: 4px 4px 22px 4px; box-shadow: 0 14px 34px rgba(0,0,0,.45); }

@@ -138,9 +138,8 @@
     noteEditCancel: function () { S.noteEdit = null; S.noteRte = null; render(); },
     noteEditSave: function (id) {
       var n = S.state.notes[id], rte = S.noteRte; if (!n || !rte) return;
-      var text = rte.value(), len = E.plainNote(text).length;
+      var text = rte.value();
       if (!E.plainNote(text).trim()) return toast('The note is empty');
-      if (len > 600) return toast('Too long: ' + len + ' of 600 characters');
       var c = JSON.parse(JSON.stringify(n)); c.anchor = c.anchor || c.ts; c.text = text;
       S.noteEdit = null; S.noteRte = null;
       apply(E.opPut('notes', c, by(), now())); render(); toast('Saved');
@@ -1534,9 +1533,8 @@
       '<label class="check"><input type="checkbox" name="active"' + (t.active !== false ? ' checked' : '') + '> Active</label>' + colorField(t), !isNew);
     var rte = wireRte($modal.querySelector('.rte'), $modal.querySelector('.rte-bar'));
     wire(t, function (fd) {
-      var text = rte.value(), len = E.plainNote(text).length;
+      var text = rte.value();
       if (!E.plainNote(text).trim()) return toast('Write the note first');
-      if (len > 600) return toast('Too long: ' + len + ' of 600 characters');
       var every = Math.max(1, (+fd.get('n') || 1) * (+fd.get('unit') || 1));
       if (every !== t.every || isNew || (fd.get('active') && t.active === false)) t.anchor = now();
       t.text = text; t.every = every; t.hold = Math.max(0, +fd.get('hold') || 0);
