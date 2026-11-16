@@ -163,7 +163,7 @@ function showMain() {
   if (mainWin && !mainWin.isDestroyed()) { mainWin.show(); mainWin.focus(); return; }
   mainWin = new BrowserWindow({ width: 980, height: 760, minWidth: 380, minHeight: 520, backgroundColor: '#0f1117', title: 'Scaffold', autoHideMenuBar: true, webPreferences: webPrefs() });
   loadUI(mainWin, 'main');
-  mainWin.once('ready-to-show', () => { mainWin.show(); mainWin.focus(); try { app.focus({ steal: true }); } catch (e) {} });
+  mainWin.once('ready-to-show', () => { mainWin.maximize(); mainWin.show(); mainWin.focus(); try { app.focus({ steal: true }); } catch (e) {} });
   mainWin.on('closed', () => { mainWin = null; });
 }
 

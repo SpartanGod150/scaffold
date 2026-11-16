@@ -23,7 +23,11 @@ function call(url, body, redirects) {
       res.on('end', () => {
         if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode));
         try { const j = JSON.parse(buf); if (j.error) reject(new Error(j.error)); else resolve(j); }
-        catch (e) { reject(new Error('Not a bridge reply (is the URL the /exec one?)')); }
+        catch (e) {   // Google's script crashed: its error page says why
+          const txt = buf.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ');
+          const m = /((?:Type|Reference|Range)?Error|Exception|GoogleJsonResponseException)[:\s][^]{0,220}/.exec(txt);
+          reject(new Error(m ? 'Google script: ' + m[0].trim() : 'Not a bridge reply (is the URL the /exec one?)'));
+        }
       });
     });
     req.setTimeout(90000, () => req.destroy(new Error('timeout')));
@@ -108,9 +112,11 @@ async function syncOnce(ctx) {
 
   // Scaffold-side changes go up (events made or edited in Scaffold, on any device).
   let changed = false;
+  const fails = [];   // one event Google refuses must not hold up the others (or get the ones before it sent again)
   for (const id of Object.keys(events)) {
     const e = events[id];
     if (e.ro || (e.synced && e.synced >= (e.ts || 0))) continue;   // already on Google
+    try {
     if (e.del) {
       if (e.gid) await call(url, { secret, op: 'delete', gid: e.gid, cal: e.cal || '', scope: e.scope || '', series: e.series || '', ostart: e.allDay && e.ostart ? keyOf(e.ostart) : (e.ostart || '') });
       Object.assign(patch.events, { [id]: Object.assign({}, e, { synced: now + 3, ts: now + 3, by }) });
@@ -121,12 +127,13 @@ async function syncOnce(ctx) {
       Object.assign(patch.events, { [id]: Object.assign({}, e, { gid: r.gid, gupd: r.upd, synced: now + 3, ts: now + 3, by }) });
     }
     pushed++; changed = true;
+    } catch (err) { fails.push(`“${e.title}”: ${err.message}`); console.error('calendar push', id, err.message); }
   }
   for (const id of Object.keys(todos)) {
     if (patch.todos[id]) continue; // just moved from Google this round
     const slot = todoSlot(Engine, todos[id]), m = local.calMap[id];
     if (!slot) {
-      if (m && m.gid) { await call(url, { secret, op: 'delete', gid: m.gid }); delete local.calMap[id]; pushed++; }
+      if (m && m.gid) { try { await call(url, { secret, op: 'delete', gid: m.gid }); delete local.calMap[id]; pushed++; } catch (err) { fails.push(`task “${todos[id].title}”: ${err.message}`); } }
       continue;
     }
     const sig = JSON.stringify(slot);
@@ -138,7 +145,8 @@ async function syncOnce(ctx) {
   if (Object.keys(patch.events).length || Object.keys(patch.todos).length) apply(patch);
   if (changed) res = await pull(url, secret, null);   // so this device shows Google's new version right away
   const gev = toGev(res, state.todos || {}, prevGev);
-  return { gev, v: gev._meta.v, status: `synced ${new Date().toTimeString().slice(0, 5)} · ${evCount(gev)} Google events` + (pulled || pushed ? ` · ${pulled} in, ${pushed} out` : '') };
+  return { gev, v: gev._meta.v, status: `synced ${new Date().toTimeString().slice(0, 5)} · ${evCount(gev)} Google events` + (pulled || pushed ? ` · ${pulled} in, ${pushed} out` : '') +
+    (fails.length ? ` · ⚠️ ${fails.length} couldn't go to Google: ${fails.slice(0, 2).join(' · ')}` : ''), fails };
 }
 
 module.exports = { syncOnce, call, todoSlot, pull, toGev, hashId, evCount };

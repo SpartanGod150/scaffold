@@ -526,7 +526,7 @@
   function calList() { return S.calList != null ? S.calList : lsGet('scaffold-callist') === '1'; }
   function calAnchor() { return calView() === 'range' ? calRange().from : S.calDay || E.dateKey(now()); }
   function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
-  function weekStart(key) { var t = E.fromKey(key); return E.addDays(t, -((new Date(t).getDay() + 6) % 7)); }
+  function weekStart(key) { var t = E.fromKey(key); return E.addDays(t, -new Date(t).getDay()); }   // weeks run Sunday → Saturday
   // "Show in monthly" lives in state.marks (events from Google can't carry it); repeating Google events share one mark.
   function markKey(e) { return e.series ? 'gid:' + e.series : e.ro && e.gid ? 'gid:' + e.gid : e.virt || e.id; }
   // Google calendars and colors (bridge v2). Hidden calendars are hidden on every device (marks 'cal:'+id).
@@ -577,7 +577,7 @@
   function calSide(v, key) {
     var today = E.dateKey(now()), a = new Date(E.fromKey(key)), m = S.miniMonth && S.miniKey === key ? S.miniMonth : new Date(a.getFullYear(), a.getMonth(), 1);
     S.miniMonth = m; S.miniKey = key;
-    var first = new Date(m.getFullYear(), m.getMonth(), 1, 12), start = E.addDays(first.getTime(), -((first.getDay() + 6) % 7));
+    var first = new Date(m.getFullYear(), m.getMonth(), 1, 12), start = E.addDays(first.getTime(), -first.getDay());
     var ws = E.dateKey(weekStart(key)), we = E.dateKey(E.addDays(weekStart(key), 6)), cells = '';
     if (v === 'range') { var rk = rangeKeys(calRange()); ws = rk[0]; we = rk[rk.length - 1]; v = 'week'; }
     for (var i = 0; i < 42; i++) {
@@ -593,32 +593,44 @@
       }).join('') : '';
     };
     return '<aside class="cal-side"><div class="mm"><div class="mm-h"><b>' + MONTHS[m.getMonth()] + ' ' + m.getFullYear() + '</b><span><button class="mm-n" data-a="miniPrev">‹</button><button class="mm-n" data-a="miniNext">›</button></span></div>' +
-      '<div class="mm-g">' + WEEKDAYS.map(function (w) { return '<i>' + w[0] + '</i>'; }).join('') + cells + '</div></div>' +
+      '<div class="mm-g">' + DAYNAMES.map(function (w) { return '<i>' + w[0] + '</i>'; }).join('') + cells + '</div></div>' +
       (list.length ? '<div class="cs">' + group('My calendars', mine) + group('Other calendars', other) + '</div>' : '') + '</aside>';
   }
 
-  function monthCell(t, label, out) {
+  function monthCell(t, label, out, lanes) {
     var k = E.dateKey(t), chips = [], due = false;
     shownAgenda(t).forEach(function (a) {
-      if (a.kind === 'event' && monthlyOn(a.rec)) chips.push('<i class="chip ev" style="background:' + evColor(a.rec) + ';color:' + inkOn(evColor(a.rec)) + '">' + esc(a.rec.title) + '</i>');
+      if (a.kind === 'event' && monthlyOn(a.rec)) { if (!multiDay(a.rec)) chips.push('<i class="chip ev" style="background:' + evColor(a.rec) + ';color:' + inkOn(evColor(a.rec)) + '">' + esc(a.rec.title) + '</i>'); }
       else if (a.kind === 'todo' && a.rec.monthly && !a.done) { due = true; chips.push('<i class="chip dl">' + esc(a.rec.title) + ' Deadline</i>'); }
     });
-    var shown = chips.length > 3 ? chips.slice(0, 2).concat('<i class="chip more">+' + (chips.length - 2) + ' more</i>') : chips;
+    var room = Math.max(1, 3 - (lanes || 0)), shown = chips.length > room ? chips.slice(0, room - 1).concat('<i class="chip more">+' + (chips.length - room + 1) + ' more</i>') : chips;
     return '<button class="cal-day' + (k === E.dateKey(now()) ? ' today' : '') + (due ? ' due' : '') + (out ? ' out' : '') + '" data-a="calPick" data-id="' + k + '"><b>' + label + '</b><span class="chips">' + shown.join('') + '</span></button>';
   }
+  // One week row of the month grid. days: 7 of { t, label, out } or null (blank). Multi-day events are bars across it.
+  function monthWeek(days) {
+    var real = days.filter(Boolean), keys = real.map(function (x) { return E.dateKey(x.t); }), c0 = days.indexOf(real[0]);
+    var bars = dayBars(keys, function (r) { return multiDay(r) && monthlyOn(r); });
+    return '<div class="cal-week" style="--lanes:' + bars.lanes + '">' + days.map(function (x) { return x ? monthCell(x.t, x.label, x.out, bars.lanes) : '<i class="cal-blank"></i>'; }).join('') +
+      bars.map(function (b) {
+        var c = evColor(b.a.rec);
+        return '<button class="chip ev mbar' + (b.cl ? ' bar cl' : '') + (b.cr ? ' bar cr' : '') + '" data-a="editEvent" data-id="' + b.a.id + '" style="--c0:' + (c0 + b.i0) + ';--n:' + (b.i1 - b.i0 + 1) + ';--lane:' + b.lane + ';background:' + c + ';color:' + inkOn(c) + '">' + esc(b.a.rec.title) + '</button>';
+      }).join('') + '</div>';
+  }
+  function weekRows(days) { var out = ''; for (var i = 0; i < days.length; i += 7) out += monthWeek(days.slice(i, i + 7)); return out; }
   function monthGrid(key) {
     var m = new Date(E.fromKey(key));
-    var first = new Date(m.getFullYear(), m.getMonth(), 1), offset = (first.getDay() + 6) % 7, daysIn = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
-    var cells = '';
-    for (var i = 0; i < offset; i++) cells += '<i class="cal-blank"></i>';
-    for (var dn = 1; dn <= daysIn; dn++) cells += monthCell(new Date(m.getFullYear(), m.getMonth(), dn, 12).getTime(), dn);
-    return '<div class="cal-head">' + WEEKDAYS.map(function (w) { return '<i>' + w + '</i>'; }).join('') + '</div><div class="cal-grid month">' + cells + '</div>';
+    var first = new Date(m.getFullYear(), m.getMonth(), 1), offset = first.getDay(), daysIn = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
+    var days = [];
+    for (var i = 0; i < offset; i++) days.push(null);
+    for (var dn = 1; dn <= daysIn; dn++) days.push({ t: new Date(m.getFullYear(), m.getMonth(), dn, 12).getTime(), label: dn });
+    while (days.length % 7) days.push(null);
+    return '<div class="cal-head">' + DAYNAMES.map(function (w) { return '<i>' + w + '</i>'; }).join('') + '</div><div class="cal-grid month">' + weekRows(days) + '</div>';
   }
   // More than 7 days picked: the whole weeks that hold them, like Google; days outside the pick are dimmed.
   function weeksGrid(keys) {
-    var a = weekStart(keys[0]), b = E.addDays(weekStart(keys[keys.length - 1]), 6), cells = '';
-    for (var t = a; t <= b; t = E.addDays(t, 1)) { var k = E.dateKey(t), d = new Date(t); cells += monthCell(t, d.getDate() === 1 || t === a ? MONTHS[d.getMonth()].slice(0, 3) + ' ' + d.getDate() : d.getDate(), keys.indexOf(k) < 0); }
-    return '<div class="cal-head">' + WEEKDAYS.map(function (w) { return '<i>' + w + '</i>'; }).join('') + '</div><div class="cal-grid month">' + cells + '</div>';
+    var a = weekStart(keys[0]), b = E.addDays(weekStart(keys[keys.length - 1]), 6), days = [];
+    for (var t = a; t <= b; t = E.addDays(t, 1)) { var k = E.dateKey(t), d = new Date(t); days.push({ t: t, label: d.getDate() === 1 || t === a ? MONTHS[d.getMonth()].slice(0, 3) + ' ' + d.getDate() : d.getDate(), out: keys.indexOf(k) < 0 }); }
+    return '<div class="cal-head">' + DAYNAMES.map(function (w) { return '<i>' + w + '</i>'; }).join('') + '</div><div class="cal-grid month">' + weekRows(days) + '</div>';
   }
 
   // The day as a list (the old agenda), without "(repeating)".
@@ -644,35 +656,61 @@
       it.col = c; cluster.push(it); cEnd = Math.max(cEnd, it.e);
     });
     flush();
+    // Like Google: a block spreads right over empty columns; one with a later block beside it still reaches most of
+    // the way under that block (its title stays readable on the left), and later columns are drawn on top.
+    items.forEach(function (it) {
+      var bc = it.cols;
+      items.forEach(function (o) { if (o !== it && o.col > it.col && o.col < bc && o.s < it.e && o.e > it.s) bc = o.col; });
+      it.left = it.col / it.cols; it.right = bc >= it.cols ? 1 : Math.min(1, (bc + 0.7) / it.cols);
+    });
     return items;
+  }
+  // Events that take whole days (all-day, or 24 h and longer) show as one bar across the days they cover.
+  function multiDay(r) { return r.allDay || (r.end || 0) - r.start >= E.DAY; }
+  // Bars for a run of consecutive days: [{ a, i0, i1, lane, cl, cr }] (cl / cr: it goes on before / after the run).
+  function dayBars(keys, pick) {
+    var by = {}, out = [];
+    keys.forEach(function (k, i) {
+      shownAgenda(E.fromKey(k)).forEach(function (a) {
+        if (a.kind !== 'event' || !pick(a.rec)) return;
+        if (by[a.id]) by[a.id].i1 = i; else out.push(by[a.id] = { a: a, i0: i, i1: i });
+      });
+    });
+    var first = E.at(E.fromKey(keys[0]), '00:00'), last = E.at(E.addDays(E.fromKey(keys[keys.length - 1]), 1), '00:00'), lanes = [];
+    out.sort(function (x, y) { return x.i0 - y.i0 || (y.i1 - y.i0) - (x.i1 - x.i0); });
+    out.forEach(function (b) {
+      var l = 0; while (lanes[l] != null && lanes[l] >= b.i0) l++;
+      lanes[l] = b.i1; b.lane = l; b.cl = b.a.rec.start < first; b.cr = (b.a.rec.end || 0) > last;
+    });
+    out.lanes = lanes.length;
+    return out;
   }
 
   // Week / day timeline: events solid, habits dotted and see-through (done ones stronger). Tap empty time = new event.
   function calTimeline(keys, viewOnly) {
-    var today = E.dateKey(now()), heads = '', alls = '', cols = '', anyAll = false, ix = E.linkIndex(S.state), hi = !viewOnly && S.calHi;
+    var today = E.dateKey(now()), heads = '', cols = '', ix = E.linkIndex(S.state), hi = !viewOnly && S.calHi;
+    var bars = dayBars(keys, multiDay), anyAll = bars.length > 0;
     keys.forEach(function (k) {
-      var t = E.fromKey(k), d0 = E.at(t, '00:00'), d1 = E.at(E.addDays(t, 1), "00:00"), items = [], ad = [];
+      var t = E.fromKey(k), d0 = E.at(t, '00:00'), d1 = E.at(E.addDays(t, 1), "00:00"), items = [];
       shownAgenda(t).forEach(function (a) {
         var r = a.rec;
         if (a.kind === 'event') {
+          if (multiDay(r)) return;   // in the all-day row
           var s = Math.max(r.start, d0), e = Math.min(r.end || r.start + 30 * E.MIN, d1);
-          if (r.allDay || e - s >= d1 - d0) { ad.push(a); return; }
           var L = E.linkOf(ix, r), sk = L ? E.sessKey(L, r) : '', ss = sk ? (S.state.sess || {})[sk] : null;
-          items.push({ a: a, s: s, e: Math.max(e, s + 15 * E.MIN), color: evColor(r), drag: !viewOnly && !r.ro && !r.virt && r.start >= d0 && (r.end || 0) <= d1,
+          items.push({ a: a, s: s, e: Math.max(e, s + 15 * E.MIN), color: evColor(r), drag: !viewOnly && !r.ro && !r.virt, rsz: (r.end || 0) <= d1, rs: r.start, re: r.end || r.start + 30 * E.MIN,
             link: L && L.link, sdone: !!(ss && ss.done), hi: !!(hi && L && blockMatch({ link: L.link, tasks: (ss && ss.tasks) || [] }, hi.k, hi.id)) });
         }
       });
-      anyAll = anyAll || ad.length > 0;
       var d = new Date(t);
-      heads += '<div class="cv-dh' + (k === today ? ' today' : '') + '" data-a="calPick" data-id="' + k + '"><small>' + WEEKDAYS[(d.getDay() + 6) % 7] + '</small><b>' + d.getDate() + '</b></div>';
-      alls += '<div class="cv-ad">' + ad.map(function (a) { return '<button class="chip ev" data-a="editEvent" data-id="' + a.id + '" style="background:' + evColor(a.rec) + ';color:' + inkOn(evColor(a.rec)) + '">' + esc(a.rec.title) + '</button>'; }).join('') + '</div>';
+      heads += '<div class="cv-dh' + (k === today ? ' today' : '') + '" data-a="calPick" data-id="' + k + '"><small>' + DAYNAMES[d.getDay()] + '</small><b>' + d.getDate() + '</b></div>';
       var blocks = layoutDay(items).map(function (it) {
         var a = it.a, r = a.rec, top = (it.s - d0) / 3600000 * HOUR_PX, h = Math.max(16, (it.e - it.s) / 3600000 * HOUR_PX - 2);
-        var cls = 'cv-ev ' + (a.kind === 'habit' ? 'hb' + (a.done ? ' dn' : '') : 'ev') + (it.drag ? ' drag' : '') + (h < 34 ? ' short' : '') + (it.link ? ' lk' : '') + (it.sdone ? ' sdn' : '') + (it.hi ? ' hi' : '');
+        var cls = 'cv-ev ' + (a.kind === 'habit' ? 'hb' + (a.done ? ' dn' : '') : 'ev') + (it.drag ? ' drag' : '') + (h < 34 ? ' short' : '') + (it.link ? ' lk' : '') + (it.sdone ? ' sdn' : '') + (it.hi ? ' hi' : '') + (it.col > 0 ? ' ov' : '');
         var lr = it.link ? linkRec(it.link) : null;
         var act = a.kind === 'habit' ? 'editHabit' : 'editEvent';
-        return '<div class="' + cls + '" data-a="' + act + '" data-id="' + a.id + '" data-ev="' + a.id + '" data-s="' + it.s + '" data-e="' + it.e + '" style="top:' + top + 'px;height:' + h + 'px;left:calc(' + (it.col / it.cols * 100) + '% + 1px);width:calc(' + (100 / it.cols) + '% - 3px);--c:' + it.color + ';--ink:' + inkOn(it.color) + '">' +
-          '<b>' + ((a.kind === 'habit' && a.done) || it.sdone ? '✓ ' : '') + esc((lr && lr.emoji ? lr.emoji + ' ' : '') + r.title) + '</b><small>' + hm(it.s) + '–' + hm(it.e) + '</small>' + (it.drag ? '<i class="rs"></i>' : '') + '</div>';
+        return '<div class="' + cls + '" data-a="' + act + '" data-id="' + a.id + '" data-ev="' + a.id + '" data-s="' + it.rs + '" data-e="' + it.re + '" style="top:' + top + 'px;height:' + h + 'px;left:calc(' + (it.left * 100) + '% + 1px);width:calc(' + ((it.right - it.left) * 100) + '% - 3px);z-index:' + (2 + it.col) + ';--c:' + it.color + ';--ink:' + inkOn(it.color) + '">' +
+          '<b>' + ((a.kind === 'habit' && a.done) || it.sdone ? '✓ ' : '') + esc((lr && lr.emoji ? lr.emoji + ' ' : '') + r.title) + '</b><small>' + hm(it.rs) + '–' + hm(it.re) + '</small>' + (it.drag && it.rsz ? '<i class="rs"></i>' : '') + '</div>';
       }).join('');
       var nowLine = k === today ? '<i class="cv-now" style="top:' + ((now() - d0) / 3600000 * HOUR_PX) + 'px"></i>' : '';
       cols += '<div class="cv-col' + (k === today ? ' today' : '') + '" data-day="' + k + '">' + blocks + nowLine + '</div>';
@@ -681,7 +719,10 @@
     var grid = 'grid-template-columns: 44px repeat(' + keys.length + ', minmax(0, 1fr))';
     return '<div class="cv n' + keys.length + (viewOnly ? ' cv-view' : '') + (hi ? ' hiing' : '') + '" style="--h:' + HOUR_PX + 'px">' +
       (keys.length > 1 ? '<div class="cv-row" style="' + grid + '"><i></i>' + heads + '</div>' : '') +
-      (anyAll ? '<div class="cv-row cv-alls" style="' + grid + '"><i class="cv-gut">all day</i>' + alls + '</div>' : '') +
+      (anyAll ? '<div class="cv-row cv-alls" style="' + grid + '"><i class="cv-gut" style="grid-row:1 / span ' + bars.lanes + '">all day</i>' + bars.map(function (b) {
+        var c = evColor(b.a.rec);
+        return '<button class="chip ev bar' + (b.cl ? ' cl' : '') + (b.cr ? ' cr' : '') + '" data-a="editEvent" data-id="' + b.a.id + '" style="grid-column:' + (b.i0 + 2) + ' / ' + (b.i1 + 3) + ';grid-row:' + (b.lane + 1) + ';background:' + c + ';color:' + inkOn(c) + '">' + esc(b.a.rec.title) + '</button>';
+      }).join('') + '</div>' : '') +
       '<div class="cv-scroll"><div class="cv-body" style="' + grid + ';height:' + 24 * HOUR_PX + 'px"><div class="cv-hours">' + hours + '</div>' + cols + '</div></div></div>';
   }
 
@@ -1615,9 +1656,9 @@
       sessBox + '<label class="field">Title<input name="title" required maxlength="120" value="' + esc(t.title) + '"' + dis + '></label>' +
       (ro ? '' : linkSel() + '<label class="field">🛡️ Restriction mode <small>(on while the event runs)</small><select name="emode"><option value="">None</option>' + allModes().map(function (m) { return '<option value="' + esc(m.id) + '"' + sel(m.id, mode0) + '>' + esc((m.emoji || '🛡️') + ' ' + m.name) + '</option>'; }).join('') + '</select></label>') +
       (v2 && !ro ? '<label class="field">Calendar<select name="cal">' + cals.map(function (c) { return '<option value="' + esc(c.id) + '"' + (c.id === myCal ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></label>' : '') +
-      '<label class="field">Date<input type="date" name="date" value="' + E.dateKey(t.start) + '" required' + dis + '></label>' +
       '<label class="check"><input type="checkbox" name="allDay"' + (t.allDay ? ' checked' : '') + dis + '> All day</label>' +
-      '<div class="two f-times"><label class="field">Starts<input type="time" name="start" value="' + hm(t.start) + '"' + dis + '></label><label class="field">Ends<input type="time" name="end" value="' + hm(t.end) + '"' + dis + '></label></div>' +
+      '<div class="ev-when"><div class="field">Starts<div class="pair"><input type="date" name="sdate" value="' + E.dateKey(t.start) + '" required' + dis + '><input type="time" name="start" class="f-t" value="' + hm(t.start) + '"' + dis + '></div></div>' +
+      '<div class="field">Ends<div class="pair"><input type="date" name="edate" value="' + E.dateKey(t.allDay ? Math.max(t.start, t.end - E.DAY) : t.end) + '" required' + dis + '><input type="time" name="end" class="f-t" value="' + hm(t.end) + '"' + dis + '></div></div></div>' +
       (ro ? '' : '<label class="field">Repeat<select name="rf"' + (canRule ? '' : ' disabled') + '><option value="none"' + sel('none', rf) + '>Does not repeat</option><option value="daily"' + sel('daily', rf) + '>Daily</option><option value="weekly"' + sel('weekly', rf) + '>Weekly</option><option value="monthly"' + sel('monthly', rf) + '>Monthly</option><option value="yearly"' + sel('yearly', rf) + '>Yearly</option>' + (canRule ? '' : '<option value="custom" selected>' + esc(repeatText(t.rrule)) + '</option>') + '</select></label>' +
         '<div class="field f-rdays">On <div class="day-row">' + DAYS.map(function (d, i) { return '<button type="button" class="dp rdp' + (rdays.indexOf(i) >= 0 ? ' on' : '') + '" data-rday="' + i + '">' + d + '</button>'; }).join('') + '</div></div>' +
         '<div class="two f-rend"><label class="field">Ends<select name="rend"><option value="never"' + sel('never', rend) + '>Never</option><option value="until"' + sel('until', rend) + '>On a date</option><option value="count"' + sel('count', rend) + '>After…</option></select></label>' +
@@ -1627,6 +1668,17 @@
       '<label class="check"><input type="checkbox" name="monthly"' + (was ? ' checked' : '') + '> Show in monthly</label>' +
       (ro ? '' : t.gid ? '<p class="muted">Synced with Google Calendar.</p>' : (S.local.calUrl || (S.local.cal || {}).status ? '' : '<p class="muted">Connect Google Calendar on a computer to sync it there too.</p>')), !isNew && !ro);
     var f = document.getElementById('editor'), color = t.color || '', rd = rdays.slice(), stasks0 = (ss0 && ss0.tasks) || [];
+    // Like Google: moving the start moves the end with it (same length); the end can be on a later day.
+    var whenOf = function (dk, tm) { return dk ? E.at(E.fromKey(dk), f.allDay.checked ? '00:00' : tm || '00:00') : null; };
+    var s0 = whenOf(f.sdate.value, f.start.value);
+    var keepLen = function () {
+      var ns = whenOf(f.sdate.value, f.start.value); if (ns == null || s0 == null) return;
+      var ne = whenOf(f.edate.value, f.end.value), dl = ns - s0; s0 = ns;
+      if (ne == null || !dl) return;
+      ne += dl; f.edate.value = E.dateKey(ne); if (!f.allDay.checked) f.end.value = hm(ne);
+    };
+    f.sdate.addEventListener('change', keepLen); f.start.addEventListener('change', keepLen);
+    f.allDay.addEventListener('change', function () { s0 = whenOf(f.sdate.value, f.start.value); });
     // A project event: pick the tasks for this one session.
     var paintSt = function () {
       var box = f.querySelector('.f-stasks'); if (!box || !f.link) return;
@@ -1646,10 +1698,11 @@
     wire(t, function (fd) {
       var monthly = !!fd.get('monthly');
       if (!ro) {
-        var d = E.fromKey(fd.get('date')), c = JSON.parse(JSON.stringify(t));
+        var d = E.fromKey(fd.get('sdate')), d2 = E.fromKey(fd.get('edate') || fd.get('sdate')), c = JSON.parse(JSON.stringify(t));
         c.title = fd.get('title').trim(); c.allDay = !!fd.get('allDay');
-        if (c.allDay) { c.start = E.at(d, '00:00'); c.end = E.at(E.addDays(d, 1), '00:00'); }
-        else { c.start = E.at(d, fd.get('start') || '10:00'); c.end = E.at(d, fd.get('end') || '11:00'); if (c.end <= c.start) c.end = c.start + 30 * E.MIN; }
+        if (c.allDay) { c.start = E.at(d, '00:00'); c.end = E.at(E.addDays(d2, 1), '00:00'); }
+        else { c.start = E.at(d, fd.get('start') || '10:00'); c.end = E.at(d2, fd.get('end') || '11:00'); }
+        if (c.end <= c.start) return toast('The end is before the start');
         if (v2) { var nc = fd.get('cal') || myCal; if (nc !== myCal) c.oldCal = myCal; c.cal = nc; }
         c.color = color;
         var dsc = (fd.get('desc') || '').trim(); if (dsc !== desc0) c.desc = dsc;
@@ -1670,7 +1723,7 @@
           if (!c.series) { if (!c.rrule) delete c.rrule; delete c.keepRule; }
           var patch = E.opPut('events', c, by(), now()); t.id = Object.keys(patch.events)[0]; apply(patch); saveTasks();
           if (monthly !== was) apply(E.opPut('marks', { id: markKey(c), monthly: monthly }, by(), now()));
-          S.calDay = fd.get('date'); closeModal(); toast(isNew ? '📅 Event added' : 'Saved');
+          S.calDay = fd.get('sdate'); closeModal(); toast(isNew ? '📅 Event added' : 'Saved');
         };
         if (changed && t.series) return scopeBox('Edit repeating event', ruleChanged || (c.cal !== myCal), save);
         if (changed) return save();
@@ -1684,7 +1737,7 @@
       confirmBox('Delete “' + t.title + '”?', t.gid ? 'It is removed from Google Calendar too.' : t.rrule ? 'Every repeat is removed, on every device.' : 'This removes it from every device.', 'Delete', function () { go(''); });
     },
     function (f) {
-      f.querySelector('.f-times').style.display = f.allDay.checked ? 'none' : '';
+      f.querySelectorAll('.f-t').forEach(function (x) { x.style.display = f.allDay.checked ? 'none' : ''; });
       if (!f.rf) return;
       var r = f.rf.value;
       f.querySelector('.f-rdays').style.display = r === 'weekly' ? '' : 'none';

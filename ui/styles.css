@@ -500,3 +500,15 @@ details.vault .row { background: var(--card); margin-top: 8px; border-left-color
 .mode-hero .btn { margin-top: 8px; }
 .pill { white-space: nowrap; }
 @media (max-width: 560px) { .pill.mode-chip small { display: none; } .brand { font-size: 0; gap: 0; } .brand .logo { font-size: 20px; } }
+
+/* v0.5.2: multi-day bars, Google-style overlaps, Sunday weeks */
+.cv-alls { row-gap: 2px; }
+.cv-alls .bar { margin: 0 2px; min-width: 0; cursor: pointer; }
+.bar.cl { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: 0; }
+.bar.cr { border-top-right-radius: 0; border-bottom-right-radius: 0; margin-right: 0; }
+.cv-ev.ov:not(.hi):not(.dragging) { box-shadow: 0 0 0 1px var(--bg2); }
+.cal-grid.month { display: flex; flex-direction: column; gap: 4px; }
+.cal-week { position: relative; display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-week .cal-day b { height: 20px; line-height: 20px; margin-bottom: calc(var(--lanes, 0) * 18px); flex: none; }
+.cal-week .mbar { position: absolute; z-index: 1; height: 16px; top: calc(5px + 20px + 3px + var(--lane) * 18px);
+  left: calc((100% - 24px) / 7 * var(--c0) + 4px * var(--c0) + 3px); width: calc((100% - 24px) / 7 * var(--n) + 4px * (var(--n) - 1) - 6px); }
