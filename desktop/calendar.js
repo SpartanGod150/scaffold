@@ -119,12 +119,12 @@ async function syncOnce(ctx) {
     try {
     if (e.del) {
       if (e.gid) await call(url, { secret, op: 'delete', gid: e.gid, cal: e.cal || '', scope: e.scope || '', series: e.series || '', ostart: e.allDay && e.ostart ? keyOf(e.ostart) : (e.ostart || '') });
-      Object.assign(patch.events, { [id]: Object.assign({}, e, { synced: now + 3, ts: now + 3, by }) });
+      Object.assign(patch.events, { [id]: Object.assign({}, e, { synced: now + 3, ts: now + 3, by, pushed: Date.now() }) });
     } else {
       const r = await call(url, { secret, op: 'upsert', sid: id, gid: e.gid || '', cal: e.cal || '', oldCal: e.oldCal || '', title: e.title, desc: e.desc, color: e.color || '',
         start: e.start, end: e.end, allDay: !!e.allDay, sd: e.allDay ? keyOf(e.start) : '', ed: e.allDay ? keyOf(e.end) : '', tz,
         rrule: e.rrule || '', keepRule: !!e.keepRule, scope: e.scope || '', series: e.series || '', ostart: e.allDay && e.ostart ? keyOf(e.ostart) : (e.ostart || '') });
-      Object.assign(patch.events, { [id]: Object.assign({}, e, { gid: r.gid, gupd: r.upd, synced: now + 3, ts: now + 3, by }) });
+      Object.assign(patch.events, { [id]: Object.assign({}, e, { gid: r.gid, gupd: r.upd, synced: now + 3, ts: now + 3, by, pushed: Date.now() }) });
     }
     pushed++; changed = true;
     } catch (err) {

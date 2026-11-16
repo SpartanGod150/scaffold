@@ -362,4 +362,21 @@ const out = instants.map(h => {
 });
 fs.writeFileSync(path.join(__dirname, 'fixture-out.json'), JSON.stringify({ state: fx, modeState: fxm, cases: out }, null, 1));
 
+t('a change pushed to Google: its own copies show only once this device read Google after the push', () => {
+  const day = (d, h) => new Date(2026, 10, d, h).getTime(), st = E.emptyState(), T = day(16, 10);
+  // Stale copy of Google (read at T): a daily series S, Nov 22-24 at 08:00.
+  st.gev = { _meta: { v: 2, at: T } };
+  [22, 23, 24].forEach((d) => { st.gev['g' + d] = { id: 'g' + d, v: 2, gid: 'S_' + d, title: 'Org', start: day(d, 8), end: day(d, 8) + 1800000, series: 'S', ostart: day(d, 8), rrule: 'RRULE:FREQ=DAILY', gupd: T - 5000 }; });
+  // "Delete this and following" from Nov 23, already on Google (pushed after the copy was read).
+  st.events.g23 = Object.assign({}, st.gev.g23, { del: true, scope: 'following', ts: T + 1000, synced: T + 1000, pushed: T + 2000, by: 'A' });
+  // A new daily series made in Scaffold, also pushed after that read.
+  st.events.n = { id: 'n', title: 'New', start: day(22, 9), end: day(22, 10), rrule: 'RRULE:FREQ=DAILY;COUNT=3', gid: 'NEW', ts: T + 1000, synced: T + 1000, pushed: T + 2000, by: 'A' };
+  let ev = E.eventsFor(st);
+  assert.deepStrictEqual(['g22', 'g23', 'g24'].filter((k) => ev[k]), ['g22'], 'stale copies of deleted occurrences stay hidden');
+  assert.strictEqual(Object.values(ev).filter((e) => e.title === 'New').length, 3, "the new series shows from Scaffold's own record");
+  st.gev._meta.at = T + 9000; delete st.gev.g23; delete st.gev.g24;   // read again: Google's own copies take over
+  ev = E.eventsFor(st);
+  assert.ok(ev.g22 && !ev.g23 && !ev.g24 && !Object.values(ev).some((e) => e.title === 'New'), 'fresh copy: Google decides');
+});
+
 console.log(pass + ' tests passed' + (process.exitCode ? ', some FAILED' : ''));

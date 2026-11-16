@@ -189,13 +189,16 @@ public final class Sync {
                 wasActive = nowActive;
             }
             gFlush(cfg);
-            if (now - lastPull > 5 * 60_000L) { lastPull = now; pullCalendar(c, cfg); }   // a cheap "anything new?" check with bridge v2
+            if (pullSoon || now - lastPull > 5 * 60_000L) { pullSoon = false; lastPull = now; if (!pullCalendar(c, cfg)) lastPull = now - 4 * 60_000L; }   // failed: again in ~1 min   // a cheap "anything new?" check with bridge v2
         }
     }
 
     /** This device's own copy of Google Calendar, read through the script (same shape as desktop/calendar.js toGev).
      *  Bridge v2: asks "anything new?" (since + sig) and keeps the copy when nothing changed; a full read at least every 6 h. */
-    private static void pullCalendar(Context c, String[] cfg) {
+    /** Set when another device just changed Google: read it on the next round instead of waiting 5 minutes. */
+    static volatile boolean pullSoon;
+
+    private static boolean pullCalendar(Context c, String[] cfg) {
         try {
             long now = System.currentTimeMillis(), DAYMS = 86400_000L;
             JSONObject prev = new JSONObject(Store.prefs(c).getString("gev", "{}")), meta = prev.optJSONObject("_meta");
@@ -206,7 +209,7 @@ public final class Sync {
             if (r.optBoolean("same") && meta != null) {
                 meta.put("at", r.optLong("now", now));
                 Store.prefs(c).edit().putString("gev", prev.toString()).apply();
-                return;
+                return true;
             }
             boolean v2 = r.optInt("v") >= 2;
             JSONArray evs = r.optJSONArray("events"), cl = r.optJSONArray("cals");
@@ -244,7 +247,8 @@ public final class Sync {
             gev.put("_meta", new JSONObject().put("v", r.optInt("v", 1)).put("sig", r.optString("sig", "")).put("at", at).put("full", at).put("n", n));
             Store.prefs(c).edit().putString("gev", gev.toString()).apply();
             MainActivity.notifyState();
-        } catch (Exception ignored) {}
+            return true;
+        } catch (Exception ignored) { return false; }
     }
 
     static String hashId(String s) { int h = 0; for (int i = 0; i < s.length(); i++) h = h * 31 + s.charAt(i); return Long.toString(h & 0xffffffffL, 36); }
@@ -285,7 +289,11 @@ public final class Sync {
             if (Store.deviceId(c).equals(env.optString("d"))) return;
             if (env.optInt("s", 0) == 1) Store.putLong(c, "lastSnapSeen", System.currentTimeMillis());
             JSONObject p = env.optJSONObject("p");
-            if (p != null) Store.apply(c, p, false);
+            if (p != null) {
+                JSONObject evs = p.optJSONObject("events");
+                if (evs != null && env.optInt("s", 0) != 1) { java.util.Iterator<String> it = evs.keys(); while (it.hasNext()) { JSONObject e = evs.optJSONObject(it.next()); if (e != null && e.has("pushed")) { pullSoon = true; break; } } }
+                Store.apply(c, p, false);
+            }
         } catch (Exception ignored) {
             // not ours, or corrupted: skip
         }

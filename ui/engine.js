@@ -391,10 +391,13 @@
   function gkey(e) { return e.gid + '|' + (e.ro && e.v !== 2 ? e.start : ''); }   // old bridge: one id for every occurrence
   function eventsFor(state) {
     var out = {}, gev = state.gev || {}, byGid = {}, spread = [], series = [];
+    // pushed = when Google finished this change. Until this device has read Google after that, its copy is older than
+    // the change (it may still hold deleted or moved occurrences, or miss new ones), so Scaffold's version still shows.
+    var gat = (gev._meta && gev._meta.at) || 0, fresh = function (e) { return !e.pushed || gat >= e.pushed; };
     Object.keys(gev).forEach(function (id) { if (id.charAt(0) === '_') return; out[id] = gev[id]; byGid[gkey(gev[id])] = id; });
     Object.keys(state.events || {}).forEach(function (id) {
       var e = state.events[id], wide = e.series && e.scope && e.scope !== 'one';
-      if ((wide || e.rrule) && e.synced && e.synced >= (e.ts || 0)) return;   // on Google now: its own copies show
+      if ((wide || e.rrule) && e.synced && e.synced >= (e.ts || 0) && fresh(e)) return;   // on Google now: its own copies show
       var gid = e.gid ? byGid[gkey(e)] : null;
       if (gid && (gev[gid].gupd || 0) >= (e.ts || 0)) return;   // Google already has this version (or newer)
       if (gid) delete out[gid];

@@ -69,7 +69,12 @@ function applyPatch(patch, publish) {
   if (changed) saveState();
   if (publish && sync) sync.publish(Engine.chunks(patch), false);
   if (changed || publish) { evaluate(); notifyUI(); }
-  if (changed) { tickVault(patch); if (patch.events || patch.todos) calSoon(); }
+  if (changed) {
+    tickVault(patch);
+    const at = (gev._meta && gev._meta.at) || 0;
+    if (Object.values(patch.events || {}).some((e) => e && e.pushed > at)) lastPull = 0;   // Google just changed: read it soon
+    if (patch.events || patch.todos) calSoon();
+  }
 }
 function notifyUI() {
   BrowserWindow.getAllWindows().forEach((w) => { if (!w.isDestroyed() && w !== waWin) w.webContents.send('native'); });
@@ -258,7 +263,10 @@ async function runCal() {
       gev = Calendar.toGev(res, state.todos || {}, gev); local.cal = { status: 'read ' + new Date().toTimeString().slice(0, 5) + ' · ' + Calendar.evCount(gev) + ' Google events' };
     }
     writeJSON(GEV_F, gev);
-  } catch (e) { local.cal = { status: 'error: ' + e.message }; }
+  } catch (e) {
+    local.cal = { status: 'error: ' + e.message };
+    if (!local.calUrl) { lastPull = 0; clearTimeout(calT); calT = setTimeout(runCal, 30000 + Math.random() * 30000); }   // e.g. the script was busy: try again soon
+  }
   calBusy = false; saveLocal(); notifyUI();
 }
 
