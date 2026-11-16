@@ -512,3 +512,6 @@ details.vault .row { background: var(--card); margin-top: 8px; border-left-color
 .cal-week .cal-day b { height: 20px; line-height: 20px; margin-bottom: calc(var(--lanes, 0) * 18px); flex: none; }
 .cal-week .mbar { position: absolute; z-index: 1; height: 16px; top: calc(5px + 20px + 3px + var(--lane) * 18px);
   left: calc((100% - 24px) / 7 * var(--c0) + 4px * var(--c0) + 3px); width: calc((100% - 24px) / 7 * var(--n) + 4px * (var(--n) - 1) - 6px); }
+
+/* v0.5.4: task description */
+.task-desc { max-width: 520px; margin: 4px auto 14px; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--c) 14%, var(--card)); color: var(--txt); font-size: 16px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; text-align: left; max-height: 40vh; overflow-y: auto; }

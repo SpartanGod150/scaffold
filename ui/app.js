@@ -458,7 +458,7 @@
     return '<section class="block" style="--c:' + taskColor(t) + '">' +
       '<div class="block-emoji">' + esc(t.emoji || '🔒') + '</div>' +
       '<div class="block-kicker">🔒 Your devices are locked until you do this</div>' +
-      '<h1>' + esc(t.title) + '</h1>' +
+      '<h1>' + esc(t.title) + '</h1>' + descBox(t) +
       '<div class="block-sub">' + (isLate ? 'Deadline was ' + hm(it.due) + ' · <span data-ago="' + it.due + '"></span> ago' : 'Due ' + hm(it.due)) + '</div>' +
       '<div class="block-actions">' + actions(it) + '</div>' +
       '<div class="block-foot"><button class="btn wa" data-a="whatsapp">💬 WhatsApp</button>' + lockApps(t) +
@@ -480,7 +480,7 @@
     var when = it.status === 'late' ? 'Late · deadline was ' + (it.dueToday ? '' : niceDay(it.deadlineDay) + ' ') + hm(it.due) : !it.hasDue ? 'No deadline' : it.future ? 'Due ' + niceDay(it.deadlineDay) + ' ' + hm(it.due) : 'Due ' + hm(it.due) + ' · <span data-left="' + it.due + '"></span> left';
     var lockWarn = (E.lockOf(t) && it.hasDue && it.status !== 'late') ? '<div class="warn">🔒 Devices lock at ' + hm(it.due) + (it.future ? ' on ' + niceDay(it.deadlineDay) : '') + ' if this is not done.</div>' : '';
     return '<section class="remind" style="--c:' + taskColor(t) + '"><div class="remind-emoji">' + esc(t.emoji) + '</div>' +
-      '<h2>' + esc(t.title) + '</h2><div class="remind-sub">' + when + '</div>' + lockWarn +
+      '<h2>' + esc(t.title) + '</h2>' + descBox(t) + '<div class="remind-sub">' + when + '</div>' + lockWarn +
       '<div class="remind-actions">' + actions(it) + '<button class="btn ghost sm" data-a="close">Later</button></div></section>';
   }
 
@@ -1213,12 +1213,17 @@
     if (rep === 'every') return 'Every ' + (t.every || 2) + ' days' + by;
     return ((t.days && t.days.length && t.days.length < 7) ? t.days.map(function (d) { return DAYNAMES[d]; }).join(' ') : 'Every day') + by;
   }
+  // Details shown with the task when it's time to do it: notifications, the reminder pop-up and the lock screen.
+  function descField(t, what) { return '<label class="field">' + what + ' description <small>(shows in its notifications, pop-up and lock screen)</small><textarea name="tdesc" rows="3" placeholder="e.g. Draw them standing upright, in their fighting clothes, weapons in hand">' + esc(t.desc || '') + '</textarea></label>'; }
+  function readDesc(t, fd) { var d = (fd.get('tdesc') || '').trim(); if (d) t.desc = d; else delete t.desc; }
+  function descBox(t) { return t.desc ? '<div class="task-desc">' + esc(t.desc) + '</div>' : ''; }
+
   function openHabitEditor(task) {
     var isNew = !task || !task.id;
     var t = Object.assign({ title: '', emoji: '📖', color: COLORS[0], days: [], push: 'nag', remind: 30, kind: 'check', minutes: 20, allowApps: [], active: true }, task || {});
     var apps = listApps(), r = t.repeat || 'weekdays', dueOn = E.hasDue(t, 'habit');
     $modal.innerHTML = modalShell(isNew ? 'New habit' : 'Edit habit',
-      '<label class="field">What?<input name="title" required maxlength="60" value="' + esc(t.title) + '" placeholder="e.g. Read"></label>' + emojiField(t) + colorField(t) +
+      '<label class="field">What?<input name="title" required maxlength="60" value="' + esc(t.title) + '" placeholder="e.g. Read"></label>' + descField(t, 'Habit') + emojiField(t) + colorField(t) +
       '<label class="field">Repeats<select name="repeat"><option value="weekdays"' + sel('weekdays', r) + '>Every day / on set days</option><option value="week"' + sel('week', r) + '>Every week</option><option value="month"' + sel('month', r) + '>Every month</option><option value="every"' + sel('every', r) + '>Every few days</option></select></label>' +
       '<div class="field f-days">Days <small>(none selected = every day)</small><div class="day-row">' + DAYS.map(function (d, i) { return '<button type="button" class="dp' + ((t.days || []).indexOf(i) >= 0 ? ' on' : '') + '" data-day="' + i + '">' + d + '</button>'; }).join('') + '</div></div>' +
       '<div class="two"><label class="field f-dueday-w">By which day<select name="dueDayW">' + WEEKDAYS.map(function (w, i) { return '<option value="' + i + '"' + sel(i, t.dueDay == null ? 6 : t.dueDay) + '>' + w + '</option>'; }).join('') + '</select></label>' +
@@ -1229,7 +1234,7 @@
       '<label class="check"><input type="checkbox" name="active"' + (t.active !== false ? ' checked' : '') + '> Active (turn off to pause this habit)</label>' +
       pushField(t, 'habit') + doneFields(t), !isNew);
     wire(t, function (fd) {
-      t.title = fd.get('title').trim(); t.repeat = fd.get('repeat'); t.dueOn = !!fd.get('dueOn'); t.due = t.dueOn ? fd.get('due') || '' : '';
+      t.title = fd.get('title').trim(); readDesc(t, fd); t.repeat = fd.get('repeat'); t.dueOn = !!fd.get('dueOn'); t.due = t.dueOn ? fd.get('due') || '' : '';
       if (t.repeat !== 'weekdays') t.days = [];
       if (t.repeat === 'week') t.dueDay = +fd.get('dueDayW');
       if (t.repeat === 'month') t.dueDay = Math.min(31, Math.max(1, +fd.get('dueDayM') || 28));
@@ -1252,7 +1257,7 @@
     var t = Object.assign({ title: '', emoji: '✅', color: COLORS[1], date: '', due: '', push: 'nudge', remind: 120, kind: 'check', minutes: 20, allowApps: [] }, task || {});
     var apps = listApps(), projects = live('projects'), old = (t.repeat || 'none') !== 'none', dl = !!t.date && !old;
     $modal.innerHTML = modalShell(isNew ? 'New task' : 'Edit task',
-      '<label class="field">What?<input name="title" required maxlength="80" value="' + esc(t.title) + '" placeholder="e.g. Buy batteries"></label>' +
+      '<label class="field">What?<input name="title" required maxlength="80" value="' + esc(t.title) + '" placeholder="e.g. Buy batteries"></label>' + descField(t, 'Task') +
       (t.vault ? '<p class="muted">🗂️ From the vault: “' + esc(cleanItem(t.vault.item)) + '”. Finishing it ticks it in Obsidian.</p>' : '') +
       (old ? '<p class="muted">🔁 This is an old repeating task (' + esc(todoWhen(t)) + '). It is being turned into a habit.</p>' : '') +
       '<label class="field">Project<select name="project"><option value="">None</option>' + projects.map(function (p) { return '<option value="' + p.id + '"' + sel(p.id, t.project) + '>' + esc((p.emoji || '') + ' ' + p.name) + '</option>'; }).join('') + '</select></label>' +
@@ -1261,7 +1266,7 @@
         '<label class="check f-monthly"><input type="checkbox" name="monthly"' + (t.monthly ? ' checked' : '') + '> Show in monthly <small>(marks the deadline day in the month view)</small></label>') +
       emojiField(t) + colorField(t) + pushField(t, 'todo') + doneFields(t), !isNew);
     wire(t, function (fd) {
-      t.title = fd.get('title').trim(); t.project = fd.get('project') || '';
+      t.title = fd.get('title').trim(); readDesc(t, fd); t.project = fd.get('project') || '';
       if (!old) {
         var on = !!fd.get('dl');
         if (on && !fd.get('date')) return toast('Pick the deadline day');

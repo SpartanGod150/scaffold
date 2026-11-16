@@ -77,6 +77,8 @@ public final class Notif {
                 .setCategory(Notification.CATEGORY_REMINDER)
                 .setAutoCancel(true)
                 .setContentIntent(open(c, "remind", it.id, id));
+        String desc = it.task.optString("desc", "").trim();
+        if (!desc.isEmpty()) b.setContentText(desc).setStyle(new Notification.BigTextStyle().bigText(desc + "\n" + when));
         if ("timer".equals(it.task.optString("kind")))
             b.addAction(new Notification.Action.Builder(null, "▶ Start timer", open(c, "remind", it.id, id + 1)).build());
         else b.addAction(new Notification.Action.Builder(null, "✓ Done", action(c, AlarmReceiver.DONE, it.id, id + 2)).build());
