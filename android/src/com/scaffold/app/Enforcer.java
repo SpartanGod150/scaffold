@@ -46,14 +46,21 @@ public final class Enforcer {
         return homes.contains(pkg);
     }
 
-    static boolean allowed(Context c, String pkg, Engine.Item lock) {
-        if (pkg != null && isHome(c, pkg)) return false;
-        if (pkg == null || pkg.equals(c.getPackageName()) || ALWAYS.contains(pkg)) return true;
+    /** Unblockable apps until the user sets the list: WhatsApp, the phone app and Scaffold. */
+    static JSONArray preset(Context c) {
+        JSONArray a = new JSONArray().put("com.whatsapp").put("com.whatsapp.w4b").put(c.getPackageName());
+        try { TelecomManager tm = (TelecomManager) c.getSystemService(Context.TELECOM_SERVICE); if (tm != null && tm.getDefaultDialerPackage() != null) a.put(tm.getDefaultDialerPackage()); } catch (Exception ignored) {}
+        return a;
+    }
+
+    /** May this app be in front while the mode runs? A deadline lock (Full Lock by default) also covers the home screen. */
+    static boolean allowed(Context c, String pkg, Engine.Active act) {
+        if (act == null || pkg == null) return true;
+        if (isHome(c, pkg)) return !"lock".equals(act.src);
+        if (pkg.equals(c.getPackageName()) || ALWAYS.contains(pkg)) return true;
         if (dynamic == null) dynamic = resolveDynamic(c);
         if (dynamic.contains(pkg)) return true;
-        JSONArray extra = lock.task.optJSONArray("allowApps");
-        if (extra != null) for (int i = 0; i < extra.length(); i++) if (pkg.equals(extra.optString(i))) return true;
-        return false;
+        return !Engine.appBlocked(Store.state(c), act, Store.deviceId(c), pkg, preset(c));
     }
 
     /** Home screen, default dialer and keyboards on this particular phone. */
@@ -81,7 +88,7 @@ public final class Enforcer {
         Engine.Result r = Store.now(c);
         boolean locked = r.lock != null;
         setGrey(c, locked);
-        if (locked) BlockerService.recheck();
+        if (locked || Store.mode(c) != null) BlockerService.recheck();
     }
 
     static boolean canGrey(Context c) {

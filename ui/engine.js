@@ -10,7 +10,8 @@
    acks     note dismissals { noteId: { at } }
    vault    catalog of active Obsidian projects, published by the desktops
    comps    completions { id@period }, snoozes { id@day }, log { id: event }, pause { on }
-   sess     sessions of designated periods (events linked to a task, habit or project) */
+   sess     sessions of designated periods (events linked to a task, habit or project)
+   modes    restriction modes; devs: each device's name, platform and installed apps (for editing its lists from anywhere) */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.Engine = factory();
@@ -20,7 +21,7 @@
   var NAG_STOP = '23:30';
   var MAX_SNOOZES = 2;
   var SNOOZE_MIN = 10;
-  var MAPS = ['tasks', 'todos', 'projects', 'events', 'notes', 'acks', 'vault', 'comps', 'snoozes', 'log', 'cfg', 'marks', 'sess'];   // cfg.relay = Google backup mailbox {url, secret}; marks = "Show in monthly" per event (key: event id, or 'gid:'+gid for repeating Google events)
+  var MAPS = ['tasks', 'todos', 'projects', 'events', 'notes', 'acks', 'vault', 'comps', 'snoozes', 'log', 'cfg', 'marks', 'sess', 'modes', 'devs'];   // cfg.relay = Google backup mailbox {url, secret}; marks = "Show in monthly" per event (key: event id, or 'gid:'+gid for repeating Google events)
 
   function pad(n) { return (n < 10 ? '0' : '') + n; }
   function dateKey(t) { var d = new Date(t); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
@@ -430,10 +431,10 @@
   // sess holds each session (one occurrence): key o@YYYY-MM-DD → { done: when "End Session" was pressed, tasks: [task ids] (project sessions) }.
   function linkIndex(state) {
     var ix = {};
-    function put(k, e, id) { if (k && (!ix[k] || (ix[k].ts || 0) < (e.ts || 0))) ix[k] = { link: e.link, o: e.link.o || id, ts: e.ts || 0 }; }
+    function put(k, e, id) { if (k && (!ix[k] || (ix[k].ts || 0) < (e.ts || 0))) ix[k] = { link: e.link || null, o: (e.link && e.link.o) || id, mode: e.mode, ts: e.ts || 0 }; }
     Object.keys(state.events || {}).forEach(function (id) {
       var e = state.events[id];
-      if (!e || !e.link || e.del) return;
+      if (!e || e.del || (!e.link && e.mode == null)) return;
       put('i:' + id, e, id);
       if (e.gid) put('g:' + e.gid, e, id);
       if (e.series && e.scope && e.scope !== 'one') put('g:' + e.series, e, id);
@@ -475,6 +476,89 @@
     });
     out.sort(function (a, b) { return a.start - b.start; });
     return out;
+  }
+
+  // ---------- restriction modes ----------
+  // modes: { name, emoji, color, list: 'black' (block the listed) | 'white' (block all but the listed), dev: { deviceId: { apps: [ids], sites: [domains] } } }.
+  // Full Lock is built in: a white list with nothing on it. Only one mode runs at a time: a deadline lock's mode (lockMode, Full Lock
+  // by default) wins; otherwise the newest of the hand-picked mode (cfg.modeOn { mode, at, until (0 = until turned off) }) and the
+  // running events with a mode. When the newest ends, the one it replaced comes back. Unblockable apps / sites per device: cfg.unblock.
+  var FULL_LOCK = { id: 'full', name: 'Full Lock', emoji: '🔒', color: '#ff7a90', list: 'white', dev: {}, builtin: true };
+  function modeById(state, id) { if (id === 'full') return FULL_LOCK; var m = id && (state.modes || {})[id]; return m && !m.del ? m : null; }
+  function modeOfRec(ix, e) {
+    if (e.mode != null) return e.mode;
+    var L = ix['i:' + (e.virt || e.id)] || (e.gid && ix['g:' + e.gid]) || (e.series && ix['g:' + e.series]);
+    return L ? L.mode || '' : '';
+  }
+  // Events running at `now` that turn on a mode. Scaffold's own records count until Google has them; Google's copies find their
+  // mode through those records (by id, gid or series), like links do.
+  function modeEvents(state, now) {
+    var ix = linkIndex(state), out = [], gev = state.gev || {}, local = state.events || {}, mine = {};
+    Object.keys(local).forEach(function (id) {
+      var e = local[id];
+      if (!e || (e.synced && e.synced >= (e.ts || 0))) return;
+      mine['i:' + id] = 1; if (e.gid) mine['g:' + e.gid] = 1;
+      if (e.del) return;
+      var len = (e.end || e.start) - e.start, m = modeOfRec(ix, e);
+      if (!m) return;
+      (e.rrule && !e.series ? expandRule(e, 400) : [e.start]).forEach(function (t) { if (t <= now && now < t + len) out.push({ id: id, start: t, end: t + len, mode: m, title: e.title || '' }); });
+    });
+    Object.keys(gev).forEach(function (id) {
+      var g = gev[id];
+      if (id.charAt(0) === '_' || !g || mine['i:' + id] || (g.gid && mine['g:' + g.gid])) return;
+      if (g.start <= now && now < (g.end || g.start)) { var m = modeOfRec(ix, g); if (m) out.push({ id: id, start: g.start, end: g.end, mode: m, title: g.title || '' }); }
+    });
+    return out;
+  }
+  // The mode running now: { mode, src: 'lock' | 'event' | 'manual', start, until (0 = no set end), item / event, title } or null.
+  function activeMode(state, now, r) {
+    if (state.pause && state.pause.on) return null;
+    r = r || compute(state, now);
+    if (r.lock) return { mode: modeById(state, r.lock.task.lockMode || 'full') || FULL_LOCK, src: 'lock', start: r.lock.due, until: 0, item: r.lock.id, title: r.lock.task.title || '' };
+    var best = null;
+    function cand(c) { if (!best || c.start > best.start || (c.start === best.start && (c.src === 'event' && best.src !== 'event' || (c.src === best.src && (c.event || '') > (best.event || ''))))) best = c; }
+    var mo = (state.cfg || {}).modeOn;
+    if (mo && !mo.del && mo.mode && (!mo.until || mo.until > now) && (mo.at || 0) <= now) { var mm = modeById(state, mo.mode); if (mm) cand({ mode: mm, src: 'manual', start: mo.at || 0, until: mo.until || 0, title: '' }); }
+    modeEvents(state, now).forEach(function (e) { var m = modeById(state, e.mode); if (m) cand({ mode: m, src: 'event', start: e.start, until: e.end, event: e.id, title: e.title }); });
+    return best;
+  }
+  function unblockOf(state, dev) { var u = (state.cfg || {}).unblock; return u && !u.del && u.dev && u.dev[dev] ? u.dev[dev] : null; }   // null: not set yet, the device's preset applies
+  function modeList(mode, dev) { var d = (mode && mode.dev || {})[dev] || {}; return { apps: d.apps || [], sites: d.sites || [] }; }
+  // preset: this device's default unblockables { apps, sites }, used until the user sets the list.
+  function appBlocked(state, act, dev, app, preset) {
+    if (!act || !app) return false;
+    var u = unblockOf(state, dev) || preset || {};
+    if ((u.apps || []).indexOf(app) >= 0) return false;
+    var listed = modeList(act.mode, dev).apps.indexOf(app) >= 0;
+    return act.mode.list === 'white' ? !listed : listed;
+  }
+  // Websites (computers): new tabs, the browser's own pages and search always work; only actual websites are blocked.
+  function parseUrl(text) {
+    var t = String(text || '').trim();
+    if (!t) return { host: '', path: '/' };
+    var m = /^([a-z][a-z0-9+.-]*):\/\/([^\/?#]*)([^?#]*)/i.exec(t);
+    if (!m) { if (/^[a-z]+:/i.test(t) && !/^[\w.-]+:\d/.test(t)) return { host: '', path: '/', internal: true }; m = /^()([^\/?#\s]*)([^?#\s]*)/.exec(t); if (!m || m[2].indexOf('.') < 0) return { host: '', path: '/', internal: true }; }
+    var scheme = (m[1] || 'https').toLowerCase();
+    if (scheme !== 'http' && scheme !== 'https') return { host: '', path: '/', internal: true };
+    return { host: m[2].toLowerCase().replace(/^.*@/, '').replace(/:\d+$/, '').replace(/^www\./, ''), path: m[3] || '/' };
+  }
+  function isSearch(u) {
+    var h = u.host, p = u.path;
+    if (/^google\.[a-z.]+$/.test(h)) return /^\/(search|webhp)?\/?$/.test(p);
+    if (h === 'bing.com' || h === 'ecosia.org' || h === 'yandex.com' || h === 'yandex.ru') return /^\/(search)?\/?$/.test(p);
+    return h === 'duckduckgo.com' || h === 'search.brave.com' || h === 'search.yahoo.com' || h === 'startpage.com';
+  }
+  function siteMatch(host, list) {
+    return list.some(function (s) { var x = parseUrl(s).host || String(s).toLowerCase().trim(); return x && (host === x || host.slice(-x.length - 1) === '.' + x); });
+  }
+  function siteBlocked(state, act, dev, url, preset) {
+    if (!act) return false;
+    var u = parseUrl(url);
+    if (!u.host || isSearch(u)) return false;
+    var ub = unblockOf(state, dev) || preset || {};
+    if (siteMatch(u.host, ub.sites || [])) return false;
+    var listed = siteMatch(u.host, modeList(act.mode, dev).sites);
+    return act.mode.list === 'white' ? !listed : listed;
   }
 
   // Repeat rules (Google's RRULE). The simple ones Scaffold can edit: daily, weekly on days, monthly, yearly; ends by count or date.
@@ -523,7 +607,7 @@
     return out;
   }
   // Old pulled copies (unchanged since they came from Google, or deletions Google already has) are dropped: each device now pulls Google itself.
-  function isPulledCopy(e, now) { return !!(e && e.gid && !e.link && e.synced && e.synced >= (e.ts || 0) && (e.ts || 0) < now - 3600000); }   // older than 1 h: every device has pulled the Google version by then
+  function isPulledCopy(e, now) { return !!(e && e.gid && !e.link && e.mode == null && e.synced && e.synced >= (e.ts || 0) && (e.ts || 0) < now - 3600000); }   // older than 1 h: every device has pulled the Google version by then
   function dropPulledCopies(state, now) {
     var n = 0;
     Object.keys(state.events || {}).forEach(function (k) { if (isPulledCopy(state.events[k], now)) { delete state.events[k]; n++; } });
@@ -603,7 +687,7 @@
     pad: pad, dateKey: dateKey, fromKey: fromKey, addDays: addDays, at: at, hhmm: hhmm, compKey: compKey, uid: uid, emptyState: emptyState,
     newer: newer, merge: merge, eventsFor: eventsFor, parseRule: parseRule, buildRule: buildRule, expandRule: expandRule, dropPulledCopies: dropPulledCopies, isPulledCopy: isPulledCopy, scheduledOn: scheduledOn, habitPeriod: habitPeriod, pushOf: pushOf, lockOf: lockOf, hasDue: hasDue, timing: timing, reminderTimes: reminderTimes, periodOf: periodOf,
     compute: compute, dueReminders: dueReminders, notePops: notePops, pendingNotes: pendingNotes, plainNote: plainNote, stats: stats,
-    projectProgress: projectProgress, dayAgenda: dayAgenda, linkIndex: linkIndex, linkOf: linkOf, sessKey: sessKey, blocksFor: blocksFor, linkedBlocks: linkedBlocks, vaultProjects: vaultProjects, itemKey: itemKey,
+    projectProgress: projectProgress, dayAgenda: dayAgenda, linkIndex: linkIndex, linkOf: linkOf, sessKey: sessKey, blocksFor: blocksFor, linkedBlocks: linkedBlocks, FULL_LOCK: FULL_LOCK, modeById: modeById, modeEvents: modeEvents, activeMode: activeMode, unblockOf: unblockOf, modeList: modeList, appBlocked: appBlocked, siteBlocked: siteBlocked, parseUrl: parseUrl, vaultProjects: vaultProjects, itemKey: itemKey,
     chunks: chunks, snapshot: snapshot,
     opPut: opPut, opDel: opDel, opTask: opTask, opDelete: opDelete, opComplete: opComplete, opUndo: opUndo, opSnooze: opSnooze, opPause: opPause, opAck: opAck
   };

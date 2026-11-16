@@ -28,6 +28,7 @@ node tests/engine.test.js >/dev/null
 node tests/gcal.mock.test.js >/dev/null
 node tests/gcal.v2.test.js >/dev/null
 node tests/relay.mock.test.js >/dev/null
+node tests/modes.guard.test.js >/dev/null
 
 echo "== build"
 REL=release; rm -rf "$REL" desktop/dist; mkdir -p "$REL"

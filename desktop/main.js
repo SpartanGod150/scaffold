@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const Engine = require('./ui/engine.js');
 const { Sync } = require('./sync.js');
-const Blocker = require('./blocker.js');
+const Modes = require('./modes.js');
 const Vault = require('./vault.js');
 const Calendar = require('./calendar.js');
 const Updater = require('./updater.js');
@@ -31,7 +31,7 @@ if (GOT_LOCK) {
 }
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 
-let state, local, tray, mainWin, popupWin, noteWin, waWin, overlays = [], sync = null, lastFocusKill = 0;
+let state, local, tray, mainWin, popupWin, noteWin, waWin, lockWin, closeWin, coverWin, blockedWin, guard = null, sync = null;
 
 function readJSON(f, d) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return d; } }
 function writeJSON(f, v) { try { fs.mkdirSync(DATA, { recursive: true }); fs.writeFileSync(f + '.tmp', JSON.stringify(v)); fs.renameSync(f + '.tmp', f); } catch (e) { console.error(e); } }
@@ -50,7 +50,7 @@ function loadAll() {
   local = Object.assign({
     deviceId: (process.platform === 'darwin' ? 'mac-' : 'pc-') + crypto.randomBytes(4).toString('hex'),
     deviceName: process.platform === 'darwin' ? 'MacBook' : 'PC',
-    syncCode: '', since: '', timer: null, blocklist: Blocker.DEFAULT_BLOCKLIST, autostart: true,
+    syncCode: '', since: '', timer: null, autostart: true, frozen: {},
     lastCheck: Date.now(), lastSnapSeen: 0, firstRun: true,
     vaultPath: '', vaultSig: '', ticked: {}, calUrl: '', calSecret: crypto.randomBytes(18).toString('hex'), calMap: {}
   }, readJSON(LOCAL_F, {}));
@@ -137,16 +137,11 @@ function evaluate() {
     const it = x.item;
     const when = !it.hasDue ? 'no deadline' : it.status === 'late' ? (it.dueToday ? 'late since ' + hm(it.due) : 'overdue since ' + it.deadlineDay) : it.future ? 'due ' + it.deadlineDay + ' ' + hm(it.due) : 'due ' + hm(it.due);
     notify(`${it.task.emoji || '⏰'} ${it.task.title}`, `Time for this · ${when}`);
-    if (x.popup && !(r.lock && it.task.desktop !== 'none')) showPopup(it.id);
+    if (x.popup && !r.lock) showPopup(it.id);
   });
-  // lock
-  const lock = r.lock;
-  const mode = lock ? (lock.task.desktop || 'lock') : 'none';
-  if (mode === 'lock') showOverlay(); else hideOverlay();
-  if (mode === 'focus' && now - lastFocusKill > 5000) {
-    lastFocusKill = now;
-    Blocker.closeDistractions(local.blocklist || [], (closed) => { if (closed.length) notify('🔒 Focus: ' + lock.task.title, 'Closed: ' + [...new Set(closed)].join(', ')); });
-  }
+  // deadline lock: Scaffold's window with the task and "I did it"; the lock's mode (Full Lock by default) handles the rest
+  if (r.lock) showLockWin(); else hideLockWin();
+  if (guard) guard.tick();
   // reminder notes
   if (r.notes.length) showNoteWin(r.notes); else closeNoteWin();
   updateTray(r);
@@ -267,30 +262,86 @@ async function runCal() {
   calBusy = false; saveLocal(); notifyUI();
 }
 
-function showOverlay() {
-  if (overlays.length) { overlays.forEach((w) => { if (!w.isDestroyed()) w.moveTop(); }); if (waWin && !waWin.isDestroyed() && waWin.isVisible()) waWin.moveTop(); return; }
+// ---------- deadline lock and restriction modes ----------
+function centerBox(w, h, top) { const d = screen.getPrimaryDisplay().workArea; return { width: w, height: h, x: Math.round(d.x + (d.width - w) / 2), y: Math.round(d.y + (top != null ? top : (d.height - h) / 2)) }; }
+function showLockWin() {
+  if (lockWin && !lockWin.isDestroyed()) { if (!lockWin.isVisible()) lockWin.show(); lockWin.moveTop(); return; }
   if (popupWin && !popupWin.isDestroyed()) popupWin.close();
-  screen.getAllDisplays().forEach((disp, i) => {
-    const w = new BrowserWindow({ x: disp.bounds.x, y: disp.bounds.y, width: disp.bounds.width, height: disp.bounds.height, frame: false, resizable: false, movable: false, minimizable: false, closable: false, fullscreenable: false, skipTaskbar: true, alwaysOnTop: true, backgroundColor: '#0f1117', show: false, webPreferences: webPrefs() });
-    w.setAlwaysOnTop(true, 'pop-up-menu');
-    w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    w.on('close', (e) => { if (!w.allowClose) e.preventDefault(); });
-    if (i === 0) loadUI(w, 'block'); else w.loadURL('data:text/html,' + encodeURIComponent('<body style="background:#0f1117;color:#9aa1b8;font:20px sans-serif;display:grid;place-items:center;height:100vh;margin:0">🔒 Locked: see the main screen</body>'));
-    w.once('ready-to-show', () => { w.show(); if (i === 0) w.focus(); });
-    overlays.push(w);
-  });
+  lockWin = new BrowserWindow(Object.assign(centerBox(520, 600), { frame: false, resizable: false, minimizable: false, closable: false, alwaysOnTop: true, skipTaskbar: false, backgroundColor: '#0f1117', show: false, webPreferences: webPrefs() }));
+  lockWin.setAlwaysOnTop(true, 'floating');
+  lockWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  lockWin.on('close', (e) => { if (!lockWin.allowClose) e.preventDefault(); });
+  loadUI(lockWin, 'block');
+  lockWin.once('ready-to-show', () => { lockWin.show(); lockWin.focus(); });
+  lockWin.on('closed', () => { lockWin = null; });
 }
-function hideOverlay() {
-  if (!overlays.length) return;
-  overlays.forEach((w) => { if (!w.isDestroyed()) { w.allowClose = true; w.destroy(); } });
-  overlays = [];
-  if (waWin && !waWin.isDestroyed()) waWin.setAlwaysOnTop(false);
+function hideLockWin() { if (lockWin && !lockWin.isDestroyed()) { lockWin.allowClose = true; lockWin.destroy(); } lockWin = null; }
+function hideOverlay() { hideLockWin(); }
+const guardUI = {
+  // "X is blocked by Y Mode": a small pop-up at the top for a few seconds.
+  blocked(name, mode, forced) {
+    if (blockedWin && !blockedWin.isDestroyed()) blockedWin.destroy();
+    const html = '<body style="margin:0;background:#1c2030;color:#eef0f7;font:15px -apple-system,Segoe UI,sans-serif;display:flex;align-items:center;gap:12px;padding:0 18px;height:100vh;box-sizing:border-box;border-left:4px solid #ff7a90">' +
+      '<span style="font-size:26px">🛡️</span><span><b>' + esc(name) + '</b> ' + (forced ? 'was closed: time is up for' : 'is blocked by') + ' <b>' + esc(mode) + ' Mode</b></span></body>';
+    blockedWin = new BrowserWindow(Object.assign(centerBox(420, 70, 24), { frame: false, resizable: false, focusable: false, alwaysOnTop: true, skipTaskbar: true, backgroundColor: '#1c2030', show: false }));
+    blockedWin.setAlwaysOnTop(true, 'screen-saver');
+    blockedWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    blockedWin.once('ready-to-show', () => blockedWin && !blockedWin.isDestroyed() && blockedWin.showInactive());
+    const w = blockedWin; setTimeout(() => { if (!w.isDestroyed()) w.destroy(); }, 4500);
+  },
+  // The "Close this Program" pop-up: one row per program.
+  ask(list) {
+    const h = Math.min(560, 150 + list.length * 96);
+    if (closeWin && !closeWin.isDestroyed()) { closeWin.setSize(460, h); closeWin.webContents.send('native'); if (!closeWin.isVisible()) closeWin.show(); return; }
+    closeWin = new BrowserWindow(Object.assign(centerBox(460, h), { frame: false, resizable: false, minimizable: false, closable: false, alwaysOnTop: true, skipTaskbar: false, backgroundColor: '#0f1117', show: false, webPreferences: webPrefs() }));
+    closeWin.setAlwaysOnTop(true, 'floating');
+    closeWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    closeWin.on('close', (e) => { if (!closeWin.allowClose) e.preventDefault(); });
+    loadUI(closeWin, 'closeprog');
+    closeWin.once('ready-to-show', () => { closeWin.show(); closeWin.focus(); });
+    closeWin.on('closed', () => { closeWin = null; });
+  },
+  hideAsk() { if (closeWin && !closeWin.isDestroyed()) { closeWin.allowClose = true; closeWin.destroy(); } closeWin = null; },
+  // A blocked website: a cover over the page (the tabs and the address bar stay free, so other tabs and search still work).
+  cover(rect, mode, host) {
+    if (!rect) { if (coverWin && !coverWin.isDestroyed()) coverWin.destroy(); coverWin = null; return; }
+    const TOP = 86, b = { x: Math.round(rect.x), y: Math.round(rect.y + TOP), width: Math.max(200, Math.round(rect.width)), height: Math.max(120, Math.round(rect.height - TOP)) };
+    const key = mode + '|' + host;
+    if (coverWin && !coverWin.isDestroyed()) { coverWin.setBounds(b); if (coverWin.key !== key) { coverWin.key = key; coverWin.loadURL(coverHtml(mode, host)); } coverWin.moveTop(); return; }
+    coverWin = new BrowserWindow(Object.assign(b, { frame: false, resizable: false, movable: false, focusable: false, alwaysOnTop: true, skipTaskbar: true, hasShadow: false, transparent: true, show: false }));
+    coverWin.key = key;
+    coverWin.setAlwaysOnTop(true, 'floating');
+    coverWin.loadURL(coverHtml(mode, host));
+    coverWin.once('ready-to-show', () => coverWin && !coverWin.isDestroyed() && coverWin.showInactive());
+  }
+};
+function esc(t) { return String(t || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function coverHtml(mode, host) {
+  return 'data:text/html;charset=utf-8,' + encodeURIComponent('<body style="margin:0;height:100vh;background:rgba(15,17,23,.94);color:#eef0f7;font:16px -apple-system,Segoe UI,sans-serif;display:grid;place-items:center;text-align:center">' +
+    '<div><div style="font-size:44px">🧊</div><h2 style="margin:8px 0">' + esc(host) + ' is frozen</h2><div style="color:#9aa1b8">' + esc(mode) + ' Mode is on. The page stays here for later.<br>Switch tab, open a new one or search.</div></div></body>');
+}
+// This computer's installed programs, so any device can edit its lists (split in parts small enough for sync).
+async function publishCatalog() {
+  try {
+    const apps = await Modes.catalog(), now = Date.now(), patch = { devs: {} }, base = local.deviceId, per = 40;
+    const sig = JSON.stringify(apps) + local.deviceName;
+    if (sig === local.catSig && now - (local.catAt || 0) < 7 * 86400e3) return;
+    const parts = Math.max(1, Math.ceil(apps.length / per));
+    for (let i = 0; i < parts; i++) {
+      const r = { id: i ? base + '#' + i : base, part: i, apps: apps.slice(i * per, (i + 1) * per), ts: now, by: local.deviceId };
+      if (!i) Object.assign(r, { name: local.deviceName, platform: process.platform === 'darwin' ? 'mac' : 'win', parts });
+      patch.devs[r.id] = r;
+    }
+    Object.keys(state.devs || {}).forEach((k) => { const n = +(k.split('#')[1] || 0); if (k.split('#')[0] === base && n >= parts && !state.devs[k].del) patch.devs[k] = { id: k, del: true, ts: now, by: local.deviceId }; });
+    local.catSig = sig; local.catAt = now; saveLocal();
+    applyPatch(patch, true);
+  } catch (e) { console.error('catalog', e); }
 }
 
 function openWhatsApp() {
   if (waWin && !waWin.isDestroyed()) { waWin.show(); waWin.focus(); waWin.moveTop(); return; }
   waWin = new BrowserWindow({ width: 900, height: 720, title: 'WhatsApp', backgroundColor: '#111b21', webPreferences: { partition: 'persist:whatsapp', contextIsolation: true } });
-  if (overlays.length) waWin.setAlwaysOnTop(true, 'screen-saver');
+  if (lockWin) waWin.setAlwaysOnTop(true, 'screen-saver');
   waWin.webContents.setUserAgent(CHROME_UA);
   waWin.loadURL('https://web.whatsapp.com/');
   waWin.on('closed', () => { waWin = null; });
@@ -359,7 +410,7 @@ ipcMain.on('set-local', (e, k, v) => {
 ipcMain.on('open-whatsapp', openWhatsApp);
 ipcMain.on('close-window', (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
-  if (!w || overlays.includes(w)) return;
+  if (!w || w === lockWin || w === closeWin) return;
   if (w === noteWin) { if (!Engine.pendingNotes(state, Date.now()).length) closeNoteWin(); return; }
   w.close();
 });
@@ -368,6 +419,7 @@ function testRemind() {
   const r = Engine.compute(state, Date.now()), it = r.items.filter((i) => !i.done)[0];
   if (it) showPopup(it.id);
 }
+ipcMain.on('guard', (e, what, id) => { if (guard) guard.action(what, id); });
 ipcMain.on('test', (e, k) => { if (k === 'remind') testRemind(); if (k === 'update') runUpdate(); });
 
 
@@ -375,7 +427,7 @@ ipcMain.on('test', (e, k) => { if (k === 'remind') testRemind(); if (k === 'upda
 let pendingUpdate = null, updating = false;
 function updateSafe() {
   const r = Engine.compute(state, Date.now());
-  return !r.lock && !local.timer && !overlays.length && !(noteWin && !noteWin.isDestroyed());
+  return !r.lock && !local.timer && !lockWin && !(closeWin && !closeWin.isDestroyed()) && !Object.keys(local.frozen || {}).length && !(noteWin && !noteWin.isDestroyed());
 }
 function applyPendingUpdate() {
   if (!pendingUpdate || !updateSafe()) return;
@@ -419,7 +471,7 @@ app.on('second-instance', (e, argv) => { if (!(argv || []).includes('--backgroun
 app.on('render-process-gone', (e, wc) => { setTimeout(() => { try { if (!wc.isDestroyed()) wc.reload(); } catch (x) {} }, 1000); });   // a crashed window reloads itself
 process.on('uncaughtException', (e) => { console.error('uncaught', e); });   // never die on a stray error
 app.on('window-all-closed', (e) => { /* stay in the tray */ });
-app.on('before-quit', () => { app.allowQuit = true; overlays.forEach((w) => { if (!w.isDestroyed()) { w.allowClose = true; w.destroy(); } }); });
+app.on('before-quit', () => { app.allowQuit = true; hideLockWin(); guardUI.hideAsk(); if (guard) guard.release(); });
 
 app.whenReady().then(() => {
   // Each part starts on its own: one that fails must never stop locks or updates (0.4.0 lost both that way).
@@ -444,6 +496,13 @@ app.whenReady().then(() => {
   }
   safe('window', () => { if (local.firstRun) { local.firstRun = false; saveLocal(); showMain(); } else if (process.argv.includes('--show')) showMain(); });
   safe('sync', startSync);
+  safe('modes', () => {
+    guard = Modes.Guard({ Engine, getState: () => Object.assign({}, state, { gev }), local, saveLocal, deviceId: local.deviceId, ui: guardUI });
+    const toDip = (r) => process.platform === 'win32' ? screen.screenToDipRect(null, r) : r;
+    setInterval(() => safe('guard', () => guard.tick()), 2000);
+    setInterval(() => safe('sites', () => guard.sites(toDip)), 1000);
+    setTimeout(publishCatalog, 20000); setInterval(publishCatalog, 6 * 3600e3);
+  });
   setInterval(() => safe('evaluate', evaluate), 5000);
   safe('evaluate', () => { evaluate(); updateTray(); });
   setInterval(() => safe('snapshot', () => maybeSnapshot(false)), 15 * 60000);

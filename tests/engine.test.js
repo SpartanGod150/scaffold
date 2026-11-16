@@ -227,6 +227,59 @@ t('designated periods: linked blocks, Google copies, project sessions', () => {
   assert.strictEqual(E.isPulledCopy(s.events.ev2, at('12:00')), false, 'linked records are kept');
 });
 
+t('restriction modes: newest wins, the replaced one comes back, a deadline lock wins, pause ends all', () => {
+  const s = E.emptyState();
+  Object.assign(s.modes, E.opPut('modes', { id: 'draw', name: 'Drawing', list: 'black', dev: { pc: { apps: ['steam.exe'], sites: ['youtube.com'] } } }, 'A', at('06:00')).modes);
+  Object.assign(s.modes, E.opPut('modes', { id: 'study', name: 'Study', list: 'white', dev: { pc: { apps: ['code.exe'], sites: ['wikipedia.org'] } } }, 'A', at('06:00')).modes);
+  Object.assign(s.events, E.opPut('events', { id: 'eA', title: 'Draw', start: at('09:00'), end: at('11:00'), mode: 'draw' }, 'A', at('06:00')).events);
+  Object.assign(s.events, E.opPut('events', { id: 'eB', title: 'Study', start: at('10:00'), end: at('10:30'), mode: 'study' }, 'A', at('06:00')).events);
+  assert.strictEqual(E.activeMode(s, at('08:59')), null);
+  assert.strictEqual(E.activeMode(s, at('09:30')).mode.id, 'draw');
+  assert.strictEqual(E.activeMode(s, at('10:10')).mode.id, 'study');
+  assert.strictEqual(E.activeMode(s, at('10:31')).mode.id, 'draw', 'comes back');
+  s.cfg.modeOn = { id: 'modeOn', mode: 'study', at: at('10:40'), until: 0, ts: at('10:40'), by: 'A' };
+  assert.strictEqual(E.activeMode(s, at('10:45')).src, 'manual', 'a newer hand-picked mode replaces it');
+  s.cfg.modeOn = { id: 'modeOn', mode: 'study', at: at('08:00'), until: at('12:00'), ts: at('08:00'), by: 'A' };
+  assert.strictEqual(E.activeMode(s, at('09:30')).mode.id, 'draw', 'a later event replaces the hand-picked one');
+  assert.strictEqual(E.activeMode(s, at('11:30')).src, 'manual', 'and it comes back after');
+  Object.assign(s.tasks, E.opTask({ id: 'h', title: 'H', dueOn: true, due: '09:45', lock: true, push: 'off' }, 'A', at('06:00')).tasks);
+  const lk = E.activeMode(s, at('09:50'));
+  assert.strictEqual(lk.src, 'lock'); assert.strictEqual(lk.mode.id, 'full');
+  E.merge(s, E.opPause(true, 'A', at('09:55')));
+  assert.strictEqual(E.activeMode(s, at('09:56')), null);
+});
+
+t('restriction modes: apps and websites', () => {
+  const s = E.emptyState();
+  const draw = { mode: { list: 'black', dev: { pc: { apps: ['steam.exe'], sites: ['youtube.com'] } } } };
+  const full = { mode: E.FULL_LOCK };
+  const preset = { apps: ['opera.exe', 'whatsapp.exe'], sites: ['web.whatsapp.com'] };
+  assert.strictEqual(E.appBlocked(s, draw, 'pc', 'steam.exe', preset), true);
+  assert.strictEqual(E.appBlocked(s, draw, 'pc', 'code.exe', preset), false);
+  assert.strictEqual(E.appBlocked(s, full, 'pc', 'code.exe', preset), true);
+  assert.strictEqual(E.appBlocked(s, full, 'pc', 'opera.exe', preset), false, 'unblockable');
+  assert.strictEqual(E.siteBlocked(s, draw, 'pc', 'https://www.youtube.com/watch?v=1', preset), true);
+  assert.strictEqual(E.siteBlocked(s, draw, 'pc', 'm.youtube.com/x', preset), true, 'subdomains, no scheme');
+  assert.strictEqual(E.siteBlocked(s, full, 'pc', 'https://www.google.com/search?q=x', preset), false, 'search works');
+  assert.strictEqual(E.siteBlocked(s, full, 'pc', 'opera://startpage', preset), false, 'new tab works');
+  assert.strictEqual(E.siteBlocked(s, full, 'pc', '', preset), false);
+  assert.strictEqual(E.siteBlocked(s, full, 'pc', 'https://web.whatsapp.com/', preset), false);
+  assert.strictEqual(E.siteBlocked(s, full, 'pc', 'https://maps.google.com/', preset), true);
+  s.cfg.unblock = { id: 'unblock', dev: { pc: { apps: ['code.exe'], sites: [] } }, ts: 1, by: 'A' };
+  assert.strictEqual(E.appBlocked(s, full, 'pc', 'code.exe', preset), false, 'the set list replaces the preset');
+  assert.strictEqual(E.appBlocked(s, full, 'pc', 'opera.exe', preset), true);
+});
+
+t('event modes follow Google copies', () => {
+  const s = E.emptyState();
+  Object.assign(s.modes, E.opPut('modes', { id: 'draw', name: 'Drawing', list: 'black' }, 'A', at('06:00')).modes);
+  s.events.ev = { id: 'ev', title: 'Draw', start: at('09:00'), end: at('10:00'), rrule: 'RRULE:FREQ=DAILY;COUNT=3', mode: 'draw', gid: 'M1', synced: at('06:01'), ts: at('06:00'), by: 'A' };
+  s.gev = { g1: { id: 'g1', v: 2, gid: 'M1_x', series: 'M1', title: 'Draw', start: at('09:00') + E.DAY, end: at('10:00') + E.DAY, gupd: at('06:02') } };
+  assert.strictEqual(E.activeMode(s, at('09:30') + E.DAY).mode.id, 'draw');
+  assert.strictEqual(E.activeMode(s, at('09:30')), null, 'the synced record itself no longer counts');
+  assert.strictEqual(E.isPulledCopy(s.events.ev, at('12:00')), false);
+});
+
 t('project progress', () => {
   const s = base();
   addTodo(s, { id: 'a', title: 'A', project: 'p1', date: '2026-11-09' });
@@ -288,16 +341,25 @@ addTodo(fx, { id: 'cus', title: 'Gym', repeat: 'custom', days: [1, 4], due: '23:
 Object.assign(fx.tasks, E.opTask({ id: 'wk', title: 'Clean', repeat: 'week', dueDay: 0, dueOn: true, due: '17:00', push: 'nag', rfrom: '16:00', rto: '22:00', remind: 20 }, 'A', at('06:00')).tasks);
 Object.assign(fx.tasks, E.opTask({ id: 'free', title: 'Free', push: 'nudge', rfrom: '21:00', rto: '20:00', remind: 60, lock: true }, 'A', at('06:00')).tasks);
 Object.assign(fx.tasks, E.opTask({ id: 'mo', title: 'Bills', repeat: 'month', dueDay: 9, dueOn: false, push: 'nag', rfrom: '10:00', rto: '10:30', remind: 15 }, 'A', at('06:00')).tasks);
+Object.assign(fx.modes, E.opPut('modes', { id: 'draw', name: 'Drawing', list: 'black', dev: { ph: { apps: ['com.game'] } } }, 'A', at('06:00')).modes);
+Object.assign(fx.events, E.opPut('events', { id: 'em1', title: 'Draw', start: at('09:00'), end: at('11:00'), rrule: 'RRULE:FREQ=DAILY;COUNT=2', mode: 'draw' }, 'A', at('06:00')).events);
+Object.assign(fx.events, E.opPut('events', { id: 'em2', title: 'Short', start: at('10:00'), end: at('10:45'), mode: 'full' }, 'A', at('06:00')).events);
+fx.events.em3 = { id: 'em3', title: 'G', start: at('13:00'), end: at('14:30'), mode: 'draw', gid: 'G3', synced: at('06:01'), ts: at('06:00'), by: 'A' };
+fx.gev = { em3: { id: 'em3', v: 2, gid: 'G3', title: 'G', start: at('13:30'), end: at('14:30'), gupd: at('06:02') }, _meta: { v: 2 } };
+fx.cfg.modeOn = { id: 'modeOn', mode: 'draw', at: at('16:00'), until: at('17:20'), ts: at('16:00'), by: 'A' };
 Object.assign(fx.notes, E.opPut('notes', { id: 'n1', text: 'x', every: 45, from: '08:00', to: '22:00' }, 'A', at('07:10')).notes);
 Object.assign(fx.notes, E.opPut('notes', { id: 'n2', text: '- [ ] y', every: 90, from: '20:00', to: '01:00', days: [1, 3] }, 'A', at('07:10')).notes);
 Object.assign(fx.notes, E.opPut('notes', { id: 'n3', text: 'z', every: 30, from: '09:00', to: '09:00', days: [2] }, 'A', at('07:10')).notes);
 fx.tasks.gym.active = false;
 E.merge(fx, E.opAck('n1', 'B', at('13:00')));
-const instants = ['06:59', '07:00', '07:05', '07:10', '08:00', '09:00', '10:00', '10:30', '12:00', '13:59', '14:00', '16:00', '17:00', '17:05', '17:30', '20:59', '21:00', '21:10', '23:31', '23:59'];
+const instants = ['06:59', '07:00', '07:05', '07:10', '08:00', '09:00', '10:00', '10:30', '10:50', '12:00', '13:10', '13:40', '13:59', '14:00', '16:00', '17:00', '17:05', '17:30', '20:59', '21:00', '21:10', '23:31', '23:59'];
+// Modes without the habit lock in the way: same events, no tasks.
+const fxm = JSON.parse(JSON.stringify(fx)); fxm.tasks = {}; fxm.todos = {};
+const mstr = (m) => m ? m.mode.id + ':' + m.src + ':' + m.start + ':' + m.until : 'none';
 const out = instants.map(h => {
   const now = at(h), r = E.compute(fx, now);
-  return { now, lock: r.lock ? r.lock.id : null, next: r.next, done: r.done, total: r.total, rem: E.dueReminders(fx, now - 60000, now).map(x => x.id + ':' + x.popup), notes: r.notes.map(n => n.id + ':' + n.since), keys: r.items.map(i => i.key + ':' + i.status), pops: Object.keys(fx.notes).sort().map(id => { const p = E.notePops(fx.notes[id], now); return id + ':' + p.last + ':' + p.next; }) };
+  return { now, lock: r.lock ? r.lock.id : null, next: r.next, done: r.done, total: r.total, rem: E.dueReminders(fx, now - 60000, now).map(x => x.id + ':' + x.popup), notes: r.notes.map(n => n.id + ':' + n.since), keys: r.items.map(i => i.key + ':' + i.status), mode: mstr(E.activeMode(fx, now, r)), mode2: mstr(E.activeMode(fxm, now)), pops: Object.keys(fx.notes).sort().map(id => { const p = E.notePops(fx.notes[id], now); return id + ':' + p.last + ':' + p.next; }) };
 });
-fs.writeFileSync(path.join(__dirname, 'fixture-out.json'), JSON.stringify({ state: fx, cases: out }, null, 1));
+fs.writeFileSync(path.join(__dirname, 'fixture-out.json'), JSON.stringify({ state: fx, modeState: fxm, cases: out }, null, 1));
 
 console.log(pass + ' tests passed' + (process.exitCode ? ', some FAILED' : ''));

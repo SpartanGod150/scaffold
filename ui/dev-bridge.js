@@ -36,6 +36,7 @@
     openPermission: function (n) { alert('Would open settings: ' + n); },
     listApps: function () { return JSON.stringify([{ pkg: 'com.amazon.kindle', label: 'Kindle' }, { pkg: 'com.google.android.youtube', label: 'YouTube' }, { pkg: 'md.obsidian', label: 'Obsidian' }]); },
     getLaunch: function () { return JSON.stringify({ mode: q.get('mode') || 'main', task: q.get('task') || '' }); },
+    guard: function (what, id) { console.log('guard', what, id); },
     test: function (k) { if (k === 'remind') alert('Test reminder: on devices this shows a notification and a pop-up.'); }
   };
 })();

@@ -4,6 +4,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.Iterator;
@@ -17,7 +20,7 @@ public final class Engine {
     static final String NAG_STOP = "23:30";
     static final int MAX_SNOOZES = 2;
     static final int SNOOZE_MIN = 10;
-    static final String[] MAPS = {"tasks", "todos", "projects", "events", "notes", "acks", "vault", "comps", "snoozes", "log", "cfg", "marks", "sess"};
+    static final String[] MAPS = {"tasks", "todos", "projects", "events", "notes", "acks", "vault", "comps", "snoozes", "log", "cfg", "marks", "sess", "modes", "devs"};
 
     static final class Item {
         String id, type, key, sKey, status, doneKind, deadlineDay;
@@ -469,6 +472,143 @@ public final class Engine {
         return out;
     }
 
+    // ---------- restriction modes (see engine.js) ----------
+    static final class Active { JSONObject mode; String modeId, src, item, event, title; long start, until; }
+    static JSONObject fullLock() {
+        try { return new JSONObject().put("id", "full").put("name", "Full Lock").put("emoji", "🔒").put("list", "white").put("dev", new JSONObject()); }
+        catch (Exception e) { throw new RuntimeException(e); }
+    }
+    static JSONObject modeById(JSONObject state, String id) {
+        if ("full".equals(id)) return fullLock();
+        if (id == null || id.isEmpty()) return null;
+        JSONObject m = map(state, "modes").optJSONObject(id);
+        return m != null && !m.optBoolean("del", false) ? m : null;
+    }
+    /** Newest Scaffold record (with a link or a mode) per i:id / g:gid / g:series. */
+    private static Map<String, JSONObject> modeIndex(JSONObject state) {
+        Map<String, JSONObject> ix = new HashMap<>();
+        JSONObject ev = map(state, "events");
+        Iterator<String> k = ev.keys();
+        while (k.hasNext()) {
+            String id = k.next(); JSONObject e = ev.optJSONObject(id);
+            if (e == null || e.optBoolean("del", false) || (!e.has("link") && !e.has("mode"))) continue;
+            ixPut(ix, "i:" + id, e);
+            if (!e.optString("gid").isEmpty()) ixPut(ix, "g:" + e.optString("gid"), e);
+            String sc = e.optString("scope");
+            if (!e.optString("series").isEmpty() && !sc.isEmpty() && !sc.equals("one")) ixPut(ix, "g:" + e.optString("series"), e);
+        }
+        return ix;
+    }
+    private static void ixPut(Map<String, JSONObject> ix, String k, JSONObject e) { JSONObject o = ix.get(k); if (o == null || o.optLong("ts", 0) < e.optLong("ts", 0)) ix.put(k, e); }
+    private static String modeOfRec(Map<String, JSONObject> ix, JSONObject e, String id) {
+        if (e.has("mode") && !e.isNull("mode")) return e.optString("mode", "");
+        JSONObject L = ix.get("i:" + (e.optString("virt").isEmpty() ? id : e.optString("virt")));
+        if (L == null && !e.optString("gid").isEmpty()) L = ix.get("g:" + e.optString("gid"));
+        if (L == null && !e.optString("series").isEmpty()) L = ix.get("g:" + e.optString("series"));
+        return L == null || L.isNull("mode") ? "" : L.optString("mode", "");
+    }
+    private static final String[] RDAYS = {"SU", "MO", "TU", "WE", "TH", "FR", "SA"};
+    /** Start times of the first occurrences of a simple repeating event (daily / weekly on days / monthly / yearly; COUNT or UNTIL). */
+    static List<Long> expandRule(JSONObject e, int max) {
+        List<Long> out = new ArrayList<>();
+        long start = e.optLong("start", 0);
+        java.util.regex.Matcher mm = java.util.regex.Pattern.compile("(?:^|\\n)RRULE:([^\\n]*)").matcher(e.optString("rrule"));
+        if (!mm.find()) { out.add(start); return out; }
+        Map<String, String> o = new HashMap<>();
+        for (String p : mm.group(1).split(";")) { String[] kv = p.split("=", 2); o.put(kv[0], kv.length > 1 ? kv[1] : ""); }
+        String freq = o.getOrDefault("FREQ", "").toLowerCase(Locale.US);
+        List<Integer> days = new ArrayList<>();
+        if (o.containsKey("BYDAY") && !o.get("BYDAY").isEmpty()) for (String d : o.get("BYDAY").split(",")) days.add(Arrays.asList(RDAYS).indexOf(d));
+        int count = o.containsKey("COUNT") ? Integer.parseInt(o.get("COUNT")) : 0;
+        String until = ""; long untilMs = 0;
+        if (o.containsKey("UNTIL")) {
+            String u = o.get("UNTIL");
+            if (u.length() > 8) { Calendar c = Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")); c.clear(); c.set(Integer.parseInt(u.substring(0, 4)), Integer.parseInt(u.substring(4, 6)) - 1, Integer.parseInt(u.substring(6, 8)), Integer.parseInt(u.substring(9, 11)), Integer.parseInt(u.substring(11, 13)), Integer.parseInt(u.substring(13, 15))); untilMs = c.getTimeInMillis(); }
+            else until = u.substring(0, 4) + "-" + u.substring(4, 6) + "-" + u.substring(6, 8);
+        }
+        boolean simple = Arrays.asList("daily", "weekly", "monthly", "yearly").contains(freq) && (!o.containsKey("INTERVAL") || "1".equals(o.get("INTERVAL"))) && (freq.equals("weekly") || !o.containsKey("BYDAY")) && !days.contains(-1);
+        for (String key : o.keySet()) if (!Arrays.asList("FREQ", "BYDAY", "COUNT", "UNTIL", "INTERVAL", "WKST").contains(key)) simple = false;
+        if (!simple) { out.add(start); return out; }
+        String hm = hhmm(start); Calendar d0 = cal(start);
+        boolean allDay = e.optBoolean("allDay", false);
+        for (int i = 0; i < 800 && out.size() < max; i++) {
+            long day = addDays(start, i); Calendar dd = cal(day); boolean ok;
+            if (freq.equals("daily")) ok = true;
+            else if (freq.equals("weekly")) ok = days.isEmpty() ? dd.get(Calendar.DAY_OF_WEEK) == d0.get(Calendar.DAY_OF_WEEK) : days.contains(dd.get(Calendar.DAY_OF_WEEK) - 1);
+            else if (freq.equals("monthly")) ok = dd.get(Calendar.DAY_OF_MONTH) == d0.get(Calendar.DAY_OF_MONTH);
+            else ok = dd.get(Calendar.DAY_OF_MONTH) == d0.get(Calendar.DAY_OF_MONTH) && dd.get(Calendar.MONTH) == d0.get(Calendar.MONTH);
+            if (!ok) continue;
+            long t = allDay ? at(day, "00:00") : at(day, hm);
+            if (untilMs > 0 ? t > untilMs : !until.isEmpty() && dateKey(day).compareTo(until) > 0) break;
+            out.add(t);
+            if (count > 0 && out.size() >= count) break;
+        }
+        return out;
+    }
+    static final class ModeEvent { String id, mode, title; long start, end; }
+    static List<ModeEvent> modeEvents(JSONObject state, JSONObject gev, long now) {
+        List<ModeEvent> out = new ArrayList<>();
+        Map<String, JSONObject> ix = modeIndex(state);
+        java.util.Set<String> mine = new java.util.HashSet<>();
+        JSONObject local = map(state, "events");
+        Iterator<String> k = local.keys();
+        while (k.hasNext()) {
+            String id = k.next(); JSONObject e = local.optJSONObject(id);
+            if (e == null || (e.has("synced") && e.optLong("synced", 0) >= e.optLong("ts", 0))) continue;
+            mine.add("i:" + id); if (!e.optString("gid").isEmpty()) mine.add("g:" + e.optString("gid"));
+            if (e.optBoolean("del", false)) continue;
+            long st = e.optLong("start", 0), len = (e.has("end") ? e.optLong("end", st) : st) - st;
+            String m = modeOfRec(ix, e, id);
+            if (m.isEmpty()) continue;
+            List<Long> ts = !e.optString("rrule").isEmpty() && e.optString("series").isEmpty() ? expandRule(e, 400) : java.util.Collections.singletonList(st);
+            for (long t : ts) if (t <= now && now < t + len) { ModeEvent me = new ModeEvent(); me.id = id; me.start = t; me.end = t + len; me.mode = m; me.title = e.optString("title"); out.add(me); }
+        }
+        if (gev != null) {
+            k = gev.keys();
+            while (k.hasNext()) {
+                String id = k.next(); JSONObject g = gev.optJSONObject(id);
+                if (id.startsWith("_") || g == null || mine.contains("i:" + id) || (!g.optString("gid").isEmpty() && mine.contains("g:" + g.optString("gid")))) continue;
+                long st = g.optLong("start", 0), en = g.has("end") ? g.optLong("end", st) : st;
+                if (st <= now && now < en) { String m = modeOfRec(ix, g, id); if (!m.isEmpty()) { ModeEvent me = new ModeEvent(); me.id = id; me.start = st; me.end = en; me.mode = m; me.title = g.optString("title"); out.add(me); } }
+            }
+        }
+        return out;
+    }
+    static Active activeMode(JSONObject state, JSONObject gev, long now, Result r) {
+        JSONObject pause = state.optJSONObject("pause");
+        if (pause != null && pause.optBoolean("on", false)) return null;
+        if (r == null) r = compute(state, now);
+        if (r.lock != null) {
+            Active a = new Active(); String lm = r.lock.task.optString("lockMode", "full");
+            a.mode = modeById(state, lm.isEmpty() ? "full" : lm); if (a.mode == null) a.mode = fullLock();
+            a.modeId = a.mode.optString("id", "full"); if (a.modeId.isEmpty()) a.modeId = lm;
+            a.src = "lock"; a.start = r.lock.due; a.until = 0; a.item = r.lock.id; a.title = r.lock.task.optString("title");
+            return a;
+        }
+        Active best = null;
+        JSONObject mo = map(state, "cfg").optJSONObject("modeOn");
+        if (mo != null && !mo.optBoolean("del", false) && !mo.optString("mode").isEmpty() && (mo.optLong("until", 0) == 0 || mo.optLong("until", 0) > now) && mo.optLong("at", 0) <= now) {
+            JSONObject m = modeById(state, mo.optString("mode"));
+            if (m != null) { best = new Active(); best.mode = m; best.modeId = mo.optString("mode"); best.src = "manual"; best.start = mo.optLong("at", 0); best.until = mo.optLong("until", 0); best.event = ""; best.title = ""; }
+        }
+        for (ModeEvent e : modeEvents(state, gev, now)) {
+            JSONObject m = modeById(state, e.mode); if (m == null) continue;
+            boolean win = best == null || e.start > best.start || (e.start == best.start && (!"event".equals(best.src) || e.id.compareTo(best.event == null ? "" : best.event) > 0));
+            if (win) { best = new Active(); best.mode = m; best.modeId = e.mode; best.src = "event"; best.start = e.start; best.until = e.end; best.event = e.id; best.title = e.title; }
+        }
+        return best;
+    }
+    private static boolean inArr(JSONArray a, String v) { if (a == null) return false; for (int i = 0; i < a.length(); i++) if (v.equals(a.optString(i))) return true; return false; }
+    /** preset: this device's default unblockable apps, used until the user sets the list. */
+    static boolean appBlocked(JSONObject state, Active act, String dev, String app, JSONArray preset) {
+        if (act == null || app == null || app.isEmpty()) return false;
+        JSONObject u = map(state, "cfg").optJSONObject("unblock"), ud = u != null && !u.optBoolean("del", false) && u.optJSONObject("dev") != null ? u.optJSONObject("dev").optJSONObject(dev) : null;
+        if (inArr(ud != null ? ud.optJSONArray("apps") : preset, app)) return false;
+        JSONObject md = act.mode.optJSONObject("dev"), d = md != null ? md.optJSONObject(dev) : null;
+        boolean listed = d != null && inArr(d.optJSONArray("apps"), app);
+        return "white".equals(act.mode.optString("list")) ? !listed : listed;
+    }
+
     // ---------- operations ----------
     private static JSONObject one(String map, String key, JSONObject val) {
         try { JSONObject p = new JSONObject(); JSONObject m = new JSONObject(); m.put(key, val); p.put(map, m); return p; }
@@ -574,7 +714,7 @@ public final class Engine {
 
     /** An old copy of a Google event (or a deletion Google already has): every device pulls Google itself now. */
     static boolean isPulledCopy(JSONObject e, long now) {
-        if (e == null || e.optString("gid").isEmpty() || !e.has("synced") || e.has("link")) return false;
+        if (e == null || e.optString("gid").isEmpty() || !e.has("synced") || e.has("link") || e.has("mode")) return false;
         long ts = e.optLong("ts", 0);
         return e.optLong("synced", 0) >= ts && ts < now - 3600_000L;
     }
@@ -614,6 +754,10 @@ public final class Engine {
                 for (String id : nids) { long[] p = notePops(nm.optJSONObject(id), now); pops.add(id + ":" + p[0] + ":" + p[1]); }
                 String popS = join(pops), expPops = c.has("pops") ? join(c.getJSONArray("pops")) : popS;
                 if (!popS.equals(expPops)) bad.append("case ").append(i).append(": pops ").append(popS).append('/').append(expPops).append('\n');
+                JSONObject gevF = state.optJSONObject("gev"), ms = fx.optJSONObject("modeState");
+                String md = modeStr(activeMode(state, gevF, now, r)), md2 = ms == null ? "" : modeStr(activeMode(ms, ms.optJSONObject("gev"), now, null));
+                if (c.has("mode") && !md.equals(c.getString("mode"))) bad.append("case ").append(i).append(": mode ").append(md).append('/').append(c.getString("mode")).append('\n');
+                if (c.has("mode2") && !md2.equals(c.getString("mode2"))) bad.append("case ").append(i).append(": mode2 ").append(md2).append('/').append(c.getString("mode2")).append('\n');
                 String notes = join(ns), expNotes = join(c.getJSONArray("notes")), itemKeys = join(ks), expKeys = join(c.getJSONArray("keys"));
                 if (!lock.equals(expLock) || r.next != c.getLong("next") || r.done != c.getInt("done") || r.total != c.getInt("total")
                         || !rem.equals(exp) || !notes.equals(expNotes) || !itemKeys.equals(expKeys))
@@ -626,6 +770,8 @@ public final class Engine {
         } catch (Exception e) { bad.append("error ").append(e); }
         return bad.toString();
     }
+
+    private static String modeStr(Active a) { return a == null ? "none" : a.modeId + ":" + a.src + ":" + a.start + ":" + a.until; }
 
     private static List<String> remStrings(JSONObject state, long now) {
         List<String> out = new ArrayList<>();

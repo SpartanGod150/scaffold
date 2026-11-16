@@ -26,12 +26,12 @@
   function pushIcons(t, kind) { var p = PUSH[E.pushOf(t, kind)] || PUSH.nudge; return p.icon + (E.lockOf(t) && E.hasDue(t, kind) ? '🔒' : ''); }
   function pushLabel(t, kind) { var p = PUSH[E.pushOf(t, kind)] || PUSH.nudge; return p.icon + ' ' + p.name + (E.lockOf(t) && E.hasDue(t, kind) ? ' · 🔒 lock at deadline' : ''); }
   var TEMPLATES = [
-    { emoji: '🪥', title: 'Brush teeth', dueOn: true, due: '08:00', rfrom: '07:00', rto: '08:00', push: 'nag', lock: true, kind: 'check', remind: 15, color: '#5cc8ff', desktop: 'lock' },
-    { emoji: '🛏️', title: 'Make the bed', dueOn: true, due: '09:00', rfrom: '07:00', rto: '09:00', push: 'nag', lock: false, kind: 'check', remind: 30, color: '#c58cff', desktop: 'none' },
-    { emoji: '📖', title: 'Read', dueOn: true, due: '21:30', rfrom: '20:00', rto: '21:30', push: 'nag', lock: true, kind: 'timer', minutes: 20, remind: 30, color: '#ffb86b', desktop: 'lock' },
-    { emoji: '📚', title: 'Study', dueOn: true, due: '18:00', rfrom: '14:00', rto: '18:00', push: 'nag', lock: true, kind: 'timer', minutes: 45, remind: 45, color: '#7c9cff', desktop: 'focus' },
-    { emoji: '💻', title: 'Work on a project', dueOn: true, due: '20:00', rfrom: '15:00', rto: '20:00', push: 'nag', lock: false, kind: 'timer', minutes: 30, remind: 60, color: '#5ed3a8', desktop: 'focus' },
-    { emoji: '🧹', title: 'Tidy up', dueOn: true, due: '21:00', rfrom: '18:00', rto: '21:00', push: 'nag', lock: false, kind: 'timer', minutes: 10, remind: 45, color: '#ffd75e', desktop: 'none' }
+    { emoji: '🪥', title: 'Brush teeth', dueOn: true, due: '08:00', rfrom: '07:00', rto: '08:00', push: 'nag', lock: true, kind: 'check', remind: 15, color: '#5cc8ff' },
+    { emoji: '🛏️', title: 'Make the bed', dueOn: true, due: '09:00', rfrom: '07:00', rto: '09:00', push: 'nag', lock: false, kind: 'check', remind: 30, color: '#c58cff' },
+    { emoji: '📖', title: 'Read', dueOn: true, due: '21:30', rfrom: '20:00', rto: '21:30', push: 'nag', lock: true, kind: 'timer', minutes: 20, remind: 30, color: '#ffb86b' },
+    { emoji: '📚', title: 'Study', dueOn: true, due: '18:00', rfrom: '14:00', rto: '18:00', push: 'nag', lock: true, kind: 'timer', minutes: 45, remind: 45, color: '#7c9cff' },
+    { emoji: '💻', title: 'Work on a project', dueOn: true, due: '20:00', rfrom: '15:00', rto: '20:00', push: 'nag', lock: false, kind: 'timer', minutes: 30, remind: 60, color: '#5ed3a8' },
+    { emoji: '🧹', title: 'Tidy up', dueOn: true, due: '21:00', rfrom: '18:00', rto: '21:00', push: 'nag', lock: false, kind: 'timer', minutes: 10, remind: 45, color: '#ffd75e' }
   ];
   var WORDS = ('amber anchor apple arrow aspen atlas badge bamboo basil beacon berry birch blaze bloom breeze brook cabin cactus candle canyon cedar cherry cliff clover cobalt comet coral cosmic cotton crane crystal dawn delta dune eagle echo ember fable falcon fern fjord flame forest fox frost galaxy garnet ginger glacier grove harbor hazel honey indigo iris island ivory jade jasmine jungle kayak kite lagoon lantern lemon lily lotus lunar maple marble meadow mint mist moss nebula nectar north oak ocean olive onyx orbit otter panda pearl pebble pepper pine planet plum polar prism quartz raven reef river robin ruby saffron sage salt sierra silver sky snow solar spruce star stone storm sunny thunder tiger topaz tulip tundra valley velvet violet willow winter wolf zephyr').split(' ');
 
@@ -77,6 +77,7 @@
     E.MAPS.forEach(function (m) { S.state[m] = S.state[m] || {}; });
     S.r = E.compute(S.state, now());
     S.lb = null;
+    S.act = E.activeMode(S.state, now(), S.r);
   }
 
   // ---------- actions ----------
@@ -186,11 +187,21 @@
       var have = ((S.state.sess || {})[key] || {}).tasks || [];
       pickTasks('Add tasks to this session', openTasksOf(pid).filter(function (t) { return have.indexOf(t.id) < 0; }), function (ids) { sessPut(key, { tasks: have.concat(ids) }); if (S.modalOpen) closeModal(); });
     },
+    editMode: function (id) { openModeEditor(id && S.state.modes[id] ? JSON.parse(JSON.stringify(S.state.modes[id])) : null); },
+    editUnblock: function (id) { openUnblockEditor(id); },
+    modeOn: function (id) { if (S.act && S.act.src !== 'manual') return toast('A mode from an event or a deadline lock is on'); turnOnBox(id); },
+    modeOff: function () { if (!S.act || S.act.src !== 'manual') return; apply(E.opPut('cfg', { id: 'modeOn', mode: '', at: now(), until: 0 }, by(), now())); toast('Mode off'); },
+    modeChip: function () {
+      var a = S.act; if (!a) return;
+      if (a.src !== 'manual') return toast(a.src === 'lock' ? 'Do the task to end the lock' : 'Only ⛔ Emergency stop ends an event’s mode early');
+      confirmBox('Turn off ' + a.mode.name + ' Mode?', 'You turned it on by hand, so you can turn it off.', 'Turn off', function () { A.modeOff(); });
+    },
+    guardAct: function (what, id) { B.guard(what, id); },
     perm: function (n) { B.openPermission(n); },
     test: function (k) {
       if (k === 'lock') {
         var d = new Date(); d.setSeconds(0, 0);
-        apply(E.opTask({ title: 'Test lock: tap “I did it”', emoji: '🧪', dueOn: true, due: hm(d), rfrom: hm(d), rto: hm(d), days: [d.getDay()], push: 'nag', lock: true, kind: 'check', remind: 30, color: '#ff7a90', desktop: 'lock', test: true }, by(), now()));
+        apply(E.opTask({ title: 'Test lock: tap “I did it”', emoji: '🧪', dueOn: true, due: hm(d), rfrom: hm(d), rto: hm(d), days: [d.getDay()], push: 'nag', lock: true, kind: 'check', remind: 30, color: '#ff7a90', test: true }, by(), now()));
         toast('🧪 Test lock sent to all devices');
       } else if (k === 'remind') {
         var p = { log: {} }; p.log[E.uid()] = { type: 'test-remind', ts: now(), by: by() };
@@ -253,8 +264,9 @@
     if (S.mode === 'note') return B.closeWindow();
     var timer = S.local.timer;
     if (timer && timer.endsAt > now()) return paint(timerView(timer));
-    var lockHere = S.r.lock && !S.r.paused && !(PLATFORM === 'desktop' && (S.r.lock.task.desktop || 'lock') !== 'lock');
+    var lockHere = S.r.lock && !S.r.paused;
     if (lockHere) return paint(blockView(S.r.lock));
+    if (S.mode === 'closeprog') return paint(closeProgView());
     if (S.mode === 'block') { S.mode = 'main'; if (PLATFORM === 'desktop') return B.closeWindow(); }
     if (S.mode === 'remind') {
       var it = item(S.modeTask);
@@ -263,7 +275,9 @@
     }
     paint(shell());
   }
+  var appsSent = false;
   function paint(html) {
+    if (!appsSent && S.mode === 'main' && S.state) { appsSent = true; setTimeout(function () { try { publishAndroidApps(); } catch (e) {} }, 3000); }
     var full = /^<section class="(block|remind)/.exec(html), key = full ? full[1] + (S.r.lock ? S.r.lock.id : S.modeTask) : '';
     if (key && key !== S.guardKey) { S.guardUntil = Date.now() + 1500; S.guardKey = key; } else if (!key) S.guardKey = '';
     $app.innerHTML = html; tick(); wireTimeline(); wireMini();
@@ -271,15 +285,15 @@
   }
 
   function shell() {
-    var views = { today: todayView, calendar: calendarView, tasks: tasksView, habits: habitsView, notes: notesView, settings: settingsView };
-    var tabs = [['today', '☀️', 'Today'], ['calendar', '📅', 'Calendar'], ['tasks', '✅', 'Tasks'], ['habits', '🔁', 'Habits'], ['notes', '📌', 'Notes']];
+    var views = { today: todayView, calendar: calendarView, tasks: tasksView, habits: habitsView, notes: notesView, modes: modesView, settings: settingsView };
+    var tabs = [['today', '☀️', 'Today'], ['calendar', '📅', 'Calendar'], ['tasks', '✅', 'Tasks'], ['habits', '🔁', 'Habits'], ['notes', '📌', 'Notes'], ['modes', '🛡️', 'Modes']];
     var nav = tabs.map(function (t) { return '<button class="tab' + (S.view === t[0] ? ' on' : '') + '" data-a="nav" data-id="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + '</button>'; }).join('');
     return '<header class="top">' +
       '<div class="brand"><span class="logo">▦</span> Scaffold</div><div class="top-r">' +
-      (S.r.paused ? '<button class="pill go" data-a="resume">▶ Resume</button>' : '<button class="pill stop" data-a="stopAll">⛔ Stop all</button>') +
+      modeChip() + (S.r.paused ? '<button class="pill go" data-a="resume">▶ Resume</button>' : '<button class="pill stop" data-a="stopAll">⛔ Stop all</button>') +
       '<button class="gear' + (S.view === 'settings' ? ' on' : '') + '" data-a="nav" data-id="settings" title="Settings">⚙️</button></div>' +
       '</header>' +
-      (S.r.lock && !S.r.paused ? '<div class="banner lockb">🔒 <b>' + esc(S.r.lock.task.title) + '</b> is overdue: ' + ((S.r.lock.task.desktop === 'focus') ? 'distracting apps are being closed' : 'your other devices are locked') + ' until it is done.</div>' : '') +
+      (S.r.lock && !S.r.paused ? '<div class="banner lockb">🔒 <b>' + esc(S.r.lock.task.title) + '</b> is overdue: ' + 'every device is in ' + esc(lockModeName(S.r.lock.task)) + ' Mode' + ' until it is done.</div>' : '') +
       (S.r.notes.length && PLATFORM !== 'android' ? '<div class="banner noteb">📌 ' + S.r.notes.length + ' note' + (S.r.notes.length > 1 ? 's' : '') + ' waiting: ' + esc(E.plainNote(S.r.notes[0].note.text).split('\n')[0].slice(0, 60)) + '</div>' : '') +
       (S.r.paused ? '<div class="banner">Scaffold is <b>OFF on every device</b>. Nothing will lock or pop up until you press Resume.</div>' : '') +
       '<main class="view">' + views[S.view]() + '</main>' +
@@ -456,7 +470,8 @@
   function lockApps(t) {
     if (PLATFORM !== 'android') return '';
     if (!appNames) { appNames = {}; listApps().forEach(function (a) { appNames[a.pkg] = a.label; }); }
-    return '<button class="btn wa" data-a="dialer">📞 Phone</button>' + (t.allowApps || []).filter(function (p) { return appNames[p]; }).map(function (p) {
+    var ub = E.unblockOf(S.state, myDev()) || androidPreset();
+    return '<button class="btn wa" data-a="dialer">📞 Phone</button>' + (ub.apps || []).filter(function (p) { return appNames[p] && !/whatsapp|com\.scaffold/.test(p); }).map(function (p) {
       return '<button class="btn wa" data-a="openApp" data-id="' + esc(p) + '">' + esc(appNames[p]) + '</button>';
     }).join('');
   }
@@ -863,6 +878,143 @@
       }).join('') + '</div>';
   }
 
+
+  // ---------- Restriction modes ----------
+  function myDev() { return S.local.deviceId || ''; }
+  function allModes() { return [E.FULL_LOCK].concat(live('modes').sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); })); }
+  function lockModeName(t) { var m = E.modeById(S.state, t.lockMode || 'full') || E.FULL_LOCK; return m.name; }
+  function androidPreset() { return { apps: ['com.whatsapp', 'com.whatsapp.w4b', 'com.scaffold.app'], sites: [] }; }
+  function presetFor(d) { return d.platform === 'android' ? androidPreset() : d.platform === 'mac' ? { apps: ['com.operasoftware.Opera', 'com.operasoftware.OperaGX', 'net.whatsapp.WhatsApp', 'desktop.WhatsApp', 'com.scaffold.desktop'], sites: ['web.whatsapp.com'] } : { apps: ['opera.exe', 'whatsapp.exe', 'scaffold.exe'], sites: ['web.whatsapp.com'] }; }
+  // Devices that published their apps (records may be split in parts: id#n). This device is listed even before it has.
+  function devices() {
+    var by = {}, d = S.state.devs || {};
+    Object.keys(d).forEach(function (k) {
+      var r = d[k]; if (!r || r.del) return;
+      var base = k.split('#')[0], x = by[base] || (by[base] = { id: base, parts: [] });
+      x.parts.push(r); if (r.name) { x.name = r.name; x.platform = r.platform; }
+    });
+    var out = Object.keys(by).map(function (k) {
+      var x = by[k]; x.parts.sort(function (a, b) { return (a.part || 0) - (b.part || 0); });
+      x.apps = [].concat.apply([], x.parts.map(function (r) { return r.apps || []; })); delete x.parts; return x;
+    }).filter(function (x) { return x.name; });
+    if (myDev() && !by[myDev()]) out.push({ id: myDev(), name: S.local.deviceName || 'This device', platform: PLATFORM === 'android' ? 'android' : /mac/i.test(navigator.platform) ? 'mac' : 'win', apps: PLATFORM === 'android' ? listApps().map(function (a) { return { id: a.pkg, label: a.label }; }) : [] });
+    return out.sort(function (a, b) { return (a.id === myDev() ? -1 : 0) - (b.id === myDev() ? -1 : 0) || a.name.localeCompare(b.name); });
+  }
+  var DEV_ICON = { android: '📱', mac: '💻', win: '🖥️' };
+  // Phones and tablets publish their apps from here (computers do it from the desktop app).
+  function publishAndroidApps() {
+    if (PLATFORM !== 'android' || !myDev() || !S.local.syncCode) return;
+    var apps = listApps().map(function (a) { return { id: a.pkg, label: a.label }; }).sort(function (a, b) { return a.label.localeCompare(b.label); });
+    var cur = (S.state.devs || {})[myDev()], sig = JSON.stringify(apps.map(function (a) { return a.id; })) + (S.local.deviceName || '');
+    if (cur && cur.sig === sig && now() - (cur.ts || 0) < 7 * E.DAY) return;
+    var per = 40, parts = Math.max(1, Math.ceil(apps.length / per)), p = { devs: {} }, t = now();
+    for (var i = 0; i < parts; i++) { var r = { id: i ? myDev() + '#' + i : myDev(), part: i, apps: apps.slice(i * per, (i + 1) * per), ts: t, by: by() }; if (!i) { r.name = S.local.deviceName || 'Phone'; r.platform = 'android'; r.parts = parts; r.sig = sig; } p.devs[r.id] = r; }
+    apply(p);
+  }
+  function modeChip() {
+    var a = S.act; if (!a) return '';
+    return '<button class="pill mode-chip" data-a="modeChip" style="--c:' + esc(a.mode.color || '#7c9cff') + '" title="' + esc(a.src === 'event' ? 'From the event “' + a.title + '”' : a.src === 'lock' ? 'Deadline lock' : 'Turned on by hand') + '">' + esc(a.mode.emoji || '🛡️') + ' ' + esc(a.mode.name) + (a.until ? '<small> · until ' + hm(a.until) + '</small>' : '') + '</button>';
+  }
+  function modeSummary(m) {
+    var ds = devices().map(function (d) { var l = E.modeList(m, d.id); return (DEV_ICON[d.platform] || '•') + ' ' + l.apps.length + (d.platform !== 'android' ? ' + ' + l.sites.length + ' sites' : ''); }).join(' · ');
+    return m.builtin ? 'Blocks everything except the unblockable apps' : (m.list === 'white' ? 'Allows only: ' : 'Blocks: ') + ds;
+  }
+  function modesView() {
+    var a = S.act, eventOn = a && (a.src === 'event' || a.src === 'lock');
+    var head = '<div class="sec-head"><h2>Restriction modes</h2><button class="btn primary sm" data-a="editMode">＋ Mode</button></div>' +
+      (a ? '<section class="hero mode-hero" style="--c:' + esc(a.mode.color || '#7c9cff') + '"><span class="proj-e big">' + esc(a.mode.emoji || '🛡️') + '</span><div class="hero-txt"><div class="big">' + esc(a.mode.name) + ' Mode is on</div>' +
+        '<div class="goal">' + (a.src === 'event' ? 'From the event “' + esc(a.title) + '” · ends ' + hm(a.until) : a.src === 'lock' ? 'Deadline lock: ' + esc(a.title) + ' · until it is done' : 'Turned on by hand · ' + (a.until ? 'until ' + hm(a.until) : 'until you turn it off')) + '</div>' +
+        (a.src === 'manual' ? '<button class="btn sm" data-a="modeOff">Turn off</button>' : '<div class="goal muted">Only ⛔ Emergency stop ends it early.</div>') + '</div></section>' : '<p class="muted">No mode is on. Turn one on below, or give an event a mode in the calendar.</p>');
+    var rows = allModes().map(function (m) {
+      var on = a && a.mode.id === m.id;
+      return '<div class="row-wrap"><button class="row' + (on ? ' on' : '') + '" ' + (m.builtin ? '' : 'data-a="editMode" data-id="' + esc(m.id) + '"') + ' style="--c:' + esc(m.color || '#7c9cff') + '"><span class="emoji sm">' + esc(m.emoji || '🛡️') + '</span><span class="row-main"><b>' + esc(m.name) + (on ? ' · on' : '') + '</b><small>' + esc(modeSummary(m)) + '</small></span></button>' +
+        (on ? '' : '<button class="btn sm" data-a="modeOn" data-id="' + esc(m.id) + '"' + (eventOn ? ' disabled title="A mode from an event or a deadline lock is on"' : '') + '>Turn on</button>') + '</div>';
+    }).join('');
+    var ub = devices().map(function (d) {
+      var u = E.unblockOf(S.state, d.id), set = u || presetFor(d), names = {}; (d.apps || []).forEach(function (x) { names[x.id] = x.label; });
+      var list = (set.apps || []).filter(function (id) { return names[id]; }).map(function (id) { return names[id]; }).concat(d.platform !== 'android' ? set.sites || [] : []);
+      return '<button class="row" data-a="editUnblock" data-id="' + esc(d.id) + '"><span class="emoji sm">' + (DEV_ICON[d.platform] || '•') + '</span><span class="row-main"><b>' + esc(d.name) + (d.id === myDev() ? ' (this device)' : '') + '</b><small>' + esc(list.join(', ') || 'Nothing') + (u ? '' : ' · preset') + '</small></span></button>';
+    }).join('');
+    return head + '<h3 class="mt">Modes</h3><div class="grid-cards">' + rows + '</div>' +
+      '<h3 class="mt">🔓 Unblockable</h3><p class="muted">No mode ever blocks these, on each device.</p><div class="grid-cards">' + ub + '</div>' +
+      (devices().length < 2 ? '<p class="muted">Other devices show up here once they run this version.</p>' : '');
+  }
+  function appPicker(d, chosen, name) {
+    var apps = (d.apps || []).slice(), have = {}; apps.forEach(function (x) { have[x.id] = 1; });
+    chosen.forEach(function (id) { if (!have[id]) apps.push({ id: id, label: id }); });
+    return '<input class="app-filter" type="search" placeholder="Search apps…" data-for="' + esc(name) + '">' +
+      '<div class="apps" data-list="' + esc(name) + '">' + (apps.length ? apps.map(function (x) { return '<label class="check sm"><input type="checkbox" name="' + esc(name) + '" value="' + esc(x.id) + '"' + (chosen.indexOf(x.id) >= 0 ? ' checked' : '') + '> ' + esc(x.label) + '</label>'; }).join('') : '<p class="muted">This device hasn’t sent its app list yet.</p>') + '</div>';
+  }
+  function wireFilters(f) {
+    f.addEventListener('input', function (e) {
+      var inp = e.target.closest('.app-filter'); if (!inp) return;
+      var q = inp.value.toLowerCase(), box = f.querySelector('[data-list="' + inp.getAttribute('data-for') + '"]');
+      box.querySelectorAll('label').forEach(function (l) { l.style.display = !q || l.textContent.toLowerCase().indexOf(q) >= 0 ? '' : 'none'; });
+    });
+  }
+  function sitesText(list) { return esc((list || []).join('\n')); }
+  function readSites(v) { return String(v || '').split(/[\s,]+/).map(function (x) { return E.parseUrl(x).host || ''; }).filter(Boolean).filter(function (x, i, a) { return a.indexOf(x) === i; }); }
+  function openModeEditor(m) {
+    var isNew = !m || !m.id, t = Object.assign({ name: '', emoji: '🎨', color: COLORS[4], list: 'black', dev: {} }, m || {}), ds = devices();
+    $modal.innerHTML = modalShell(isNew ? 'New mode' : 'Edit mode',
+      '<label class="field">Name<input name="name" required maxlength="40" value="' + esc(t.name) + '" placeholder="e.g. Drawing"></label>' + emojiField(t) + colorField(t) +
+      '<div class="field">How it works<div class="levels two-l">' + [['black', '⛔', 'Block these', 'Everything else stays open.'], ['white', '✅', 'Allow only these', 'Everything else is blocked.']].map(function (x) {
+        return '<label class="lvl' + (t.list === x[0] ? ' on' : '') + '"><input type="radio" name="list" value="' + x[0] + '"' + (t.list === x[0] ? ' checked' : '') + '><span class="lvl-ic">' + x[1] + '</span><span><b>' + x[2] + '</b><small>' + x[3] + '</small></span></label>';
+      }).join('') + '</div></div>' +
+      ds.map(function (d, i) {
+        var l = E.modeList(t, d.id);
+        return '<details class="dev-box"' + (i === 0 ? ' open' : '') + '><summary>' + (DEV_ICON[d.platform] || '•') + ' ' + esc(d.name) + ' <small>' + l.apps.length + ' apps' + (d.platform !== 'android' ? ', ' + l.sites.length + ' sites' : '') + '</small></summary>' +
+          '<div class="field">Apps' + appPicker(d, l.apps, 'a_' + d.id) + '</div>' +
+          (d.platform !== 'android' ? '<label class="field">Websites <small>(one per line, e.g. youtube.com; searching always works)</small><textarea name="s_' + esc(d.id) + '" rows="3">' + sitesText(l.sites) + '</textarea></label>' : '') + '</details>';
+      }).join('') + '<p class="muted">The unblockable apps are never blocked, whatever is picked here.</p>', !isNew);
+    var f = wire(t, function (fd) {
+      t.name = fd.get('name').trim(); t.list = fd.get('list') || 'black'; t.dev = t.dev || {};
+      ds.forEach(function (d) { t.dev[d.id] = { apps: fd.getAll('a_' + d.id), sites: d.platform !== 'android' ? readSites(fd.get('s_' + d.id)) : [] }; });
+      apply(E.opPut('modes', t, by(), now())); closeModal(); toast(isNew ? '🛡️ Mode added' : 'Saved');
+    }, function () { confirmBox('Delete “' + t.name + '” Mode?', 'Events and locks that use it stop using it.', 'Delete', function () { apply(E.opDel('modes', t, by(), now())); closeModal(); }); });
+    f.addEventListener('change', function (e) { if (e.target.name === 'list') f.querySelectorAll('.lvl').forEach(function (x) { x.classList.toggle('on', x.contains(e.target)); }); });
+    wireFilters(f);
+  }
+  function openUnblockEditor(devId) {
+    var d = devices().filter(function (x) { return x.id === devId; })[0]; if (!d) return;
+    var cur = E.unblockOf(S.state, d.id) || presetFor(d);
+    $modal.innerHTML = modalShell('🔓 Unblockable · ' + esc(d.name),
+      '<p class="muted">No mode ever blocks these on ' + esc(d.name) + '.' + (d.platform !== 'android' ? ' Keep the browser here: blocked websites freeze inside it.' : '') + '</p>' +
+      '<div class="field">Apps' + appPicker(d, cur.apps || [], 'ua') + '</div>' +
+      (d.platform !== 'android' ? '<label class="field">Websites <small>(one per line)</small><textarea name="us" rows="3">' + sitesText(cur.sites) + '</textarea></label>' : ''), false);
+    var f = wire({}, function (fd) {
+      var u = JSON.parse(JSON.stringify((S.state.cfg || {}).unblock || { id: 'unblock', dev: {} })); delete u.ts; delete u.by; delete u.del; u.id = 'unblock'; u.dev = u.dev || {};
+      u.dev[d.id] = { apps: fd.getAll('ua'), sites: d.platform !== 'android' ? readSites(fd.get('us')) : [] };
+      apply(E.opPut('cfg', u, by(), now())); closeModal(); toast('Saved');
+    });
+    wireFilters(f);
+  }
+  function turnOnBox(id) {
+    var m = E.modeById(S.state, id); if (!m) return;
+    var el = document.createElement('div');
+    el.className = 'modal-bg top-layer';
+    el.innerHTML = '<div class="modal small"><h2>' + esc((m.emoji || '🛡️') + ' ' + m.name) + '</h2><p>Turn it on for:</p><div class="row-btns dur">' +
+      [[30, '30 min'], [60, '1 hour'], [120, '2 hours'], [0, 'Until I turn it off']].map(function (x) { return '<button class="btn" data-min="' + x[0] + '">' + x[1] + '</button>'; }).join('') +
+      '</div><div class="modal-actions"><span class="sp"></span><button class="btn ghost" data-no>Cancel</button></div></div>';
+    document.body.appendChild(el);
+    el.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-min]');
+      if (b) { var mins = +b.getAttribute('data-min'), t = now(); el.remove(); apply(E.opPut('cfg', { id: 'modeOn', mode: id, at: t, until: mins ? t + mins * E.MIN : 0 }, by(), t)); toast('🛡️ ' + m.name + ' Mode is on'); }
+      else if (e.target.closest('[data-no]') || e.target === el) el.remove();
+    });
+  }
+  // Computers: the "Close this Program" pop-up (one row per program open when the mode started).
+  function closeProgView() {
+    var g = S.local.guard || {}, list = g.list || [];
+    if (!list.length) { setTimeout(function () { B.closeWindow(); }, 300); return '<section class="remind"><p class="muted">Nothing to close.</p></section>'; }
+    return '<section class="closeprog"><h2>🛡️ ' + esc(g.mode) + ' Mode is on</h2><p class="muted">These programs are blocked now. Save your work, then choose.</p>' +
+      list.map(function (p) {
+        return '<div class="cp-row"><b>' + esc(p.name) + '</b><div class="row-btns"><button class="btn primary sm" data-a="guardAct" data-id="close" data-k="' + esc(p.id) + '">Close Now</button>' +
+          (p.waits < 3 ? '<button class="btn sm" data-a="guardAct" data-id="wait" data-k="' + esc(p.id) + '">Give me 2 minutes' + (p.waits ? ' (' + (3 - p.waits) + ' left)' : '') + '</button>' : '') +
+          '<button class="btn ghost sm" data-a="guardAct" data-id="freeze" data-k="' + esc(p.id) + '">🧊 Freeze program instead</button></div></div>';
+      }).join('') + '</section>';
+  }
+
   // ---------- Notes ----------
   function notesView() {
     var notes = live('notes').sort(function (a, b) { return ((a.active === false) - (b.active === false)) || (a.every || 0) - (b.every || 0); });
@@ -913,8 +1065,7 @@
     if (PLATFORM === 'desktop') {
       var V = L.vault || {}, C = L.cal || {};
       h += '<section class="panel"><h3>💻 This computer</h3><label class="check"><input type="checkbox" data-change="autostart"' + (L.autostart ? ' checked' : '') + '> Start Scaffold when the computer starts</label>' +
-        '<label class="field">Apps closed during “focus” locks (comma-separated)<textarea id="blocklist" rows="3">' + esc((L.blocklist || []).join(', ')) + '</textarea></label>' +
-        '<button class="btn ghost sm" data-a="saveBlocklist">Save list</button><p class="muted">WhatsApp is never closed. Emergency stop shortcut: <b>Ctrl+Alt+Shift+K</b> (⌘ on Mac).</p></section>';
+        '<p class="muted">What gets blocked is set in 🛡️ Modes. Emergency stop shortcut: <b>Ctrl+Alt+Shift+K</b> (⌘ on Mac).</p></section>';
       h += '<section class="panel"><h3>🗂️ Obsidian vault</h3><p>Scaffold lists your <b>active</b> vault projects in Tasks, and ticks their Development items when you finish the matching task.</p>' +
         '<label class="field">Vault folder<input id="vault-path" value="' + esc(L.vaultPath || V.path || '') + '" placeholder="/path/to/Second Brain"></label><button class="btn ghost sm" data-a="saveVault">Save and scan</button>' +
         '<p class="muted">Status: ' + esc(V.status || 'not scanned yet') + '</p></section>';
@@ -962,17 +1113,12 @@
       '<option value="custom"' + (custom ? ' selected' : '') + '>Custom…</option></select></label>' +
       '<label class="field f-remind">Minutes<input type="number" name="remindN" min="1" max="1440" value="' + every + '"></label></div>' +
       '<div class="field">Reminder window' + (kind === 'todo' ? ' <small>(every day until it is done)</small>' : '') + '<div class="pair"><input type="time" name="rfrom" value="' + esc(rw.from) + '"><span>to</span><input type="time" name="rto" value="' + esc(rw.to) + '"></div></div></div>' +
-      '<label class="check f-lock"><input type="checkbox" name="lock"' + (E.lockOf(t) ? ' checked' : '') + '> 🔒 Lock at deadline <small class="f-locknote">(needs a deadline with a time)</small></label>';
+      '<div class="field dl-row"><label class="check f-lock"><input type="checkbox" name="lock"' + (E.lockOf(t) ? ' checked' : '') + '> 🔒 Lock at deadline <small class="f-locknote">(needs a deadline with a time)</small></label>' +
+      '<label class="f-lockmode">with <select name="lockMode">' + allModes().map(function (m) { return '<option value="' + esc(m.id) + '"' + sel(m.id, t.lockMode || 'full') + '>' + esc((m.emoji || '🛡️') + ' ' + m.name) + '</option>'; }).join('') + '</select></label></div>';
   }
   function doneFields(t) {
     return '<div class="field timer-row"><label class="check"><input type="checkbox" name="timer"' + (t.kind === 'timer' ? ' checked' : '') + '> ⏱ Timer</label>' +
-      '<label class="f-minutes"><input type="number" name="minutes" min="1" max="240" value="' + esc(t.minutes || 20) + '"> minutes <small>(done when it finishes)</small></label></div>' +
-      '<label class="field">On computers, when locked<select name="desktop"><option value="lock"' + sel('lock', t.desktop) + '>Cover the whole screen (for tasks away from the computer)</option><option value="focus"' + sel('focus', t.desktop) + '>Only close distracting apps (for computer tasks)</option><option value="none"' + sel('none', t.desktop) + '>Do nothing on computers</option></select></label>';
-  }
-  function appsField(t, apps) {
-    return apps.length ? '<div class="field">Apps still allowed on the phone during a lock <small>(WhatsApp always is)</small><div class="apps">' + apps.map(function (a) {
-      return '<label class="check sm"><input type="checkbox" name="app" value="' + esc(a.pkg) + '"' + ((t.allowApps || []).indexOf(a.pkg) >= 0 ? ' checked' : '') + '> ' + esc(a.label) + '</label>';
-    }).join('') + '</div></div>' : '';
+      '<label class="f-minutes"><input type="number" name="minutes" min="1" max="240" value="' + esc(t.minutes || 20) + '"> minutes <small>(done when it finishes)</small></label></div>';
   }
   function listApps() { if (PLATFORM !== 'android') return []; try { return JSON.parse(B.listApps()); } catch (e) { return []; } }
   function modalShell(title, body, canDelete) {
@@ -1011,14 +1157,13 @@
     var pv = f.querySelector('input[name="push"]:checked'), rem = f.querySelector('.f-rem'); if (!rem) return;
     rem.style.display = pv && pv.value !== 'off' ? '' : 'none';
     var dl = f.dl || f.dueOn, has = !dl || (dl.checked && !!(f.due && f.due.value));   // "by the end of the day" can't lock
-    if (f.lock) { f.lock.disabled = !has; f.querySelector('.f-lock').classList.toggle('off', !has); f.querySelector('.f-locknote').style.display = has ? 'none' : ''; }
+    if (f.lock) { f.lock.disabled = !has; f.querySelector('.f-lock').classList.toggle('off', !has); f.querySelector('.f-locknote').style.display = has ? 'none' : ''; f.querySelector('.f-lockmode').style.display = has && f.lock.checked ? '' : 'none'; }
   }
   function readDone(t, fd, apps) {
     t.push = fd.get('push') || 'off'; t.lock = !!fd.get('lock'); t.rfrom = fd.get('rfrom') || '09:00'; t.rto = fd.get('rto') || '21:00';
     t.kind = fd.get('timer') ? 'timer' : 'check'; t.minutes = Math.max(1, Math.min(240, Math.round(+fd.get('minutes') || 20)));
-    delete t.tiny; delete t.level; delete t.start; delete t.dueEnd;
-    t.remind = fd.get('remind') === 'custom' ? Math.min(1440, Math.max(1, Math.round(+fd.get('remindN') || 30))) : +fd.get('remind'); t.desktop = fd.get('desktop');
-    if (apps.length) t.allowApps = fd.getAll('app');
+    delete t.tiny; delete t.level; delete t.start; delete t.dueEnd; delete t.desktop; delete t.allowApps; t.lockMode = fd.get('lockMode') || 'full';
+    t.remind = fd.get('remind') === 'custom' ? Math.min(1440, Math.max(1, Math.round(+fd.get('remindN') || 30))) : +fd.get('remind');
   }
 
   function habitWhen(t) {
@@ -1030,7 +1175,7 @@
   }
   function openHabitEditor(task) {
     var isNew = !task || !task.id;
-    var t = Object.assign({ title: '', emoji: '📖', color: COLORS[0], days: [], push: 'nag', remind: 30, kind: 'check', minutes: 20, desktop: 'lock', allowApps: [], active: true }, task || {});
+    var t = Object.assign({ title: '', emoji: '📖', color: COLORS[0], days: [], push: 'nag', remind: 30, kind: 'check', minutes: 20, allowApps: [], active: true }, task || {});
     var apps = listApps(), r = t.repeat || 'weekdays', dueOn = E.hasDue(t, 'habit');
     $modal.innerHTML = modalShell(isNew ? 'New habit' : 'Edit habit',
       '<label class="field">What?<input name="title" required maxlength="60" value="' + esc(t.title) + '" placeholder="e.g. Read"></label>' + emojiField(t) + colorField(t) +
@@ -1042,7 +1187,7 @@
       '<div class="field dl-row"><label class="check"><input type="checkbox" name="dueOn"' + (dueOn ? ' checked' : '') + '> ⏰ Deadline</label>' +
       '<label class="f-dl">at <input type="time" name="due" value="' + esc(dueOn && t.due !== '23:59' ? t.due || '' : '') + '"> <small>(blank = end of the day)</small></label></div>' +
       '<label class="check"><input type="checkbox" name="active"' + (t.active !== false ? ' checked' : '') + '> Active (turn off to pause this habit)</label>' +
-      pushField(t, 'habit') + doneFields(t) + appsField(t, apps), !isNew);
+      pushField(t, 'habit') + doneFields(t), !isNew);
     wire(t, function (fd) {
       t.title = fd.get('title').trim(); t.repeat = fd.get('repeat'); t.dueOn = !!fd.get('dueOn'); t.due = t.dueOn ? fd.get('due') || '' : '';
       if (t.repeat !== 'weekdays') t.days = [];
@@ -1064,7 +1209,7 @@
 
   function openTodoEditor(task) {
     var isNew = !task || !task.id;
-    var t = Object.assign({ title: '', emoji: '✅', color: COLORS[1], date: '', due: '', push: 'nudge', remind: 120, kind: 'check', minutes: 20, desktop: 'none', allowApps: [] }, task || {});
+    var t = Object.assign({ title: '', emoji: '✅', color: COLORS[1], date: '', due: '', push: 'nudge', remind: 120, kind: 'check', minutes: 20, allowApps: [] }, task || {});
     var apps = listApps(), projects = live('projects'), old = (t.repeat || 'none') !== 'none', dl = !!t.date && !old;
     $modal.innerHTML = modalShell(isNew ? 'New task' : 'Edit task',
       '<label class="field">What?<input name="title" required maxlength="80" value="' + esc(t.title) + '" placeholder="e.g. Buy batteries"></label>' +
@@ -1074,7 +1219,7 @@
       (old ? '' : '<div class="field dl-row"><label class="check"><input type="checkbox" name="dl"' + (dl ? ' checked' : '') + '> ⏰ Deadline</label>' +
         '<span class="f-dl"><input type="date" name="date" value="' + esc(t.date || E.dateKey(now())) + '"> <input type="time" name="due" value="' + esc(t.due && t.due !== '23:59' ? t.due : '') + '"> <small>(time: blank = end of the day)</small></span></div>' +
         '<label class="check f-monthly"><input type="checkbox" name="monthly"' + (t.monthly ? ' checked' : '') + '> Show in monthly <small>(marks the deadline day in the month view)</small></label>') +
-      emojiField(t) + colorField(t) + pushField(t, 'todo') + doneFields(t) + appsField(t, apps), !isNew);
+      emojiField(t) + colorField(t) + pushField(t, 'todo') + doneFields(t), !isNew);
     wire(t, function (fd) {
       t.title = fd.get('title').trim(); t.project = fd.get('project') || '';
       if (!old) {
@@ -1452,7 +1597,9 @@
     var rend = rule && rule.count ? 'count' : rule && rule.until ? 'until' : 'never';
     var L0 = isNew ? null : E.linkOf(E.linkIndex(S.state), t), link0 = L0 ? L0.link.k + ':' + L0.link.id : t.link && t.link.k ? t.link.k + ':' + t.link.id : '';
     var sk0 = L0 ? E.sessKey(L0, t) : '', ss0 = sk0 ? (S.state.sess || {})[sk0] : null;
-    var orig = JSON.stringify([t.title, t.allDay, t.start, t.end, myCal, t.color || '', desc0, t.rrule || '', link0]);
+    var ixm = E.linkIndex(S.state), Lm = isNew ? null : ixm['i:' + (t.virt || t.id)] || (t.gid && ixm['g:' + t.gid]) || (t.series && ixm['g:' + t.series]);
+    var mode0 = t.mode != null ? t.mode : (Lm && Lm.mode) || '';
+    var orig = JSON.stringify([t.title, t.allDay, t.start, t.end, myCal, t.color || '', desc0, t.rrule || '', link0, mode0]);
     var sessBox = L0 && !ro && t.start <= now() && linkRec(L0.link) ? '<div class="sess-box"><b>Session</b>' + sessionControls({ e: t, link: L0.link, key: sk0, done: !!(ss0 && ss0.done), tasks: (ss0 && ss0.tasks) || [] }) + '</div>' : '';
     var linkSel = function () {
       var o = function (k, r, label) { var v = k + ':' + r.id; return '<option value="' + esc(v) + '"' + (v === link0 ? ' selected' : '') + '>' + esc(label) + '</option>'; };
@@ -1468,7 +1615,7 @@
     $modal.innerHTML = modalShell(isNew ? 'New event' : ro ? 'Event (read-only calendar)' : 'Edit event',
       (ro ? '<p class="muted">This calendar is read-only. Here you can only choose whether it shows in the month view.</p>' : '') +
       sessBox + '<label class="field">Title<input name="title" required maxlength="120" value="' + esc(t.title) + '"' + dis + '></label>' +
-      (ro ? '' : linkSel()) +
+      (ro ? '' : linkSel() + '<label class="field">🛡️ Restriction mode <small>(on while the event runs)</small><select name="emode"><option value="">None</option>' + allModes().map(function (m) { return '<option value="' + esc(m.id) + '"' + sel(m.id, mode0) + '>' + esc((m.emoji || '🛡️') + ' ' + m.name) + '</option>'; }).join('') + '</select></label>') +
       (v2 && !ro ? '<label class="field">Calendar<select name="cal">' + cals.map(function (c) { return '<option value="' + esc(c.id) + '"' + (c.id === myCal ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></label>' : '') +
       '<label class="field">Date<input type="date" name="date" value="' + E.dateKey(t.start) + '" required' + dis + '></label>' +
       '<label class="check"><input type="checkbox" name="allDay"' + (t.allDay ? ' checked' : '') + dis + '> All day</label>' +
@@ -1515,9 +1662,10 @@
         if (!c.id) c.id = E.uid();
         if (lv) c.link = { k: lv.slice(0, li), id: lv.slice(li + 1), o: (L0 && L0.o) || c.id };
         else if (L0) c.link = { k: '', id: '', o: L0.o }; else delete c.link;
-        var stasks = lv.indexOf('project:') === 0 ? fd.getAll('stask') : null;
+        var stasks = lv.indexOf('project:') === 0 ? fd.getAll('stask') : null, mv = fd.get('emode') || '';
+        if (mv || mode0) c.mode = mv; else delete c.mode;
         if (nf === 'custom' || !ruleChanged) { c.rrule = t.rrule || ''; c.keepRule = true; } else delete c.keepRule;
-        var changed = isNew || JSON.stringify([c.title, c.allDay, c.start, c.end, c.cal || myCal, c.color || '', c.desc != null ? c.desc : desc0, c.rrule || '', lv]) !== orig;
+        var changed = isNew || JSON.stringify([c.title, c.allDay, c.start, c.end, c.cal || myCal, c.color || '', c.desc != null ? c.desc : desc0, c.rrule || '', lv, mv]) !== orig;
         var saveTasks = function () { if (stasks && c.link && JSON.stringify(stasks) !== JSON.stringify(stasks0)) sessPut(E.sessKey({ o: c.link.o }, c), { tasks: stasks }); };
         var save = function (scope) {
           if (scope) c.scope = scope;

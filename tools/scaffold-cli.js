@@ -5,7 +5,7 @@
    node scaffold-cli.js put <map> '<json>'         create, or update by "id" (only the given fields change)
    node scaffold-cli.js del <map> <id>
    node scaffold-cli.js done <id>
-   Maps: habits (stored as "tasks"), todos, projects, notes, events. */
+   Maps: habits (stored as "tasks"), todos, projects, notes, events, modes, devs (read only). */
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -25,7 +25,7 @@ function die(msg) { console.error(msg); process.exit(1); }
 const state = read('state.json') || E.emptyState();
 const local = read('local.json') || {};
 E.MAPS.forEach((m) => { state[m] = state[m] || {}; });
-const MAP = { habits: 'tasks', habit: 'tasks', tasks: 'tasks', todos: 'todos', todo: 'todos', projects: 'projects', project: 'projects', notes: 'notes', note: 'notes', events: 'events', event: 'events' };
+const MAP = { modes: 'modes', mode: 'modes', devs: 'devs', habits: 'tasks', habit: 'tasks', tasks: 'tasks', todos: 'todos', todo: 'todos', projects: 'projects', project: 'projects', notes: 'notes', note: 'notes', events: 'events', event: 'events' };
 const BY = 'claude';
 
 function send(patch) {

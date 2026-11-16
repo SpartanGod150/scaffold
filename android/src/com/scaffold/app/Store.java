@@ -87,4 +87,15 @@ public final class Store {
     static Engine.Result now(Context c) {
         synchronized (Store.class) { return Engine.compute(state(c), System.currentTimeMillis()); }
     }
+
+    private static String gevRaw;
+    private static JSONObject gevObj = new JSONObject();
+    /** This device's copy of Google Calendar (for event modes). */
+    static synchronized JSONObject gev(Context c) {
+        String raw = prefs(c).getString("gev", "{}");
+        if (!raw.equals(gevRaw)) { try { gevObj = new JSONObject(raw); } catch (Exception e) { gevObj = new JSONObject(); } gevRaw = raw; }
+        return gevObj;
+    }
+    /** The restriction mode running now (null = none). */
+    static Engine.Active mode(Context c) { return Engine.activeMode(state(c), gev(c), System.currentTimeMillis(), now(c)); }
 }

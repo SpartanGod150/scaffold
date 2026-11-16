@@ -479,3 +479,22 @@ details.vault .row { background: var(--card); margin-top: 8px; border-left-color
 .cv.hiing .cv-ev:not(.hi) { opacity: .3; }
 .cv-ev.hi { box-shadow: 0 0 0 2px #fff, 0 0 12px var(--c); z-index: 2; }
 .cv-ev.sdn { opacity: .55; }
+
+/* v0.5: restriction modes */
+.pill.mode-chip { background: var(--card); border: 1px solid var(--c); color: var(--txt); }
+.levels.two-l { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.levels.two-l .lvl { flex-direction: column; align-items: flex-start; gap: 4px; }
+.dev-box { background: var(--bg2); border: 1px solid var(--line); border-radius: 14px; padding: 8px 12px; margin: 10px 0; }
+.dev-box summary { cursor: pointer; font-weight: 700; padding: 4px 0; }
+.dev-box summary small { color: var(--mute); font-weight: 400; margin-left: 6px; }
+.app-filter { margin-top: 6px; }
+.row.on { box-shadow: 0 0 0 1px var(--c); }
+.row-wrap > .btn { align-self: center; }
+.row-btns.dur { flex-wrap: wrap; }
+.closeprog { padding: 18px; }
+.closeprog h2 { margin: 0 0 4px; }
+.cp-row { background: var(--card); border-radius: 14px; padding: 10px 12px; margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.cp-row .row-btns { flex-wrap: wrap; gap: 6px; }
+.mode-hero .btn { margin-top: 8px; }
+.pill { white-space: nowrap; }
+@media (max-width: 560px) { .pill.mode-chip small { display: none; } .brand { font-size: 0; gap: 0; } .brand .logo { font-size: 20px; } }

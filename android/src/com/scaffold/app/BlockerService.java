@@ -18,11 +18,12 @@ public class BlockerService extends AccessibilityService {
     /** Every 2 s during a lock: if Scaffold isn't on screen and the app in front isn't an allowed one, bring the lock back.
      *  Covers a missed app-switch event (then nothing would re-check until the next switch). */
     private void watch() {
-        Engine.Result r = Store.now(this);
-        if (r.lock == null || r.paused || MainActivity.resumed) return;
+        Engine.Active act = Store.mode(this);
+        if (act == null || MainActivity.resumed) return;
         String pkg = lastPkg;
         boolean stale = pkg.isEmpty() || pkg.equals(getPackageName());   // we think Scaffold is in front, but it isn't
-        if (!stale && Enforcer.allowed(this, pkg, r.lock)) return;
+        if (stale && !"lock".equals(act.src)) return;
+        if (!stale && Enforcer.allowed(this, pkg, act)) return;
         lastLaunch = 0;
         check(stale ? "" : pkg);
     }
@@ -36,11 +37,20 @@ public class BlockerService extends AccessibilityService {
     void check(String pkg) {
         Engine.Result r = Store.now(this);
         boolean note = !r.notes.isEmpty();
-        if (!note && r.lock == null) return;
-        if (pkg.equals(getPackageName()) || (r.lock != null ? Enforcer.allowed(this, pkg, r.lock) : Enforcer.ALWAYS.contains(pkg))) return;
+        Engine.Active act = Store.mode(this);
+        if (!note && act == null) return;
+        if (pkg.equals(getPackageName()) || (act != null ? Enforcer.allowed(this, pkg, act) : Enforcer.ALWAYS.contains(pkg))) return;
         long now = System.currentTimeMillis();
         if (now - lastLaunch < 700) return;
         lastLaunch = now;
+        if (!note && !"lock".equals(act.src)) {   // a mode: the app just closes (back to the home screen) until the mode ends
+            if (pkg.isEmpty() || Enforcer.isHome(this, pkg)) return;
+            performGlobalAction(GLOBAL_ACTION_HOME);
+            String label = pkg;
+            try { label = getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(pkg, 0)).toString(); } catch (Exception ignored) {}
+            android.widget.Toast.makeText(this, "🛡️ " + label + " is blocked by " + act.mode.optString("name", "a") + " Mode", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
         Intent i = new Intent(this, MainActivity.class)
                 .putExtra("mode", note ? "note" : "block")
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
