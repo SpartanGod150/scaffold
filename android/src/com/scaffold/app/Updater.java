@@ -83,6 +83,7 @@ public final class Updater {
         if (repo.isEmpty()) { st(c, id, "no update source set"); return; }
         String latest = latestTag(repo);
         if (latest.isEmpty() || !newer(latest, version(c))) { st(c, id, "up to date"); return; }
+        if (UpdateReceiver.confirm != null && latest.equals(Store.get(c, "updVersion", ""))) { st(c, id, "version " + latest + " ready: tap Install"); return; }   // already waiting for the user
         String dl = "https://github.com/" + repo + "/releases/download/v" + latest + "/";
         st(c, id, "downloading version " + latest + ": 0%");
         String want = "";
@@ -108,12 +109,17 @@ public final class Updater {
         if (!f.exists()) { Store.put(c, "updFile", ""); return; }
         Engine.Result r = Store.now(c);
         if (r.lock != null || Store.getLong(c, "timerEnds", 0) > System.currentTimeMillis()) return;
+        // Android allows about 50 open install sessions per app. Each update used to leave one behind (waiting for "Install",
+        // or failed), until no new one could start ("Too many active sessions"). Only one is ever needed: drop the others first.
+        PackageInstaller pi = c.getPackageManager().getPackageInstaller();
+        for (PackageInstaller.SessionInfo old : pi.getMySessions()) { try { pi.abandonSession(old.getSessionId()); } catch (Exception ignored) {} }
+        UpdateReceiver.confirm = null;
+        int id = -1;
         try {
-            PackageInstaller pi = c.getPackageManager().getPackageInstaller();
             PackageInstaller.SessionParams p = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
             p.setAppPackageName(c.getPackageName());
             if (Build.VERSION.SDK_INT >= 31) p.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
-            int id = pi.createSession(p);
+            id = pi.createSession(p);
             try (PackageInstaller.Session s = pi.openSession(id)) {
                 try (InputStream in = new FileInputStream(f); OutputStream out = s.openWrite("scaffold", 0, f.length())) {
                     byte[] buf = new byte[65536]; int n;
@@ -126,7 +132,10 @@ public final class Updater {
             }
             Store.put(c, "updFile", "");
             status(c, "installing version " + Store.get(c, "updVersion", "") + "…");
-        } catch (Exception e) { status(c, "error installing: " + e.getMessage()); }
+        } catch (Exception e) {
+            if (id >= 0) { try { pi.abandonSession(id); } catch (Exception ignored) {} }
+            status(c, "error installing: " + e.getMessage());
+        }
     }
 
     static boolean newer(String a, String b) {
