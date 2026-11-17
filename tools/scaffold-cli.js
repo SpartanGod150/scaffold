@@ -30,12 +30,19 @@ const BY = 'claude';
 
 function send(patch) {
   if (!local.syncCode) die('This computer has no sync code: open Scaffold → Settings → Sync first.');
-  const s = new Sync({ code: local.syncCode, deviceId: BY + '-' + (local.deviceId || 'x'), since: '', onPatch() {}, onStatus() {}, onSince() {} });
+  // Same channels as the app: Firebase (main), ntfy, and the Google mailbox. Done once any one of them has it.
+  const fb = state.cfg && state.cfg.fb, rl = state.cfg && state.cfg.relay;
+  const relay = local.calUrl ? { url: local.calUrl, secret: local.calSecret } : rl && !rl.del && rl.url ? { url: rl.url, secret: rl.secret } : null;
+  const s = new Sync({ code: local.syncCode, deviceId: BY + '-' + (local.deviceId || 'x'), since: '', onPatch() {}, onStatus() {}, onSince() {},
+    firebase: () => (fb && !fb.del && fb.url ? fb.url : null), fbSince: Date.now(), onFbSince() {}, relay: () => relay });
+  try { s._fbStart(); } catch (e) {}
   s.publish(E.chunks(patch), false);
   const t0 = Date.now();
   const iv = setInterval(() => {
-    if (!s.outbox.length && !s.sending) { clearInterval(iv); s.stop(); console.log('sent to all devices'); }
-    else if (Date.now() - t0 > 20000) { clearInterval(iv); s.stop(); die('could not reach the relay; nothing was sent'); }
+    const fbDone = s.fb && !s.fb.outbox.length && !s.fb.sending, ntfyDone = !s.outbox.length && !s.sending, gDone = relay && !s.g.outbox.length && !s.g.busy;
+    // ntfy drops messages when its daily limit is hit, so it counts only when it's the only channel.
+    if (fbDone || gDone || (!s.fb && !relay && ntfyDone)) { clearInterval(iv); s.stop(); console.log('sent to all devices'); setTimeout(() => process.exit(0), 300); }
+    else if (Date.now() - t0 > 30000) { clearInterval(iv); s.stop(); die('could not reach any sync channel; nothing was sent'); }
   }, 100);
 }
 function clean(r) { const o = Object.assign({}, r); delete o.ts; delete o.by; return o; }

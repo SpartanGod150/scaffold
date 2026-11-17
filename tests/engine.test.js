@@ -176,25 +176,27 @@ t('task with no deadline shows only with reminders on', () => {
 
 t('old weekly task still works until it becomes a habit', () => {
   const s = base();
-  addTodo(s, { id: 'chap', title: 'Read a chapter', repeat: 'week', dueDay: 6, start: '18:00', due: '21:00', level: 3 });
+  addTodo(s, { id: 'chap', title: 'Read a chapter', repeat: 'week', dueDay: 5, start: '18:00', due: '21:00', level: 3 });
   const mon = E.compute(s, at('12:00')).items.find(i => i.id === 'chap');
-  assert.strictEqual(mon.key, 'chap@W2026-11-09'); assert.strictEqual(mon.locked, false);
-  const sun = E.fromKey('2026-11-15');
-  assert.strictEqual(E.compute(s, E.at(sun, '21:05')).items.find(i => i.id === 'chap').locked, true, 'locks at the Sunday deadline');
+  assert.strictEqual(mon.key, 'chap@W2026-11-08'); assert.strictEqual(mon.locked, false);
+  const sat = E.fromKey('2026-11-14');
+  assert.strictEqual(E.compute(s, E.at(sat, '21:05')).items.find(i => i.id === 'chap').locked, true, 'locks at the Saturday deadline');
   E.merge(s, E.opComplete('chap', 'full', 'A', at('13:00'), s));
-  assert.ok(E.compute(s, E.at(sun, '21:05')).items.find(i => i.id === 'chap').done, 'Monday completion covers the week');
+  assert.ok(E.compute(s, E.at(sat, '21:05')).items.find(i => i.id === 'chap').done, 'Monday completion covers the week');
 });
 
-t('weekly habit: one completion per week, shown once in the tracker', () => {
+t('weekly habit: weeks run Sunday → Saturday, one completion per week, shown once in the tracker', () => {
   const s = E.emptyState();
-  Object.assign(s.tasks, E.opTask({ id: 'wk', title: 'Clean', repeat: 'week', dueDay: 6, dueOn: true, due: '20:00', push: 'nag', rfrom: '10:00', rto: '20:00', remind: 120 }, 'A', at('06:00')).tasks);
+  Object.assign(s.tasks, E.opTask({ id: 'wk', title: 'Clean', repeat: 'week', dueDay: 5, dueOn: true, due: '20:00', push: 'nag', rfrom: '10:00', rto: '20:00', remind: 120 }, 'A', at('06:00')).tasks);
   const mon = E.compute(s, at('12:00')).items[0];
-  assert.strictEqual(mon.key, 'wk@W2026-11-09'); assert.strictEqual(mon.future, true);
+  assert.strictEqual(mon.key, 'wk@W2026-11-08'); assert.strictEqual(mon.future, true); assert.strictEqual(mon.deadlineDay, '2026-11-14');
   E.merge(s, E.opComplete('wk', 'full', 'A', E.at(E.fromKey('2026-11-11'), '13:00'), s));
-  assert.ok(E.compute(s, E.at(E.fromKey('2026-11-15'), '12:00')).items[0].done);
-  const st = E.stats(s, E.at(E.fromKey('2026-11-15'), '22:00'), 7).tasks[0];
-  assert.deepStrictEqual(st.cells.map(c => c.s), ['none', 'none', 'full', 'none', 'none', 'none', 'none']);
-  assert.ok(!E.compute(s, E.at(E.fromKey('2026-11-16'), '12:00')).items[0].done, 'new week resets');
+  assert.ok(E.compute(s, E.at(E.fromKey('2026-11-14'), '12:00')).items[0].done);
+  const st = E.stats(s, E.at(E.fromKey('2026-11-14'), '22:00'), 7).tasks[0];
+  assert.deepStrictEqual(st.cells.map(c => c.s), ['none', 'none', 'none', 'full', 'none', 'none', 'none']);
+  assert.ok(!E.compute(s, E.at(E.fromKey('2026-11-15'), '12:00')).items[0].done, 'Sunday starts a new week');
+  assert.deepStrictEqual(E.periodOf({ repeat: 'week', dueDay: 6 }, E.fromKey('2026-11-18')), { key: 'W2026-11-15', first: '2026-11-15', deadline: '2026-11-15' }, 'a Sunday deadline is the first day');
+  assert.strictEqual(E.periodOf({ repeat: 'week' }, E.fromKey('2026-11-18')).deadline, '2026-11-21', 'no day set: Saturday');
 });
 
 t('monthly and every-N-days periods', () => {

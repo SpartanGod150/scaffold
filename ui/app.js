@@ -921,7 +921,7 @@
   function todoWhen(t) {
     var rep = t.repeat || 'none', by = t.dueEnd ? 'end of day' : (t.due || '21:00');
     if (rep === 'custom') { var full = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], ds = (t.days || []).slice().sort(); return (ds.length && ds.length < 7 ? ds.map(function (d) { return full[d]; }).join(', ') : 'Every day') + ' · by ' + by; }
-    if (rep === 'week') return 'Every week · by ' + WEEKDAYS[t.dueDay == null ? 6 : +t.dueDay] + ' ' + by;
+    if (rep === 'week') return 'Every week · by ' + WEEKDAYS[t.dueDay == null ? 5 : +t.dueDay] + ' ' + by;
     if (rep === 'month') return 'Every month · by day ' + (t.dueDay || 'last') + ' ' + by;
     if (rep === 'days') return 'Every ' + (t.every || 2) + ' days · by ' + by;
     if (!t.date) return 'No deadline';
@@ -1282,7 +1282,7 @@
 
   function habitWhen(t) {
     var rep = t.repeat || 'weekdays', by = E.hasDue(t, 'habit') ? ' · by ' + (t.due && t.due !== '23:59' ? t.due : 'end of day') : '';
-    if (rep === 'week') return 'Every week' + (E.hasDue(t, 'habit') ? ' · by ' + WEEKDAYS[t.dueDay == null ? 6 : +t.dueDay] + ' ' + (t.due && t.due !== '23:59' ? t.due : '') : '');
+    if (rep === 'week') return 'Every week' + (E.hasDue(t, 'habit') ? ' · by ' + WEEKDAYS[t.dueDay == null ? 5 : +t.dueDay] + ' ' + (t.due && t.due !== '23:59' ? t.due : '') : '');
     if (rep === 'month') return 'Every month' + (E.hasDue(t, 'habit') ? ' · by day ' + (t.dueDay || 'last') + ' ' + (t.due && t.due !== '23:59' ? t.due : '') : '');
     if (rep === 'every') return 'Every ' + (t.every || 2) + ' days' + by;
     return ((t.days && t.days.length && t.days.length < 7) ? t.days.map(function (d) { return DAYNAMES[d]; }).join(' ') : 'Every day') + by;
@@ -1302,7 +1302,7 @@
       '<label class="field">What?<input name="title" required maxlength="60" value="' + esc(t.title) + '" placeholder="e.g. Read"></label>' + descField(t, 'Habit') + emojiField(t) + colorField(t) +
       '<label class="field">Repeats<select name="repeat"><option value="weekdays"' + sel('weekdays', r) + '>Every day / on set days</option><option value="week"' + sel('week', r) + '>Every week</option><option value="month"' + sel('month', r) + '>Every month</option><option value="every"' + sel('every', r) + '>Every few days</option></select></label>' +
       '<div class="field f-days">Days <small>(none selected = every day)</small><div class="day-row">' + DAYS.map(function (d, i) { return '<button type="button" class="dp' + ((t.days || []).indexOf(i) >= 0 ? ' on' : '') + '" data-day="' + i + '">' + d + '</button>'; }).join('') + '</div></div>' +
-      '<div class="two"><label class="field f-dueday-w">By which day<select name="dueDayW">' + WEEKDAYS.map(function (w, i) { return '<option value="' + i + '"' + sel(i, t.dueDay == null ? 6 : t.dueDay) + '>' + w + '</option>'; }).join('') + '</select></label>' +
+      '<div class="two"><label class="field f-dueday-w">By which day<select name="dueDayW">' + [6, 0, 1, 2, 3, 4, 5].map(function (i) { return '<option value="' + i + '"' + sel(i, t.dueDay == null ? 5 : t.dueDay) + '>' + WEEKDAYS[i] + '</option>'; }).join('') + '</select></label>' +
       '<label class="field f-dueday-m">By which day of the month<input type="number" name="dueDayM" min="1" max="31" value="' + esc(r === 'month' ? t.dueDay || 28 : 28) + '"></label>' +
       '<label class="field f-every">Every how many days<input type="number" name="every" min="2" max="365" value="' + esc(t.every || 2) + '"></label></div>' +
       '<div class="field dl-row"><label class="check"><input type="checkbox" name="dueOn"' + (dueOn ? ' checked' : '') + '> ⏰ Deadline</label>' +

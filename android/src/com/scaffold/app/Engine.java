@@ -230,9 +230,9 @@ public final class Engine {
         if (rep.isEmpty()) rep = "none";
         if (rep.equals("week")) {
             int wd = cal(t).get(Calendar.DAY_OF_WEEK) - 1;
-            long mon = addDays(t, -((wd + 6) % 7));
-            int dd = todo.isNull("dueDay") ? 6 : todo.optInt("dueDay", 6);
-            return new String[]{"W" + dateKey(mon), dateKey(mon), dateKey(addDays(mon, dd))};
+            long sun = addDays(t, -wd);   // weeks run Sunday → Saturday; dueDay stays 0=Mon..6=Sun, none = Saturday
+            int dd = todo.isNull("dueDay") ? 5 : todo.optInt("dueDay", 5);
+            return new String[]{"W" + dateKey(sun), dateKey(sun), dateKey(addDays(sun, (dd + 1) % 7))};
         }
         if (rep.equals("month")) {
             Calendar c = cal(t);
