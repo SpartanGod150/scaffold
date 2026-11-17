@@ -515,3 +515,18 @@ details.vault .row { background: var(--card); margin-top: 8px; border-left-color
 
 /* v0.5.4: task description */
 .task-desc { width: 100%; box-sizing: border-box; max-width: 520px; margin: 4px auto 14px; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--c) 14%, var(--card)); color: var(--txt); font-size: 16px; line-height: 1.45; word-break: break-word; text-align: left; max-height: 40vh; overflow-y: auto; }
+
+/* v0.5.8: event reminders, interval units, month drag */
+.erems { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.erem { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.erem select, .erem input { width: auto; min-width: 0; padding: 8px 7px; }
+.erem .erem-w { flex: 1 1 180px; }
+.erem-c { display: inline-flex; align-items: center; gap: 4px; }
+.erem-c input[type=number] { width: 58px; }
+.erem-c span { color: var(--mute); font-weight: 400; }
+.erem .erem-x { position: static; margin-left: auto; }
+.ev-desc { white-space: pre-wrap; }
+.chip.mdrag { cursor: grab; touch-action: pan-y; }
+.chip.dragsrc { opacity: .35; }
+.drag-ghost { z-index: 1000; pointer-events: none; opacity: .92; box-shadow: 0 6px 18px rgba(0,0,0,.45); cursor: grabbing; display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cal-day.drop { outline: 2px solid var(--accent, #7c9cff); outline-offset: -2px; }

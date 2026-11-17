@@ -328,6 +328,36 @@ t('vault catalog parts join back', () => {
   assert.deepStrictEqual(E.vaultProjects(s)[0].items, ['x', 'y', 'z']);
 });
 
+t('event reminders: every occurrence, Google copies through the record, one per occurrence, a Nag makes it a pop-up', () => {
+  const s = base();
+  Object.assign(s.events, E.opPut('events', { id: 'd', title: 'Daily', start: at('09:00'), end: at('09:30'), rrule: 'RRULE:FREQ=DAILY;COUNT=3', rem: [{ m: 0, push: 'nudge' }, { m: 15, push: 'nag' }] }, 'A', at('06:00')).events);
+  const hits = (from, to) => E.eventReminders(s, at(from), at(to)).map(x => x.key + ':' + x.popup + ':' + x.m);
+  assert.deepStrictEqual(hits('08:44', '08:45'), ['d@' + at('09:00') + ':true:15'], '15 min before: Nag pop-up');
+  assert.deepStrictEqual(hits('08:59', '09:00'), ['d@' + at('09:00') + ':false:0'], 'at the start: Nudge');
+  assert.deepStrictEqual(hits('08:40', '09:00'), ['d@' + at('09:00') + ':true:0'], 'both in one check: one reminder, a pop-up');
+  assert.deepStrictEqual(E.eventReminders(s, at('08:44') + E.DAY, at('08:45') + E.DAY).length, 1, 'the next day too');
+  assert.strictEqual(E.nextEventReminder(s, at('08:00')), at('08:45'));
+  assert.deepStrictEqual(hits('07:00', '09:00'), ['d@' + at('09:00') + ':true:0'], 'older than 30 min: skipped');
+  // On Google now: its copies carry no rem, they find it through the record (gid / series).
+  s.events.d.synced = at('06:01'); s.events.d.gid = 'GS';
+  s.gev = { x1: { id: 'x1', gid: 'GS_1', series: 'GS', title: 'Daily', start: at('09:00'), end: at('09:30') }, _meta: { at: at('06:02') } };
+  assert.strictEqual(hits('08:44', '08:45').length, 1, 'Google copy reminds');
+  Object.assign(s.events, E.opPut('events', { id: 'd2', gid: 'GS', series: 'GS', scope: 'all', title: 'Daily', start: at('09:00'), end: at('09:30'), rem: [] }, 'A', at('07:00')).events);
+  s.events.d2.synced = at('07:01'); s.gev._meta.at = at('07:02');
+  assert.strictEqual(hits('08:44', '08:45').length, 0, 'reminders removed for the whole series');
+  E.merge(s, E.opPause(true, 'A', at('07:30')));
+  assert.strictEqual(E.nextEventReminder(s, at('08:00')), 0, 'nothing while stopped');
+  assert.strictEqual(E.remWhen({ m: 90, start: at('10:00'), end: at('11:00') }), 'Starts in 90 min · 10:00–11:00');
+  assert.strictEqual(E.remWhen({ m: 60, start: at('10:00'), end: at('11:00') }), 'Starts in 1 hour · 10:00–11:00');
+});
+
+t('task reminders every N days: only on every Nth day from the day it was saved', () => {
+  const s = base();
+  Object.assign(s.tasks, E.opTask({ id: 'n2', title: 'Water', push: 'nudge', rfrom: '10:00', rto: '12:00', remind: 2880 }, 'A', at('06:00')).tasks);
+  const rems = (d) => E.dueReminders(s, at('09:59') + d * E.DAY, at('10:00') + d * E.DAY).filter(x => x.id === 'n2').length;
+  assert.deepStrictEqual([0, 1, 2, 3, 4].map(rems), [1, 0, 1, 0, 1]);
+});
+
 // Fixture for the Java mirror: same state, a list of instants, expected lock / next / reminders.
 const fx = base();
 E.merge(fx, E.opSnooze(fx, 'teeth', 'A', at('07:00')));
@@ -342,23 +372,24 @@ Object.assign(fx.tasks, E.opTask({ id: 'wk', title: 'Clean', repeat: 'week', due
 Object.assign(fx.tasks, E.opTask({ id: 'free', title: 'Free', push: 'nudge', rfrom: '21:00', rto: '20:00', remind: 60, lock: true }, 'A', at('06:00')).tasks);
 Object.assign(fx.tasks, E.opTask({ id: 'mo', title: 'Bills', repeat: 'month', dueDay: 9, dueOn: false, push: 'nag', rfrom: '10:00', rto: '10:30', remind: 15 }, 'A', at('06:00')).tasks);
 Object.assign(fx.modes, E.opPut('modes', { id: 'draw', name: 'Drawing', list: 'black', dev: { ph: { apps: ['com.game'] } } }, 'A', at('06:00')).modes);
-Object.assign(fx.events, E.opPut('events', { id: 'em1', title: 'Draw', start: at('09:00'), end: at('11:00'), rrule: 'RRULE:FREQ=DAILY;COUNT=2', mode: 'draw' }, 'A', at('06:00')).events);
-Object.assign(fx.events, E.opPut('events', { id: 'em2', title: 'Short', start: at('10:00'), end: at('10:45'), mode: 'full' }, 'A', at('06:00')).events);
-fx.events.em3 = { id: 'em3', title: 'G', start: at('13:00'), end: at('14:30'), mode: 'draw', gid: 'G3', synced: at('06:01'), ts: at('06:00'), by: 'A' };
-fx.gev = { em3: { id: 'em3', v: 2, gid: 'G3', title: 'G', start: at('13:30'), end: at('14:30'), gupd: at('06:02') }, _meta: { v: 2 } };
+Object.assign(fx.events, E.opPut('events', { id: 'em1', title: 'Draw', start: at('09:00'), end: at('11:00'), rrule: 'RRULE:FREQ=DAILY;COUNT=2', mode: 'draw', rem: [{ m: 60, push: 'nudge' }] }, 'A', at('06:00')).events);
+Object.assign(fx.events, E.opPut('events', { id: 'em2', title: 'Short', start: at('10:00'), end: at('10:45'), mode: 'full', rem: [{ m: 0, push: 'nudge' }, { m: 15, push: 'nag' }, { m: 30, push: 'nudge' }] }, 'A', at('06:00')).events);
+fx.events.em3 = { id: 'em3', title: 'G', start: at('13:00'), end: at('14:30'), mode: 'draw', gid: 'G3', synced: at('06:01'), ts: at('06:00'), by: 'A', rem: [{ m: 30, push: 'nudge' }] };
+fx.events.r4 = { id: 'r4', title: 'From Google', start: at('15:00'), end: at('16:00'), gid: 'G4', synced: at('06:01'), ts: at('06:00'), by: 'A', rem: [{ m: 60, push: 'nag' }, { m: 1440, push: 'nudge' }] };
+fx.gev = { em3: { id: 'em3', v: 2, gid: 'G3', title: 'G', start: at('13:30'), end: at('14:30'), gupd: at('06:02') }, g4: { id: 'g4', v: 2, gid: 'G4', title: 'From Google', start: at('15:00') + E.DAY, end: at('16:00') + E.DAY, gupd: at('06:02') }, _meta: { v: 2 } };
 fx.cfg.modeOn = { id: 'modeOn', mode: 'draw', at: at('16:00'), until: at('17:20'), ts: at('16:00'), by: 'A' };
 Object.assign(fx.notes, E.opPut('notes', { id: 'n1', text: 'x', every: 45, from: '08:00', to: '22:00' }, 'A', at('07:10')).notes);
 Object.assign(fx.notes, E.opPut('notes', { id: 'n2', text: '- [ ] y', every: 90, from: '20:00', to: '01:00', days: [1, 3] }, 'A', at('07:10')).notes);
 Object.assign(fx.notes, E.opPut('notes', { id: 'n3', text: 'z', every: 30, from: '09:00', to: '09:00', days: [2] }, 'A', at('07:10')).notes);
 fx.tasks.gym.active = false;
 E.merge(fx, E.opAck('n1', 'B', at('13:00')));
-const instants = ['06:59', '07:00', '07:05', '07:10', '08:00', '09:00', '10:00', '10:30', '10:50', '12:00', '13:10', '13:40', '13:59', '14:00', '16:00', '17:00', '17:05', '17:30', '20:59', '21:00', '21:10', '23:31', '23:59'];
+const instants = ['06:59', '07:00', '07:05', '07:10', '08:00', '09:00', '09:30', '09:45', '10:00', '10:30', '10:50', '12:00', '13:10', '13:40', '13:59', '14:00', '15:00', '16:00', '17:00', '17:05', '17:30', '20:59', '21:00', '21:10', '23:31', '23:59'];
 // Modes without the habit lock in the way: same events, no tasks.
 const fxm = JSON.parse(JSON.stringify(fx)); fxm.tasks = {}; fxm.todos = {};
 const mstr = (m) => m ? m.mode.id + ':' + m.src + ':' + m.start + ':' + m.until : 'none';
 const out = instants.map(h => {
   const now = at(h), r = E.compute(fx, now);
-  return { now, lock: r.lock ? r.lock.id : null, next: r.next, done: r.done, total: r.total, rem: E.dueReminders(fx, now - 60000, now).map(x => x.id + ':' + x.popup), notes: r.notes.map(n => n.id + ':' + n.since), keys: r.items.map(i => i.key + ':' + i.status), mode: mstr(E.activeMode(fx, now, r)), mode2: mstr(E.activeMode(fxm, now)), pops: Object.keys(fx.notes).sort().map(id => { const p = E.notePops(fx.notes[id], now); return id + ':' + p.last + ':' + p.next; }) };
+  return { now, lock: r.lock ? r.lock.id : null, next: r.next, done: r.done, total: r.total, rem: E.dueReminders(fx, now - 60000, now).map(x => x.id + ':' + x.popup), notes: r.notes.map(n => n.id + ':' + n.since), keys: r.items.map(i => i.key + ':' + i.status), erem: E.eventReminders(fx, now - 60000, now).map(x => x.key + ':' + x.popup + ':' + x.m), enext: E.nextEventReminder(fx, now), mode: mstr(E.activeMode(fx, now, r)), mode2: mstr(E.activeMode(fxm, now)), pops: Object.keys(fx.notes).sort().map(id => { const p = E.notePops(fx.notes[id], now); return id + ':' + p.last + ':' + p.next; }) };
 });
 fs.writeFileSync(path.join(__dirname, 'fixture-out.json'), JSON.stringify({ state: fx, modeState: fxm, cases: out }, null, 1));
 

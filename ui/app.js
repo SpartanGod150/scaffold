@@ -113,6 +113,7 @@
     dialer: function () { B.openDialer(); },
     openApp: function (pkg) { B.openApp(pkg); },
     close: function () { B.closeWindow(); },
+    evGot: function () { B.closeWindow(); },
     nav: function (v) { S.view = v; S.project = ''; try { localStorage.setItem('scaffold-view', v); } catch (e) {} render(); window.scrollTo(0, 0); },
     editHabit: function (id) { openHabitEditor(id && S.state.tasks[id] ? JSON.parse(JSON.stringify(S.state.tasks[id])) : null); },
     template: function (i) { openHabitEditor(Object.assign({}, TEMPLATES[i])); },
@@ -249,8 +250,9 @@
 
   document.addEventListener('click', function (e) {
     var el = e.target.closest('[data-a]'); if (!el || el.disabled) return;
+    if (S.dragEnded && Date.now() - S.dragEnded < 400 && el.closest('.cal-grid')) { e.preventDefault(); return; }
     // A lock or reminder that just popped up ignores clicks for a moment: a click meant for something else must not dismiss it.
-    if (S.guardUntil > Date.now() && el.closest('.block, .remind') && /^(done|snooze|timer)$/.test(el.getAttribute('data-a'))) { e.preventDefault(); return; }
+    if (S.guardUntil > Date.now() && el.closest('.block, .remind') && /^(done|snooze|timer|evGot)$/.test(el.getAttribute('data-a'))) { e.preventDefault(); return; }
     var fn = A[el.getAttribute('data-a')];
     if (fn) { e.preventDefault(); e.stopPropagation(); fn(el.getAttribute('data-id'), el.getAttribute('data-k'), el); }
   });
@@ -271,6 +273,7 @@
     if (lockHere) return paint(blockView(S.r.lock));
     if (S.mode === 'closeprog') return paint(closeProgView());
     if (S.mode === 'block') { S.mode = 'main'; if (PLATFORM === 'desktop') return B.closeWindow(); }
+    if (S.mode === 'evremind') { var evp = !S.r.paused && evRemindView(S.modeTask); return evp ? paint(evp) : B.closeWindow(); }
     if (S.mode === 'remind') {
       var it = item(S.modeTask);
       if (it && !it.done && !S.r.paused) return paint(remindView(it));
@@ -283,7 +286,7 @@
     if (!appsSent && S.mode === 'main' && S.state) { appsSent = true; setTimeout(function () { try { publishAndroidApps(); } catch (e) {} }, 3000); }
     var full = /^<section class="(block|remind)/.exec(html), key = full ? full[1] + (S.r.lock ? S.r.lock.id : S.modeTask) : '';
     if (key && key !== S.guardKey) { S.guardUntil = Date.now() + 1500; S.guardKey = key; } else if (!key) S.guardKey = '';
-    $app.innerHTML = html; tick(); wireTimeline(); wireMini();
+    $app.innerHTML = html; tick(); wireTimeline(); wireMini(); wireMonth();
     var ne = $app.querySelector('.note-edit .rte'); if (ne) { S.noteRte = wireRte(ne, $app.querySelector('.note-edit .rte-bar')); ne.focus(); }
   }
 
@@ -488,6 +491,18 @@
       '<div class="remind-actions">' + actions(it) + '<button class="btn ghost sm" data-a="close">Later</button></div></section>';
   }
 
+  // An event reminder's pop-up (Nag). key = event id @ occurrence start.
+  function evRemindView(key) {
+    var i = String(key).lastIndexOf('@'), id = key.slice(0, i), st = +key.slice(i + 1);
+    var e = (S.state.events || {})[id] || (S.state.gev || {})[id]; if (!e || !st) return '';
+    var en = st + ((e.end || e.start) - e.start), day = E.dateKey(st) === E.dateKey(now()) ? '' : cap(niceDay(E.dateKey(st))) + ' · ';
+    var sub = e.allDay ? day + 'All day' : (st > now() ? 'Starts in <span data-left="' + st + '"></span> · ' : en > now() ? 'Happening now · ' : '') + day + hm(st) + '–' + hm(en);
+    var desc = plainDesc(e.desc);
+    return '<section class="remind" style="--c:' + evColor(e) + '"><div class="remind-emoji">📅</div><h2>' + esc(e.title) + '</h2>' +
+      (desc ? '<div class="task-desc ev-desc">' + esc(desc) + '</div>' : '') + '<div class="remind-sub">' + sub + '</div>' +
+      '<div class="remind-actions"><button class="btn primary big" data-a="evGot">Got it</button></div></section>';
+  }
+
   function noteView(p, count) {
     var n = p.note, key = p.id + '@' + p.since;
     if (!S.noteSeen[p.id] || S.noteSeen[p.id].key !== key) S.noteSeen[p.id] = { key: key, at: now() };
@@ -604,7 +619,7 @@
   function monthCell(t, label, out, lanes) {
     var k = E.dateKey(t), chips = [], due = false;
     shownAgenda(t).forEach(function (a) {
-      if (a.kind === 'event' && monthlyOn(a.rec)) { if (!multiDay(a.rec)) chips.push('<i class="chip ev" style="background:' + evColor(a.rec) + ';color:' + inkOn(evColor(a.rec)) + '">' + esc(a.rec.title) + '</i>'); }
+      if (a.kind === 'event' && monthlyOn(a.rec)) { if (!multiDay(a.rec)) chips.push('<i class="chip ev' + mDrag(a) + ' style="background:' + evColor(a.rec) + ';color:' + inkOn(evColor(a.rec)) + '">' + esc(a.rec.title) + '</i>'); }
       else if (a.kind === 'todo' && a.rec.monthly && !a.done) { due = true; chips.push('<i class="chip dl">' + esc(a.rec.title) + ' Deadline</i>'); }
     });
     var room = Math.max(1, 3 - (lanes || 0)), shown = chips.length > room ? chips.slice(0, room - 1).concat('<i class="chip more">+' + (chips.length - room + 1) + ' more</i>') : chips;
@@ -617,9 +632,11 @@
     return '<div class="cal-week" style="--lanes:' + bars.lanes + '">' + days.map(function (x) { return x ? monthCell(x.t, x.label, x.out, bars.lanes) : '<i class="cal-blank"></i>'; }).join('') +
       bars.map(function (b) {
         var c = evColor(b.a.rec);
-        return '<button class="chip ev mbar' + (b.cl ? ' bar cl' : '') + (b.cr ? ' bar cr' : '') + '" data-a="editEvent" data-id="' + b.a.id + '" style="--c0:' + (c0 + b.i0) + ';--n:' + (b.i1 - b.i0 + 1) + ';--lane:' + b.lane + ';background:' + c + ';color:' + inkOn(c) + '">' + esc(b.a.rec.title) + '</button>';
+        return '<button class="chip ev mbar' + (b.cl ? ' bar cl' : '') + (b.cr ? ' bar cr' : '') + mDrag(b.a) + ' data-a="editEvent" data-id="' + b.a.id + '" style="--c0:' + (c0 + b.i0) + ';--n:' + (b.i1 - b.i0 + 1) + ';--lane:' + b.lane + ';background:' + c + ';color:' + inkOn(c) + '">' + esc(b.a.rec.title) + '</button>';
       }).join('') + '</div>';
   }
+  // Month view: events can be dragged to another day (same time). Not repeats made here (edit the series) or read-only calendars.
+  function mDrag(a) { var r = a.rec; return !r.ro && !r.virt ? ' mdrag" data-ev="' + esc(a.id) + '"' : '"'; }
   function weekRows(days) { var out = ''; for (var i = 0; i < days.length; i += 7) out += monthWeek(days.slice(i, i + 7)); return out; }
   function monthGrid(key) {
     var m = new Date(E.fromKey(key));
@@ -759,6 +776,52 @@
     sc.style.height = Math.max(260, Math.floor(innerHeight - (r.top + scrollY) - below - padB)) + 'px';
   }
   window.addEventListener('resize', function () { fitTimeline(); });
+  // Drag an event in the month grid to another day: it keeps its time (or stays all day) and its length.
+  function wireMonth() {
+    var grid = $app.querySelector('.cal-grid.month'); if (!grid) return;
+    var d = null;
+    function dayAt(x, y) { var els = document.elementsFromPoint(x, y); for (var i = 0; i < els.length; i++) if (els[i].classList.contains('cal-day')) return els[i]; return null; }
+    grid.addEventListener('pointerdown', function (e) {
+      var el = e.target.closest('.mdrag'); if (!el || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      var from = dayAt(e.clientX, e.clientY); if (!from) return;
+      d = { el: el, id: el.getAttribute('data-ev'), from: from.getAttribute('data-id'), x: e.clientX, y: e.clientY, on: false, touch: e.pointerType !== 'mouse', pid: e.pointerId, over: null };
+      if (d.touch) d.timer = setTimeout(function () { if (d && !d.on) { begin(e.clientX, e.clientY); try { navigator.vibrate && navigator.vibrate(15); } catch (x) {} } }, 380);
+    });
+    function begin(x, y) {
+      d.on = true; S.dragging = true; d.el.classList.add('dragsrc');
+      var r = d.el.getBoundingClientRect(), g = d.el.cloneNode(true);
+      g.className += ' drag-ghost'; g.removeAttribute('data-a'); g.style.cssText += ';position:fixed;left:' + r.left + 'px;top:' + r.top + 'px;width:' + Math.min(r.width, 220) + 'px;height:' + r.height + 'px;margin:0';
+      d.dx = x - r.left; d.dy = y - r.top; d.ghost = g; document.body.appendChild(g);
+      try { grid.setPointerCapture(d.pid); } catch (z) {}
+    }
+    function mark(cell) { if (d.over === cell) return; if (d.over) d.over.classList.remove('drop'); d.over = cell; if (cell) cell.classList.add('drop'); }
+    grid.addEventListener('pointermove', function (e) {
+      if (!d) return;
+      if (!d.on) { if (Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y) < 6) return; if (d.touch) { clearTimeout(d.timer); d = null; return; } begin(e.clientX, e.clientY); }
+      e.preventDefault();
+      d.ghost.style.left = (e.clientX - d.dx) + 'px'; d.ghost.style.top = (e.clientY - d.dy) + 'px';
+      mark(dayAt(e.clientX, e.clientY));
+    });
+    grid.addEventListener('touchmove', function (e) { if (d && d.on) e.preventDefault(); }, { passive: false });
+    function end(e) {
+      if (!d) return;
+      clearTimeout(d.timer);
+      var was = d; d = null;
+      if (!was.on) return;
+      S.dragging = false; S.dragEnded = Date.now();
+      if (was.ghost) was.ghost.remove();
+      var cell = e && e.type === 'pointerup' ? dayAt(e.clientX, e.clientY) : null, to = cell && cell.getAttribute('data-id');
+      var dd = to ? E.daysBetween(E.fromKey(was.from), E.fromKey(to)) : 0;
+      if (!dd) return render();
+      var ev = E.eventsFor(S.state)[was.id]; if (!ev) return render();
+      var c = JSON.parse(JSON.stringify(ev)); delete c.synced; delete c.gupd;
+      c.start = E.at(E.addDays(ev.start, dd), hm(ev.start)); c.end = E.at(E.addDays(ev.end || ev.start, dd), hm(ev.end || ev.start));
+      if (c.series) return scopeBox('Change repeating event', false, function (scope) { c.scope = scope; c.keepRule = true; apply(E.opPut('events', c, by(), now())); }, render);
+      apply(E.opPut('events', c, by(), now()));
+    }
+    grid.addEventListener('pointerup', end);
+    grid.addEventListener('pointercancel', function (e) { if (d && !d.on) { clearTimeout(d.timer); d = null; } else end(e); });
+  }
   function wireTimeline() {
     var sc = $app.querySelector('.cv-scroll'); if (!sc) return;
     var n = new Date(), start = Math.max(0, Math.min((n.getHours() - 1.5) * HOUR_PX, 24 * HOUR_PX));
@@ -1155,10 +1218,17 @@
       }).join('') + '</div></div>' +
       '<div class="f-rem"><div class="two"><label class="field">Remind me every<select name="remind">' + pre.map(function (m) { return '<option value="' + m + '"' + (!custom && every === m ? ' selected' : '') + '>' + m + (m === 1 ? ' minute' : ' minutes') + '</option>'; }).join('') +
       '<option value="custom"' + (custom ? ' selected' : '') + '>Custom…</option></select></label>' +
-      '<label class="field f-remind">Minutes<input type="number" name="remindN" min="1" max="1440" value="' + every + '"></label></div>' +
+      '<div class="field f-remind">Every<div class="pair">' + unitPick('remindN', 'remindU', every) + '</div></div></div>' +
       '<div class="field">Reminder window' + (kind === 'todo' ? ' <small>(every day until it is done)</small>' : '') + '<div class="pair"><input type="time" name="rfrom" value="' + esc(rw.from) + '"><span>to</span><input type="time" name="rto" value="' + esc(rw.to) + '"></div></div></div>' +
       '<div class="field dl-row"><label class="check f-lock"><input type="checkbox" name="lock"' + (E.lockOf(t) ? ' checked' : '') + '> 🔒 Lock at deadline <small class="f-locknote">(needs a deadline with a time)</small></label>' +
       '<label class="f-lockmode">with <select name="lockMode">' + allModes().map(function (m) { return '<option value="' + esc(m.id) + '"' + sel(m.id, t.lockMode || 'full') + '>' + esc((m.emoji || '🛡️') + ' ' + m.name) + '</option>'; }).join('') + '</select></label></div>';
+  }
+  // Number + minutes / hours / days (stored in minutes). Unnamed fields when nm is '' (read through the DOM).
+  function unitSplit(m) { m = Math.max(1, +m || 1); return m % 1440 === 0 ? { n: m / 1440, u: 1440 } : m % 60 === 0 ? { n: m / 60, u: 60 } : { n: m, u: 1 }; }
+  function unitPick(nm, um, m, cls) {
+    var x = unitSplit(m), c = cls || '';
+    return '<input type="number"' + (nm ? ' name="' + nm + '"' : '') + ' class="u-n' + c + '" min="1" max="999" value="' + x.n + '">' +
+      '<select' + (um ? ' name="' + um + '"' : '') + ' class="u-u' + c + '">' + [[1, 'minutes'], [60, 'hours'], [1440, 'days']].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === x.u ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>';
   }
   function doneFields(t) {
     return '<div class="field timer-row"><label class="check"><input type="checkbox" name="timer"' + (t.kind === 'timer' ? ' checked' : '') + '> ⏱ Timer</label>' +
@@ -1207,7 +1277,7 @@
     t.push = fd.get('push') || 'off'; t.lock = !!fd.get('lock'); t.rfrom = fd.get('rfrom') || '09:00'; t.rto = fd.get('rto') || '21:00';
     t.kind = fd.get('timer') ? 'timer' : 'check'; t.minutes = Math.max(1, Math.min(240, Math.round(+fd.get('minutes') || 20)));
     delete t.tiny; delete t.level; delete t.start; delete t.dueEnd; delete t.desktop; delete t.allowApps; t.lockMode = fd.get('lockMode') || 'full';
-    t.remind = fd.get('remind') === 'custom' ? Math.min(1440, Math.max(1, Math.round(+fd.get('remindN') || 30))) : +fd.get('remind');
+    t.remind = fd.get('remind') === 'custom' ? Math.min(30 * 1440, Math.max(1, Math.round(+fd.get('remindN') || 30) * (+fd.get('remindU') || 1))) : +fd.get('remind');
   }
 
   function habitWhen(t) {
@@ -1639,6 +1709,21 @@
   }
   function plainDesc(html) { return String(html || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li)>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\n{3,}/g, '\n\n').trim(); }
 
+  // Event reminders: [{ m: minutes before the start, push: 'nudge' | 'nag' }], sorted, no repeats.
+  var REM_PRE = [[0, 'On the start of the event'], [5, '5 minutes before'], [15, '15 minutes before'], [30, '30 minutes before'], [60, '1 hour before']];
+  function normRem(list) {
+    var seen = {}, out = [];
+    (list || []).forEach(function (r) { var m = Math.max(0, +r.m || 0), p = r.push === 'nag' ? 'nag' : 'nudge'; if (!seen[m + p]) { seen[m + p] = 1; out.push({ m: m, push: p }); } });
+    return out.sort(function (a, b) { return a.m - b.m || (a.push < b.push ? -1 : 1); });
+  }
+  function remRow(r) {
+    var m = Math.max(0, +r.m || 0), custom = !REM_PRE.some(function (o) { return o[0] === m; });
+    return '<div class="erem"><select class="erem-w">' + REM_PRE.map(function (o) { return '<option value="' + o[0] + '"' + (!custom && o[0] === m ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') +
+      '<option value="custom"' + (custom ? ' selected' : '') + '>Custom…</option></select>' +
+      '<span class="erem-c"' + (custom ? '' : ' style="display:none"') + '>' + unitPick('', '', custom ? m : 10) + '<span>before</span></span>' +
+      '<select class="erem-p"><option value="nudge"' + (r.push !== 'nag' ? ' selected' : '') + '>🔔 Nudge</option><option value="nag"' + (r.push === 'nag' ? ' selected' : '') + '>📣 Nag</option></select>' +
+      '<button type="button" class="x erem-x" title="Remove">✕</button></div>';
+  }
   function openEventEditor(ev) {
     var isNew = !ev || !ev.id, day = S.calDay || E.dateKey(now());
     var t = Object.assign({ title: '', allDay: false, start: E.at(E.fromKey(day), '10:00'), end: E.at(E.fromKey(day), '11:00') }, ev || {});
@@ -1651,7 +1736,8 @@
     var sk0 = L0 ? E.sessKey(L0, t) : '', ss0 = sk0 ? (S.state.sess || {})[sk0] : null;
     var ixm = E.linkIndex(S.state), Lm = isNew ? null : ixm['i:' + (t.virt || t.id)] || (t.gid && ixm['g:' + t.gid]) || (t.series && ixm['g:' + t.series]);
     var mode0 = t.mode != null ? t.mode : (Lm && Lm.mode) || '';
-    var orig = JSON.stringify([t.title, t.allDay, t.start, t.end, myCal, t.color || '', desc0, t.rrule || '', link0, mode0]);
+    var rem0 = normRem(isNew ? t.rem || [] : E.remOf(E.remIndex(S.state), t, t.id) || []);
+    var orig = JSON.stringify([t.title, t.allDay, t.start, t.end, myCal, t.color || '', desc0, t.rrule || '', link0, mode0, rem0]);
     var sessBox = L0 && !ro && t.start <= now() && linkRec(L0.link) ? '<div class="sess-box"><b>Session</b>' + sessionControls({ e: t, link: L0.link, key: sk0, done: !!(ss0 && ss0.done), tasks: (ss0 && ss0.tasks) || [] }) + '</div>' : '';
     var linkSel = function () {
       var o = function (k, r, label) { var v = k + ':' + r.id; return '<option value="' + esc(v) + '"' + (v === link0 ? ' selected' : '') + '>' + esc(label) + '</option>'; };
@@ -1676,6 +1762,8 @@
         '<div class="field f-rdays">On <div class="day-row">' + DAYS.map(function (d, i) { return '<button type="button" class="dp rdp' + (rdays.indexOf(i) >= 0 ? ' on' : '') + '" data-rday="' + i + '">' + d + '</button>'; }).join('') + '</div></div>' +
         '<div class="two f-rend"><label class="field">Ends<select name="rend"><option value="never"' + sel('never', rend) + '>Never</option><option value="until"' + sel('until', rend) + '>On a date</option><option value="count"' + sel('count', rend) + '>After…</option></select></label>' +
         '<label class="field f-runtil">Last day<input type="date" name="runtil" value="' + esc(rule && rule.until || E.dateKey(E.addDays(t.start, 30))) + '"></label><label class="field f-rcount">Times<input type="number" name="rcount" min="1" max="999" value="' + esc(rule && rule.count || 10) + '"></label></div>') +
+      (ro ? '' : '<div class="field">🔔 Reminders <small>(Scaffold only: every device, not Google)</small><div class="erems">' + rem0.map(remRow).join('') + '</div>' +
+        '<button type="button" class="btn sm" data-erem-add>＋ Add Event Reminder</button></div>') +
       (ro ? '' : '<div class="field">Color<div class="color-row">' + colorBtns + '</div></div>') +
       '<label class="field">Description<textarea name="desc" rows="3"' + dis + '>' + esc(desc0) + '</textarea></label>' +
       '<label class="check"><input type="checkbox" name="monthly"' + (was ? ' checked' : '') + '> Show in monthly</label>' +
@@ -1703,8 +1791,19 @@
       box.innerHTML = 'Tasks for this session <small>(this day only)</small>' + (list.length ? '<div class="apps">' + list.map(function (x) { return '<label class="check sm"><input type="checkbox" name="stask" value="' + esc(x.id) + '"' + (stasks0.indexOf(x.id) >= 0 ? ' checked' : '') + '> ' + esc((x.emoji || '') + ' ' + x.title) + '</label>'; }).join('') + '</div>' : '<p class="muted">This project has no open tasks.</p>');
     };
     paintSt(); if (f.link) f.link.addEventListener('change', paintSt);
+    f.addEventListener('change', function (e) { if (e.target.classList.contains('erem-w')) e.target.closest('.erem').querySelector('.erem-c').style.display = e.target.value === 'custom' ? '' : 'none'; });
+    var readRem = function () {
+      var out = [];
+      f.querySelectorAll('.erem').forEach(function (row) {
+        var w = row.querySelector('.erem-w').value, m = w === 'custom' ? Math.max(1, Math.round(+row.querySelector('.u-n').value || 1)) * (+row.querySelector('.u-u').value || 1) : +w;
+        out.push({ m: Math.min(m, 365 * 1440), push: row.querySelector('.erem-p').value });
+      });
+      return normRem(out);
+    };
     f.addEventListener('click', function (e) {
       var b = e.target.closest('button'); if (!b) return;
+      if (b.hasAttribute('data-erem-add')) f.querySelector('.erems').insertAdjacentHTML('beforeend', remRow({ m: 0, push: 'nudge' }));
+      if (b.classList.contains('erem-x')) b.closest('.erem').remove();
       if (b.hasAttribute('data-ecolor')) { color = b.getAttribute('data-ecolor'); f.querySelectorAll('.ecp').forEach(function (x) { x.classList.toggle('on', x === b); }); }
       if (b.hasAttribute('data-rday')) { var d = +b.getAttribute('data-rday'), i = rd.indexOf(d); if (i >= 0) { if (rd.length > 1) rd.splice(i, 1); } else rd.push(d); f.querySelectorAll('.rdp').forEach(function (x) { x.classList.toggle('on', rd.indexOf(+x.getAttribute('data-rday')) >= 0); }); }
     });
@@ -1728,8 +1827,9 @@
         else if (L0) c.link = { k: '', id: '', o: L0.o }; else delete c.link;
         var stasks = lv.indexOf('project:') === 0 ? fd.getAll('stask') : null, mv = fd.get('emode') || '';
         if (mv || mode0) c.mode = mv; else delete c.mode;
+        var rv = readRem(); if (rv.length || rem0.length) c.rem = rv; else delete c.rem;
         if (nf === 'custom' || !ruleChanged) { c.rrule = t.rrule || ''; c.keepRule = true; } else delete c.keepRule;
-        var changed = isNew || JSON.stringify([c.title, c.allDay, c.start, c.end, c.cal || myCal, c.color || '', c.desc != null ? c.desc : desc0, c.rrule || '', lv, mv]) !== orig;
+        var changed = isNew || JSON.stringify([c.title, c.allDay, c.start, c.end, c.cal || myCal, c.color || '', c.desc != null ? c.desc : desc0, c.rrule || '', lv, mv, rv]) !== orig;
         var saveTasks = function () { if (stasks && c.link && JSON.stringify(stasks) !== JSON.stringify(stasks0)) sessPut(E.sessKey({ o: c.link.o }, c), { tasks: stasks }); };
         var save = function (scope) {
           if (scope) c.scope = scope;

@@ -210,6 +210,9 @@ public final class Engine {
         if ("off".equals(w.push)) return out;
         long every = Math.max(1, task.optInt("remind", 30));
         long lastHour = w.dueToday ? w.due - 60 * MIN : Long.MAX_VALUE, end = w.dueToday ? Math.min(w.rEnd, w.due) : w.rEnd, t = w.start;
+        // Every N days (N > 1): reminders only on every Nth day, counted from the day the item was last saved.
+        long nd = every >= 1440 ? Math.round(every / 1440.0) : 1;
+        if (nd > 1 && ((daysBetween(task.optLong("ts", 0), w.start) % nd) + nd) % nd != 0) end = t;
         while (t < end && out.size() < 1500) {
             out.add(t);
             long nt = t + (t >= lastHour ? Math.min(10, every) : every) * MIN;
@@ -574,6 +577,96 @@ public final class Engine {
         }
         return out;
     }
+    // ---------- event reminders (mirror of engine.js) ----------
+    static final class EvRem { String id, key, title; long start, end, at; int m; boolean popup, allDay; }
+    private static Map<String, JSONObject> remIndex(JSONObject state) {
+        Map<String, JSONObject> ix = new HashMap<>();
+        JSONObject ev = map(state, "events");
+        Iterator<String> k = ev.keys();
+        while (k.hasNext()) {
+            String id = k.next(); JSONObject e = ev.optJSONObject(id);
+            if (e == null || e.optBoolean("del", false) || e.optJSONArray("rem") == null) continue;
+            ixPut(ix, "i:" + id, e);
+            if (!e.optString("gid").isEmpty()) ixPut(ix, "g:" + e.optString("gid"), e);
+            String sc = e.optString("scope");
+            if (!e.optString("series").isEmpty() && !sc.isEmpty() && !sc.equals("one")) ixPut(ix, "g:" + e.optString("series"), e);
+        }
+        return ix;
+    }
+    private static JSONArray remOf(Map<String, JSONObject> ix, JSONObject e, String id) {
+        if (e.optJSONArray("rem") != null) return e.optJSONArray("rem");
+        JSONObject L = ix.get("i:" + (e.optString("virt").isEmpty() ? id : e.optString("virt")));
+        if (L == null && !e.optString("gid").isEmpty()) L = ix.get("g:" + e.optString("gid"));
+        if (L == null && !e.optString("series").isEmpty()) L = ix.get("g:" + e.optString("series"));
+        return L == null ? null : L.optJSONArray("rem");
+    }
+    private static void remAdd(List<EvRem> out, Map<String, JSONObject> ix, String id, JSONObject e, List<Long> starts, long lo, long hi) {
+        JSONArray rs = remOf(ix, e, id);
+        if (rs == null || rs.length() == 0) return;
+        long st0 = e.optLong("start", 0), len = (e.has("end") ? e.optLong("end", st0) : st0) - st0;
+        for (long st : starts) for (int i = 0; i < rs.length(); i++) {
+            JSONObject r = rs.optJSONObject(i); if (r == null) continue;
+            int m = Math.max(0, r.optInt("m", 0)); long t = st - m * MIN;
+            if (t > lo && t <= hi) { EvRem h = new EvRem(); h.id = id; h.start = st; h.end = st + len; h.at = t; h.m = m; h.popup = "nag".equals(r.optString("push")); h.title = e.optString("title"); h.allDay = e.optBoolean("allDay", false); out.add(h); }
+        }
+    }
+    static List<EvRem> remHits(JSONObject state, JSONObject gev, long lo, long hi) {
+        List<EvRem> out = new ArrayList<>();
+        Map<String, JSONObject> ix = remIndex(state);
+        java.util.Set<String> mine = new java.util.HashSet<>();
+        long gat = gev != null && gev.optJSONObject("_meta") != null ? gev.optJSONObject("_meta").optLong("at", 0) : 0;
+        JSONObject local = map(state, "events");
+        Iterator<String> k = local.keys();
+        while (k.hasNext()) {
+            String id = k.next(); JSONObject e = local.optJSONObject(id);
+            if (e == null) continue;
+            if (e.has("synced") && e.optLong("synced", 0) >= e.optLong("ts", 0) && (!e.has("pushed") || gat >= e.optLong("pushed", 0))) continue;
+            mine.add("i:" + id); if (!e.optString("gid").isEmpty()) mine.add("g:" + e.optString("gid"));
+            if (e.optBoolean("del", false)) continue;
+            remAdd(out, ix, id, e, !e.optString("rrule").isEmpty() && e.optString("series").isEmpty() ? expandRule(e, 400) : Collections.singletonList(e.optLong("start", 0)), lo, hi);
+        }
+        if (gev != null) {
+            k = gev.keys();
+            while (k.hasNext()) {
+                String id = k.next(); JSONObject g = gev.optJSONObject(id);
+                if (id.startsWith("_") || g == null || mine.contains("i:" + id) || (!g.optString("gid").isEmpty() && mine.contains("g:" + g.optString("gid")))) continue;
+                remAdd(out, ix, id, g, Collections.singletonList(g.optLong("start", 0)), lo, hi);
+            }
+        }
+        return out;
+    }
+    static List<EvRem> eventReminders(JSONObject state, JSONObject gev, long from, long to) {
+        List<EvRem> out = new ArrayList<>();
+        JSONObject pause = state.optJSONObject("pause");
+        if (pause != null && pause.optBoolean("on", false)) return out;
+        Map<String, EvRem> by = new HashMap<>();
+        for (EvRem h : remHits(state, gev, Math.max(from, to - 30 * MIN), to)) {
+            String key = h.id + "@" + h.start; EvRem o = by.get(key);
+            if (o == null) { h.key = key; by.put(key, h); out.add(h); continue; }
+            if (h.popup) o.popup = true;
+            if (h.at > o.at) { o.at = h.at; o.m = h.m; }
+        }
+        Collections.sort(out, (a, b) -> a.at != b.at ? Long.compare(a.at, b.at) : a.key.compareTo(b.key));
+        return out;
+    }
+    static long nextEventReminder(JSONObject state, JSONObject gev, long now) {
+        JSONObject pause = state.optJSONObject("pause");
+        if (pause != null && pause.optBoolean("on", false)) return 0;
+        long best = 0;
+        for (EvRem h : remHits(state, gev, now, now + DAY)) if (best == 0 || h.at < best) best = h.at;
+        return best;
+    }
+    static String remLead(int m) {
+        if (m == 0) return "";
+        if (m % 1440 == 0) return (m / 1440) + (m == 1440 ? " day" : " days");
+        if (m % 60 == 0) return (m / 60) + (m == 60 ? " hour" : " hours");
+        return m + " min";
+    }
+    static String remWhen(EvRem h) {
+        String span = h.allDay ? "All day" : hhmm(h.start) + "–" + hhmm(h.end);
+        return (h.m != 0 ? "Starts in " + remLead(h.m) : h.allDay ? "Today" : "Starting now") + " · " + span;
+    }
+
     static Active activeMode(JSONObject state, JSONObject gev, long now, Result r) {
         JSONObject pause = state.optJSONObject("pause");
         if (pause != null && pause.optBoolean("on", false)) return null;
@@ -758,6 +851,8 @@ public final class Engine {
                 String md = modeStr(activeMode(state, gevF, now, r)), md2 = ms == null ? "" : modeStr(activeMode(ms, ms.optJSONObject("gev"), now, null));
                 if (c.has("mode") && !md.equals(c.getString("mode"))) bad.append("case ").append(i).append(": mode ").append(md).append('/').append(c.getString("mode")).append('\n');
                 if (c.has("mode2") && !md2.equals(c.getString("mode2"))) bad.append("case ").append(i).append(": mode2 ").append(md2).append('/').append(c.getString("mode2")).append('\n');
+                if (c.has("erem")) { List<String> er = new ArrayList<>(); for (EvRem h : eventReminders(state, gevF, now - 60000, now)) er.add(h.key + ":" + h.popup + ":" + h.m); String ers = join(er), expE = join(c.getJSONArray("erem")); if (!ers.equals(expE)) bad.append("case ").append(i).append(": erem ").append(ers).append('/').append(expE).append('\n'); }
+                if (c.has("enext") && nextEventReminder(state, gevF, now) != c.getLong("enext")) bad.append("case ").append(i).append(": enext ").append(nextEventReminder(state, gevF, now)).append('/').append(c.getLong("enext")).append('\n');
                 String notes = join(ns), expNotes = join(c.getJSONArray("notes")), itemKeys = join(ks), expKeys = join(c.getJSONArray("keys"));
                 if (!lock.equals(expLock) || r.next != c.getLong("next") || r.done != c.getInt("done") || r.total != c.getInt("total")
                         || !rem.equals(exp) || !notes.equals(expNotes) || !itemKeys.equals(expKeys))

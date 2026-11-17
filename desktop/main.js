@@ -144,6 +144,13 @@ function evaluate() {
     notify(`${it.task.emoji || '⏰'} ${it.task.title}`, (it.task.desc ? Engine.plainNote(it.task.desc).trim() + '\n' : '') + `Time for this · ${when}`);
     if (x.popup && !r.lock) showPopup(it.id);
   });
+  // event reminders (Nudge = notification, Nag = pop-up too)
+  Engine.eventReminders(Object.assign({}, state, { gev }), local.lastCheckEv || now - 60000, now).forEach((h) => {
+    const e = (state.events || {})[h.id] || gev[h.id] || {};
+    notify(`📅 ${h.title}`, (e.desc ? Engine.plainNote(String(e.desc).replace(/<[^>]+>/g, ' ')).trim().slice(0, 200) + '\n' : '') + Engine.remWhen(h));
+    if (h.popup && !r.lock) showPopup(h.key, 'evremind');
+  });
+  local.lastCheckEv = now;
   // deadline lock: Scaffold's window with the task and "I did it"; the lock's mode (Full Lock by default) handles the rest
   if (r.lock) showLockWin(); else hideLockWin();
   if (guard) guard.tick();
@@ -172,13 +179,14 @@ function showMain() {
   mainWin.on('closed', () => { mainWin = null; });
 }
 
-function showPopup(taskId) {
-  if (popupWin && !popupWin.isDestroyed()) { loadUI(popupWin, 'remind', taskId); popupWin.show(); popupWin.focus(); return; }
+function showPopup(taskId, mode) {
+  mode = mode || 'remind';
+  if (popupWin && !popupWin.isDestroyed()) { loadUI(popupWin, mode, taskId); popupWin.show(); popupWin.focus(); return; }
   const d = screen.getPrimaryDisplay().workArea;
   popupWin = new BrowserWindow({ width: 440, height: 460, x: Math.round(d.x + (d.width - 440) / 2), y: Math.round(d.y + (d.height - 460) / 2), frame: false, resizable: false, alwaysOnTop: true, skipTaskbar: true, backgroundColor: '#0f1117', show: false, webPreferences: webPrefs() });
   popupWin.setAlwaysOnTop(true, 'floating');
   popupWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  loadUI(popupWin, 'remind', taskId);
+  loadUI(popupWin, mode, taskId);
   popupWin.once('ready-to-show', () => { popupWin.show(); popupWin.focus(); });
   popupWin.on('closed', () => { popupWin = null; });
 }

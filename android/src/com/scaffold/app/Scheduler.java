@@ -6,6 +6,8 @@ import android.content.Context;
 public final class Scheduler {
     static void reschedule(Context c) {
         long next = Store.now(c).next;
+        long ev = Engine.nextEventReminder(Store.state(c), Store.gev(c), System.currentTimeMillis());
+        if (ev > 0 && ev < next) next = ev;
         long ends = Store.getLong(c, "timerEnds", 0);
         if (ends > System.currentTimeMillis() && ends < next) next = ends;
         AlarmReceiver.schedule(c, Math.max(next, System.currentTimeMillis() + 1000));

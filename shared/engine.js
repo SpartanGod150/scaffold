@@ -115,6 +115,9 @@
     if (w.push === 'off') return [];
     var out = [], every = Math.max(1, task.remind || 30), lastHour = w.dueToday ? w.due - 60 * MIN : Infinity;
     var end = w.dueToday ? Math.min(w.rEnd, w.due) : w.rEnd, t = w.start;
+    // Every N days (N > 1): reminders only on every Nth day, counted from the day the item was last saved.
+    var nd = every >= 1440 ? Math.round(every / 1440) : 1;
+    if (nd > 1 && ((daysBetween(task.ts || 0, w.start) % nd) + nd) % nd !== 0) end = t;
     while (t < end && out.length < 1500) {
       out.push(t);
       var nt = t + (t >= lastHour ? Math.min(10, every) : every) * MIN;
@@ -513,6 +516,90 @@
     });
     return out;
   }
+  // ---------- event reminders ----------
+  // rem: [{ m: minutes before the start (0 = when it starts), push: 'nudge' (notification) | 'nag' (pop-up) }] on Scaffold's own
+  // event record; never sent to Google. Google's copies find them through the newest record that has rem (by id, gid or series),
+  // like modes do; repeating events get them on every occurrence. rem: [] = reminders removed.
+  function remIndex(state) {
+    var ix = {}, ev = state.events || {};
+    function put(k, e) { if (!ix[k] || (ix[k].ts || 0) < (e.ts || 0)) ix[k] = e; }
+    Object.keys(ev).forEach(function (id) {
+      var e = ev[id];
+      if (!e || e.del || !e.rem) return;
+      put('i:' + id, e);
+      if (e.gid) put('g:' + e.gid, e);
+      if (e.series && e.scope && e.scope !== 'one') put('g:' + e.series, e);
+    });
+    return ix;
+  }
+  function remOf(ix, e, id) {
+    if (e.rem) return e.rem;
+    var L = ix['i:' + (e.virt || id)] || (e.gid && ix['g:' + e.gid]) || (e.series && ix['g:' + e.series]);
+    return L ? L.rem : [];
+  }
+  // Every reminder moment in (lo, hi]: { id, start, end, at, m, popup, title, allDay }. Scaffold's records count until this
+  // device has read Google after they were pushed; Google's copies count otherwise.
+  function remHits(state, lo, hi) {
+    var ix = remIndex(state), out = [], gev = state.gev || {}, local = state.events || {}, mine = {};
+    var gat = (gev._meta && gev._meta.at) || 0;
+    function add(id, e, starts) {
+      var rs = remOf(ix, e, id), len = (e.end || e.start) - e.start;
+      if (!rs || !rs.length) return;
+      starts.forEach(function (st) {
+        rs.forEach(function (r) {
+          var m = Math.max(0, +r.m || 0), t = st - m * MIN;
+          if (t > lo && t <= hi) out.push({ id: id, start: st, end: st + len, at: t, m: m, popup: r.push === 'nag', title: e.title || '', allDay: !!e.allDay });
+        });
+      });
+    }
+    Object.keys(local).forEach(function (id) {
+      var e = local[id];
+      if (!e || (e.synced && e.synced >= (e.ts || 0) && (!e.pushed || gat >= e.pushed))) return;
+      mine['i:' + id] = 1; if (e.gid) mine['g:' + e.gid] = 1;
+      if (e.del) return;
+      add(id, e, e.rrule && !e.series ? expandRule(e, 400) : [e.start]);
+    });
+    Object.keys(gev).forEach(function (id) {
+      var g = gev[id];
+      if (id.charAt(0) === '_' || !g || mine['i:' + id] || (g.gid && mine['g:' + g.gid])) return;
+      add(id, g, [g.start]);
+    });
+    return out;
+  }
+  // Event reminders due in (from, to]: one per occurrence (a pop-up if any of its due reminders is a Nag). Stale ones
+  // (over 30 min old) are skipped; nothing while Scaffold is stopped. key = id@start (the pop-up's address).
+  function eventReminders(state, from, to) {
+    if (state.pause && state.pause.on) return [];
+    var by = {}, out = [];
+    remHits(state, Math.max(from, to - 30 * MIN), to).forEach(function (h) {
+      var k = h.id + '@' + h.start, o = by[k];
+      if (!o) { h.key = k; by[k] = h; out.push(h); return; }
+      if (h.popup) o.popup = true;
+      if (h.at > o.at) { o.at = h.at; o.m = h.m; }
+    });
+    out.sort(function (a, b) { return a.at - b.at || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0); });
+    return out;
+  }
+  // The next event reminder after now (within a day; 0 = none), for devices that sleep until their next alarm.
+  function nextEventReminder(state, now) {
+    if (state.pause && state.pause.on) return 0;
+    var best = 0;
+    remHits(state, now, now + DAY).forEach(function (h) { if (!best || h.at < best) best = h.at; });
+    return best;
+  }
+  function remLead(m) {
+    m = +m || 0;
+    if (!m) return '';
+    if (m % 1440 === 0) return m / 1440 + (m === 1440 ? ' day' : ' days');
+    if (m % 60 === 0) return m / 60 + (m === 60 ? ' hour' : ' hours');
+    return m + ' min';
+  }
+  // "Starts in 15 min · 10:00–11:00", "Starting now · 10:00–11:00", "Starts in 1 day · All day".
+  function remWhen(h) {
+    var span = h.allDay ? 'All day' : hhmm(h.start) + '–' + hhmm(h.end);
+    return (h.m ? 'Starts in ' + remLead(h.m) : h.allDay ? 'Today' : 'Starting now') + ' · ' + span;
+  }
+
   // The mode running now: { mode, src: 'lock' | 'event' | 'manual', start, until (0 = no set end), item / event, title } or null.
   function activeMode(state, now, r) {
     if (state.pause && state.pause.on) return null;
@@ -687,9 +774,9 @@
 
   return {
     MIN: MIN, DAY: DAY, MAPS: MAPS, MAX_SNOOZES: MAX_SNOOZES, SNOOZE_MIN: SNOOZE_MIN,
-    pad: pad, dateKey: dateKey, fromKey: fromKey, addDays: addDays, at: at, hhmm: hhmm, compKey: compKey, uid: uid, emptyState: emptyState,
+    pad: pad, dateKey: dateKey, fromKey: fromKey, addDays: addDays, daysBetween: daysBetween, at: at, hhmm: hhmm, compKey: compKey, uid: uid, emptyState: emptyState,
     newer: newer, merge: merge, eventsFor: eventsFor, parseRule: parseRule, buildRule: buildRule, expandRule: expandRule, dropPulledCopies: dropPulledCopies, isPulledCopy: isPulledCopy, scheduledOn: scheduledOn, habitPeriod: habitPeriod, pushOf: pushOf, lockOf: lockOf, hasDue: hasDue, timing: timing, reminderTimes: reminderTimes, periodOf: periodOf,
-    compute: compute, dueReminders: dueReminders, notePops: notePops, pendingNotes: pendingNotes, plainNote: plainNote, stats: stats,
+    compute: compute, dueReminders: dueReminders, eventReminders: eventReminders, nextEventReminder: nextEventReminder, remOf: remOf, remIndex: remIndex, remLead: remLead, remWhen: remWhen, notePops: notePops, pendingNotes: pendingNotes, plainNote: plainNote, stats: stats,
     projectProgress: projectProgress, dayAgenda: dayAgenda, linkIndex: linkIndex, linkOf: linkOf, sessKey: sessKey, blocksFor: blocksFor, linkedBlocks: linkedBlocks, FULL_LOCK: FULL_LOCK, modeById: modeById, modeEvents: modeEvents, activeMode: activeMode, unblockOf: unblockOf, modeList: modeList, appBlocked: appBlocked, siteBlocked: siteBlocked, parseUrl: parseUrl, vaultProjects: vaultProjects, itemKey: itemKey,
     chunks: chunks, snapshot: snapshot,
     opPut: opPut, opDel: opDel, opTask: opTask, opDelete: opDelete, opComplete: opComplete, opUndo: opUndo, opSnooze: opSnooze, opPause: opPause, opAck: opAck

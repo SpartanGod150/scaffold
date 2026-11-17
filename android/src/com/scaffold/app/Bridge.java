@@ -104,7 +104,7 @@ public class Bridge {
     }
 
     @JavascriptInterface public void closeWindow() {
-        a.runOnUiThread(() -> { if ("remind".equals(a.mode) || "block".equals(a.mode) || "note".equals(a.mode)) a.finish(); else a.moveTaskToBack(true); });
+        a.runOnUiThread(() -> { if ("remind".equals(a.mode) || "evremind".equals(a.mode) || "block".equals(a.mode) || "note".equals(a.mode)) a.finish(); else a.moveTaskToBack(true); });
     }
 
     @JavascriptInterface public void openPermission(String name) {

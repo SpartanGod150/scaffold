@@ -65,14 +65,20 @@ public class AlarmReceiver extends BroadcastReceiver {
             if (t == null && Store.state(c).optJSONObject("todos") != null) t = Store.state(c).optJSONObject("todos").optJSONObject(id);
             Notif.simple(c, "✅ Timer done", (t != null ? t.optString("title") : "Task") + " counts as done.");
         }
-        long last = Store.getLong(c, "lastCheck", now - 60000);
+        long last = Store.getLong(c, "lastCheck", now - 60000), lastEv = Store.getLong(c, "lastCheckEv", now - 60000);
         List<Engine.Reminder> rem;
+        List<Engine.EvRem> erem;
         Engine.Result r;
-        synchronized (Store.class) { rem = Engine.dueReminders(Store.state(c), last, now); r = Engine.compute(Store.state(c), now); }
+        synchronized (Store.class) { rem = Engine.dueReminders(Store.state(c), last, now); erem = Engine.eventReminders(Store.state(c), Store.gev(c), lastEv, now); r = Engine.compute(Store.state(c), now); }
         Store.putLong(c, "lastCheck", now);
+        Store.putLong(c, "lastCheckEv", now);
         for (Engine.Reminder x : rem) {
             Notif.reminder(c, x.item, x.popup);
             if (x.popup && r.lock == null) BlockerService.showPopup(x.item.id);
+        }
+        for (Engine.EvRem h : erem) {
+            Notif.eventReminder(c, h);
+            if (h.popup && r.lock == null) BlockerService.showPopup(h.key, "evremind");
         }
         // reminder notes: keep them on screen until dismissed
         if (Notif.notes(c, r.notes)) BlockerService.showNote();

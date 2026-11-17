@@ -9,6 +9,8 @@ import android.content.Intent;
 import android.media.AudioAttributes;
 import android.media.RingtoneManager;
 
+import org.json.JSONObject;
+
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -84,6 +86,25 @@ public final class Notif {
         else b.addAction(new Notification.Action.Builder(null, "✓ Done", action(c, AlarmReceiver.DONE, it.id, id + 2)).build());
         if (it.snoozesLeft > 0) b.addAction(new Notification.Action.Builder(null, "⏸ " + Engine.SNOOZE_MIN + " min", action(c, AlarmReceiver.SNOOZE, it.id, id + 3)).build());
         if (popup) b.setFullScreenIntent(open(c, "remind", it.id, id + 4), true);
+        c.getSystemService(NotificationManager.class).notify(id, b.build());
+    }
+
+    /** An event reminder: a notification (Nudge), or a full-screen one that opens the pop-up (Nag). */
+    static void eventReminder(Context c, Engine.EvRem h) {
+        int id = 400000 + Math.abs(h.key.hashCode() % 100000);
+        String when = Engine.remWhen(h), desc = "";
+        JSONObject e = Store.state(c).optJSONObject("events") != null ? Store.state(c).optJSONObject("events").optJSONObject(h.id) : null;
+        if (e == null) e = Store.gev(c).optJSONObject(h.id);
+        if (e != null) desc = Engine.plainNote(e.optString("desc", "").replaceAll("<[^>]+>", " ")).trim();
+        Notification.Builder b = new Notification.Builder(c, h.popup ? CH_URGENT : CH_REMIND)
+                .setSmallIcon(R.drawable.ic_stat)
+                .setContentTitle("📅 " + h.title)
+                .setContentText(when)
+                .setCategory(Notification.CATEGORY_EVENT)
+                .setAutoCancel(true)
+                .setContentIntent(h.popup ? open(c, "evremind", h.key, id) : open(c, "main", "", id));
+        if (!desc.isEmpty()) b.setStyle(new Notification.BigTextStyle().bigText(when + "\n" + desc));
+        if (h.popup) b.setFullScreenIntent(open(c, "evremind", h.key, id + 1), true);
         c.getSystemService(NotificationManager.class).notify(id, b.build());
     }
 

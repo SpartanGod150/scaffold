@@ -214,6 +214,12 @@
     "end": 1794232800000,
     "rrule": "RRULE:FREQ=DAILY;COUNT=2",
     "mode": "draw",
+    "rem": [
+     {
+      "m": 60,
+      "push": "nudge"
+     }
+    ],
     "ts": 1794214800000,
     "by": "A"
    },
@@ -223,6 +229,20 @@
     "start": 1794229200000,
     "end": 1794231900000,
     "mode": "full",
+    "rem": [
+     {
+      "m": 0,
+      "push": "nudge"
+     },
+     {
+      "m": 15,
+      "push": "nag"
+     },
+     {
+      "m": 30,
+      "push": "nudge"
+     }
+    ],
     "ts": 1794214800000,
     "by": "A"
    },
@@ -235,7 +255,33 @@
     "gid": "G3",
     "synced": 1794214860000,
     "ts": 1794214800000,
-    "by": "A"
+    "by": "A",
+    "rem": [
+     {
+      "m": 30,
+      "push": "nudge"
+     }
+    ]
+   },
+   "r4": {
+    "id": "r4",
+    "title": "From Google",
+    "start": 1794247200000,
+    "end": 1794250800000,
+    "gid": "G4",
+    "synced": 1794214860000,
+    "ts": 1794214800000,
+    "by": "A",
+    "rem": [
+     {
+      "m": 60,
+      "push": "nag"
+     },
+     {
+      "m": 1440,
+      "push": "nudge"
+     }
+    ]
    }
   },
   "notes": {
@@ -334,6 +380,15 @@
     "end": 1794245400000,
     "gupd": 1794214920000
    },
+   "g4": {
+    "id": "g4",
+    "v": 2,
+    "gid": "G4",
+    "title": "From Google",
+    "start": 1794333600000,
+    "end": 1794337200000,
+    "gupd": 1794214920000
+   },
    "_meta": {
     "v": 2
    }
@@ -357,6 +412,12 @@
     "end": 1794232800000,
     "rrule": "RRULE:FREQ=DAILY;COUNT=2",
     "mode": "draw",
+    "rem": [
+     {
+      "m": 60,
+      "push": "nudge"
+     }
+    ],
     "ts": 1794214800000,
     "by": "A"
    },
@@ -366,6 +427,20 @@
     "start": 1794229200000,
     "end": 1794231900000,
     "mode": "full",
+    "rem": [
+     {
+      "m": 0,
+      "push": "nudge"
+     },
+     {
+      "m": 15,
+      "push": "nag"
+     },
+     {
+      "m": 30,
+      "push": "nudge"
+     }
+    ],
     "ts": 1794214800000,
     "by": "A"
    },
@@ -378,7 +453,33 @@
     "gid": "G3",
     "synced": 1794214860000,
     "ts": 1794214800000,
-    "by": "A"
+    "by": "A",
+    "rem": [
+     {
+      "m": 30,
+      "push": "nudge"
+     }
+    ]
+   },
+   "r4": {
+    "id": "r4",
+    "title": "From Google",
+    "start": 1794247200000,
+    "end": 1794250800000,
+    "gid": "G4",
+    "synced": 1794214860000,
+    "ts": 1794214800000,
+    "by": "A",
+    "rem": [
+     {
+      "m": 60,
+      "push": "nag"
+     },
+     {
+      "m": 1440,
+      "push": "nudge"
+     }
+    ]
    }
   },
   "notes": {
@@ -475,6 +576,15 @@
     "title": "G",
     "start": 1794241800000,
     "end": 1794245400000,
+    "gupd": 1794214920000
+   },
+   "g4": {
+    "id": "g4",
+    "v": 2,
+    "gid": "G4",
+    "title": "From Google",
+    "start": 1794333600000,
+    "end": 1794337200000,
     "gupd": 1794214920000
    },
    "_meta": {
@@ -505,6 +615,8 @@
     "free@2026-11-09:upcoming",
     "fut@once:upcoming"
    ],
+   "erem": [],
+   "enext": 1794222000000,
    "mode": "none",
    "mode2": "none",
    "pops": [
@@ -535,6 +647,8 @@
     "free@2026-11-09:upcoming",
     "fut@once:upcoming"
    ],
+   "erem": [],
+   "enext": 1794222000000,
    "mode": "none",
    "mode2": "none",
    "pops": [
@@ -565,6 +679,8 @@
     "free@2026-11-09:upcoming",
     "fut@once:upcoming"
    ],
+   "erem": [],
+   "enext": 1794222000000,
    "mode": "none",
    "mode2": "none",
    "pops": [
@@ -597,6 +713,8 @@
     "free@2026-11-09:upcoming",
     "fut@once:upcoming"
    ],
+   "erem": [],
+   "enext": 1794222000000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "none",
    "pops": [
@@ -629,6 +747,10 @@
     "free@2026-11-09:upcoming",
     "fut@once:upcoming"
    ],
+   "erem": [
+    "em1@1794225600000:false:60"
+   ],
+   "enext": 1794227400000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "none",
    "pops": [
@@ -662,10 +784,80 @@
     "free@2026-11-09:upcoming",
     "fut@once:upcoming"
    ],
+   "erem": [],
+   "enext": 1794227400000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "draw:event:1794225600000:1794232800000",
    "pops": [
     "n1:1794224400000:1794227100000",
+    "n2:0:1794267600000",
+    "n3:0:1794280200000"
+   ]
+  },
+  {
+   "now": 1794227400000,
+   "lock": "teeth",
+   "next": 1794228000000,
+   "done": 0,
+   "total": 12,
+   "rem": [],
+   "notes": [],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "wk@W2026-11-09:upcoming",
+    "study@2026-11-09:upcoming",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:upcoming",
+    "some@once:upcoming",
+    "cus@C2026-11-09:upcoming",
+    "free@2026-11-09:upcoming",
+    "fut@once:upcoming"
+   ],
+   "erem": [
+    "em2@1794229200000:false:30"
+   ],
+   "enext": 1794228300000,
+   "mode": "full:lock:1794218400000:0",
+   "mode2": "draw:event:1794225600000:1794232800000",
+   "pops": [
+    "n1:1794227100000:1794229800000",
+    "n2:0:1794267600000",
+    "n3:0:1794280200000"
+   ]
+  },
+  {
+   "now": 1794228300000,
+   "lock": "teeth",
+   "next": 1794229200000,
+   "done": 0,
+   "total": 12,
+   "rem": [],
+   "notes": [],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "wk@W2026-11-09:upcoming",
+    "study@2026-11-09:upcoming",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:upcoming",
+    "some@once:upcoming",
+    "cus@C2026-11-09:upcoming",
+    "free@2026-11-09:upcoming",
+    "fut@once:upcoming"
+   ],
+   "erem": [
+    "em2@1794229200000:true:15"
+   ],
+   "enext": 1794229200000,
+   "mode": "full:lock:1794218400000:0",
+   "mode2": "draw:event:1794225600000:1794232800000",
+   "pops": [
+    "n1:1794227100000:1794229800000",
     "n2:0:1794267600000",
     "n3:0:1794280200000"
    ]
@@ -696,6 +888,10 @@
     "free@2026-11-09:upcoming",
     "fut@once:upcoming"
    ],
+   "erem": [
+    "em2@1794229200000:false:0"
+   ],
+   "enext": 1794240000000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "full:event:1794229200000:1794231900000",
    "pops": [
@@ -729,6 +925,8 @@
     "free@2026-11-09:upcoming",
     "fut@once:upcoming"
    ],
+   "erem": [],
+   "enext": 1794240000000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "full:event:1794229200000:1794231900000",
    "pops": [
@@ -759,6 +957,8 @@
     "free@2026-11-09:upcoming",
     "fut@once:upcoming"
    ],
+   "erem": [],
+   "enext": 1794240000000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "draw:event:1794225600000:1794232800000",
    "pops": [
@@ -792,6 +992,8 @@
     "free@2026-11-09:upcoming",
     "fut@once:upcoming"
    ],
+   "erem": [],
+   "enext": 1794240000000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "none",
    "pops": [
@@ -824,6 +1026,8 @@
     "free@2026-11-09:upcoming",
     "fut@once:open"
    ],
+   "erem": [],
+   "enext": 1794247200000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "none",
    "pops": [
@@ -858,6 +1062,8 @@
     "free@2026-11-09:upcoming",
     "fut@once:open"
    ],
+   "erem": [],
+   "enext": 1794247200000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "draw:event:1794241800000:1794245400000",
    "pops": [
@@ -890,6 +1096,8 @@
     "free@2026-11-09:upcoming",
     "fut@once:open"
    ],
+   "erem": [],
+   "enext": 1794247200000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "draw:event:1794241800000:1794245400000",
    "pops": [
@@ -925,10 +1133,52 @@
     "free@2026-11-09:upcoming",
     "fut@once:open"
    ],
+   "erem": [],
+   "enext": 1794247200000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "draw:event:1794241800000:1794245400000",
    "pops": [
     "n1:1794243300000:1794246000000",
+    "n2:0:1794267600000",
+    "n3:0:1794280200000"
+   ]
+  },
+  {
+   "now": 1794247200000,
+   "lock": "teeth",
+   "next": 1794248100000,
+   "done": 0,
+   "total": 12,
+   "rem": [
+    "buy:false",
+    "teeth:true",
+    "study:true"
+   ],
+   "notes": [
+    "n1:1794246000000"
+   ],
+   "keys": [
+    "buy@once:late",
+    "teeth@2026-11-09:late",
+    "wk@W2026-11-09:upcoming",
+    "study@2026-11-09:open",
+    "chap@W2026-11-09:upcoming",
+    "read@2026-11-09:upcoming",
+    "pay@once:open",
+    "mo@2026-11:open",
+    "some@once:open",
+    "cus@C2026-11-09:upcoming",
+    "free@2026-11-09:upcoming",
+    "fut@once:open"
+   ],
+   "erem": [
+    "g4@1794333600000:false:1440"
+   ],
+   "enext": 1794308400000,
+   "mode": "full:lock:1794218400000:0",
+   "mode2": "none",
+   "pops": [
+    "n1:1794246000000:1794248700000",
     "n2:0:1794267600000",
     "n3:0:1794280200000"
    ]
@@ -962,6 +1212,8 @@
     "free@2026-11-09:upcoming",
     "fut@once:open"
    ],
+   "erem": [],
+   "enext": 1794308400000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "draw:manual:1794250800000:1794255600000",
    "pops": [
@@ -998,6 +1250,8 @@
     "free@2026-11-09:upcoming",
     "fut@once:open"
    ],
+   "erem": [],
+   "enext": 1794308400000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "draw:manual:1794250800000:1794255600000",
    "pops": [
@@ -1030,6 +1284,8 @@
     "free@2026-11-09:upcoming",
     "fut@once:open"
    ],
+   "erem": [],
+   "enext": 1794308400000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "draw:manual:1794250800000:1794255600000",
    "pops": [
@@ -1064,6 +1320,8 @@
     "free@2026-11-09:upcoming",
     "fut@once:open"
    ],
+   "erem": [],
+   "enext": 1794308400000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "none",
    "pops": [
@@ -1097,6 +1355,8 @@
     "free@2026-11-09:upcoming",
     "fut@once:open"
    ],
+   "erem": [],
+   "enext": 1794308400000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "none",
    "pops": [
@@ -1138,6 +1398,8 @@
     "free@2026-11-09:open",
     "fut@once:open"
    ],
+   "erem": [],
+   "enext": 1794308400000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "none",
    "pops": [
@@ -1171,6 +1433,8 @@
     "free@2026-11-09:open",
     "fut@once:open"
    ],
+   "erem": [],
+   "enext": 1794308400000,
    "mode": "full:lock:1794218400000:0",
    "mode2": "none",
    "pops": [
@@ -1204,6 +1468,8 @@
     "free@2026-11-09:open",
     "fut@once:open"
    ],
+   "erem": [],
+   "enext": 1794308400000,
    "mode": "none",
    "mode2": "none",
    "pops": [
@@ -1237,6 +1503,8 @@
     "free@2026-11-09:open",
     "fut@once:open"
    ],
+   "erem": [],
+   "enext": 1794308400000,
    "mode": "none",
    "mode2": "none",
    "pops": [

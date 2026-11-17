@@ -69,10 +69,11 @@ public class BlockerService extends AccessibilityService {
     }
 
     /** Pop-ups need to start an activity from the background; an active accessibility service is allowed to. */
-    static boolean showPopup(String taskId) {
+    static boolean showPopup(String taskId) { return showPopup(taskId, "remind"); }
+    static boolean showPopup(String taskId, String mode) {
         BlockerService s = instance;
         if (s == null) return false;
-        s.startActivity(new Intent(s, MainActivity.class).putExtra("mode", "remind").putExtra("task", taskId)
+        s.startActivity(new Intent(s, MainActivity.class).putExtra("mode", mode).putExtra("task", taskId)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
         return true;
     }

@@ -54,7 +54,7 @@ public class MainActivity extends Activity {
         mode = m == null ? "main" : m;
         String t = i.getStringExtra("task");
         task = t == null ? "" : t;
-        boolean overLock = "block".equals(mode) || "remind".equals(mode) || "note".equals(mode);
+        boolean overLock = "block".equals(mode) || "remind".equals(mode) || "evremind".equals(mode) || "note".equals(mode);
         if (overLock) { setShowWhenLocked(true); setTurnScreenOn(true); getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); }
     }
 
@@ -72,7 +72,7 @@ public class MainActivity extends Activity {
     @Override public void onBackPressed() {
         if (Store.now(this).lock != null) return; // stay on the lock screen
         if (!Store.now(this).notes.isEmpty()) return; // stay on the note until it is dismissed
-        if ("remind".equals(mode)) { finish(); return; }
+        if ("remind".equals(mode) || "evremind".equals(mode)) { finish(); return; }
         super.onBackPressed();
     }
 
