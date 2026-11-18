@@ -530,3 +530,5 @@ details.vault .row { background: var(--card); margin-top: 8px; border-left-color
 .chip.dragsrc { opacity: .35; }
 .drag-ghost { z-index: 1000; pointer-events: none; opacity: .92; box-shadow: 0 6px 18px rgba(0,0,0,.45); cursor: grabbing; display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .cal-day.drop { outline: 2px solid var(--accent, #7c9cff); outline-offset: -2px; }
+.cp-all { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; padding-bottom: 14px; border-bottom: 1px solid var(--line, rgba(255,255,255,.08)); }
+.cp-all .btn { flex: 1 1 160px; }

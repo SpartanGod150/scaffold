@@ -133,7 +133,7 @@ function stopWinWatch() { if (winBrowser.proc) { try { winBrowser.proc.kill(); }
 
 /* The guard. o: { Engine, getState() (with gev), local, saveLocal(), deviceId, ui: { blocked(name, mode), ask(list, mode), hideAsk(), cover(rect | null, mode) } } */
 function Guard(o) {
-  const g = { key: '', pend: {}, busy: false, coverBusy: false };
+  const g = { key: '', pend: {}, busy: false, coverBusy: false, hold: 0 };   // hold: "Give me 2 minutes" for all programs, until then
   const sys = Object.assign({ listOpen, closeGently, closeHard, freeze, now: Date.now }, o.sys || {});   // o.sys: fakes for tests
   // Programs frozen by an earlier run (Scaffold restarted): let them go; the mode asks again.
   Object.keys(o.local.frozen || {}).forEach((pid) => sys.freeze(+pid, false));
@@ -145,7 +145,7 @@ function Guard(o) {
   function release() {
     Object.keys(o.local.frozen || {}).forEach((pid) => sys.freeze(+pid, false));
     o.local.frozen = {}; o.saveLocal();
-    g.pend = {}; g.key = '';
+    g.pend = {}; g.key = ''; g.hold = 0;
     o.ui.hideAsk(); o.ui.cover(null);
     o.local.guard = null;
   }
@@ -161,7 +161,7 @@ function Guard(o) {
         Object.keys(o.local.frozen || {}).forEach((pid) => { const f = o.local.frozen[pid]; if (!blocked(a, f.id)) { sys.freeze(+pid, false); delete o.local.frozen[pid]; } });
         Object.keys(g.pend).forEach((id) => { if (!blocked(a, id)) delete g.pend[id]; });
         open.forEach((p) => { if (blocked(a, p.id) && !g.pend[p.id] && !o.local.frozen[p.pid]) g.pend[p.id] = { name: p.name, pids: [], waits: 0, state: 'ask', next: 0 }; });
-        g.key = key; o.saveLocal();
+        g.key = key; g.hold = 0; o.saveLocal();
       }
       const byId = {}, gone = {};
       open.forEach((p) => { (byId[p.id] = byId[p.id] || []).push(p); });
@@ -177,6 +177,7 @@ function Guard(o) {
       });
       open.forEach((p) => {   // opened during the mode: it doesn't get to open
         if (gone[p.pid] || g.pend[p.id] || o.local.frozen[p.pid] || !blocked(a, p.id)) return;
+        if (now < g.hold) { g.pend[p.id] = { name: p.name, pids: [p.pid], waits: 0, state: 'wait', next: g.hold }; return; }   // the whole block waits
         sys.closeHard(p.pid); o.ui.blocked(p.name, mode, false);
       });
       const ask = askList();
@@ -188,8 +189,15 @@ function Guard(o) {
 
   // The pop-up's buttons.
   g.action = function (what, id) {
-    const e = g.pend[id]; if (!e) return;
     const a = act(); if (!a) return;
+    if (what === 'freezeAll' || what === 'waitAll') {   // every program in the pop-up at once
+      const ids = Object.keys(g.pend).filter((k) => g.pend[k].state === 'ask');
+      if (what === 'waitAll' && ids.some((k) => g.pend[k].waits >= MAX_WAITS)) return;
+      if (what === 'waitAll') g.hold = sys.now() + WAIT_MS;
+      ids.forEach((k) => g.action(what === 'waitAll' ? 'wait' : 'freeze', k));
+      return;
+    }
+    const e = g.pend[id]; if (!e) return;
     if (what === 'close') { e.pids.forEach(sys.closeGently); e.state = 'closing'; e.next = sys.now() + 15000; }
     else if (what === 'wait') { if (e.waits >= MAX_WAITS) return; e.waits++; e.state = 'wait'; e.next = sys.now() + WAIT_MS; }
     else if (what === 'freeze') { e.pids.forEach((pid) => { sys.freeze(pid, true); o.local.frozen[pid] = { id, name: e.name }; }); delete g.pend[id]; o.saveLocal(); }

@@ -36,6 +36,15 @@ const g = Guard({
     assert.ok(log.includes('hard 201') && shown.blocked.includes('Steam'), 'opening it again during the mode: closed at once'); ok();
     t = new Date(2026, 10, 16, 10, 2).getTime(); await g.tick();
     assert.ok(log.includes('thaw 102'), 'the mode ended: frozen programs come back'); assert.deepStrictEqual(local.frozen, {}); ok();
+    // All at once: a new mode with several open programs.
+    open = [{ id: STEAM, name: 'Steam', pid: 301 }, { id: CODE, name: 'Code', pid: 302 }, { id: GAME, name: 'Game', pid: 303 }];
+    Object.assign(state.events, E.opPut('events', { id: 'ev2', title: 'Draw 2', start: t + 60000, end: t + 3600000, mode: 'draw' }, 'A', t).events);
+    t += 120000; await g.tick(); assert.deepStrictEqual(shown.ask, ['Steam:0', 'Code:0', 'Game:0']); ok();
+    g.action('waitAll'); assert.strictEqual(shown.ask, null, 'Give me 2 minutes: every program waits'); ok();
+    open.push({ id: GAME, name: 'Game', pid: 304 }); await g.tick();
+    assert.ok(!log.includes('hard 304'), 'opened during the 2 minutes: not closed yet'); ok();
+    t += 121000; await g.tick(); assert.deepStrictEqual(shown.ask, ['Steam:1', 'Code:1', 'Game:1'], 'all asked again together'); ok();
+    log.length = 0; g.action('freezeAll'); assert.deepStrictEqual(log, ['freeze 301', 'freeze 302', 'freeze 303', 'freeze 304']); assert.strictEqual(shown.ask, null); ok();
     console.log(pass + ' guard checks passed');
   } catch (e) { console.error('FAIL', e.message, log, shown); process.exitCode = 1; }
 })();

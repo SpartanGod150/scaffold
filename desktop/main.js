@@ -307,7 +307,7 @@ const guardUI = {
   },
   // The "Close this Program" pop-up: one row per program.
   ask(list) {
-    const h = Math.min(560, 150 + list.length * 96);
+    const h = Math.min(620, 150 + list.length * 96 + (list.length > 1 ? 64 : 0));
     if (closeWin && !closeWin.isDestroyed()) { closeWin.setSize(460, h); closeWin.webContents.send('native'); if (!closeWin.isVisible()) closeWin.show(); return; }
     closeWin = new BrowserWindow(Object.assign(centerBox(460, h), { frame: false, resizable: false, minimizable: false, closable: false, alwaysOnTop: true, skipTaskbar: false, backgroundColor: '#0f1117', show: false, webPreferences: webPrefs() }));
     closeWin.setAlwaysOnTop(true, 'floating');

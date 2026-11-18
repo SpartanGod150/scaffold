@@ -1114,7 +1114,10 @@
   function closeProgView() {
     var g = S.local.guard || {}, list = g.list || [];
     if (!list.length) { setTimeout(function () { B.closeWindow(); }, 300); return '<section class="remind"><p class="muted">Nothing to close.</p></section>'; }
-    return '<section class="closeprog"><h2>🛡️ ' + esc(g.mode) + ' Mode is on</h2><p class="muted">These programs are blocked now. Save your work, then choose.</p>' +
+    var most = Math.max.apply(null, list.map(function (p) { return p.waits || 0; }));
+    var all = list.length > 1 ? '<div class="cp-all"><button class="btn primary" data-a="guardAct" data-id="freezeAll">🧊 Freeze All Programs</button>' +
+      (most < 3 ? '<button class="btn" data-a="guardAct" data-id="waitAll">⏳ Give me 2 minutes' + (most ? ' (' + (3 - most) + ' left)' : '') + '</button>' : '') + '</div>' : '';
+    return '<section class="closeprog"><h2>🛡️ ' + esc(g.mode) + ' Mode is on</h2><p class="muted">These programs are blocked now. Save your work, then choose.</p>' + all +
       list.map(function (p) {
         return '<div class="cp-row"><b>' + esc(p.name) + '</b><div class="row-btns"><button class="btn primary sm" data-a="guardAct" data-id="close" data-k="' + esc(p.id) + '">Close Now</button>' +
           (p.waits < 3 ? '<button class="btn sm" data-a="guardAct" data-id="wait" data-k="' + esc(p.id) + '">Give me 2 minutes' + (p.waits ? ' (' + (3 - p.waits) + ' left)' : '') + '</button>' : '') +

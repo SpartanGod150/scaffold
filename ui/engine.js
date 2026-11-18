@@ -67,7 +67,7 @@
 
   // ---------- habits ----------
   // Habits repeat forever and keep a record of each period. repeat: 'weekdays' (the default: on the picked weekdays,
-  // none = every day; each day is a period), 'week' (dueDay 0=Mon..6=Sun), 'month' (dueDay 1..31), 'every' (every N days from date).
+  // none = every day; each day is a period), 'week' (dueDay 0=Mon..6=Sun; weeks Sun → Sat), 'month' (dueDay 1..31), 'every' (every N days from date).
   function weekdayOk(task, t) {
     var wd = new Date(t).getDay();
     return !task.days || !task.days.length || task.days.indexOf(wd) >= 0;
@@ -135,9 +135,9 @@
   function periodOf(todo, t) {
     var rep = todo.repeat || 'none', today = dateKey(t);
     if (rep === 'week') {
-      var d = new Date(t), mon = addDays(t, -((d.getDay() + 6) % 7));
-      var dd = todo.dueDay == null ? 6 : +todo.dueDay;
-      return { key: 'W' + dateKey(mon), first: dateKey(mon), deadline: dateKey(addDays(mon, dd)) };
+      // Weeks run Sunday → Saturday (dueDay stays 0=Mon..6=Sun; Sunday is the week's first day). No dueDay = Saturday.
+      var sun = addDays(t, -new Date(t).getDay()), dd = todo.dueDay == null ? 5 : +todo.dueDay;
+      return { key: 'W' + dateKey(sun), first: dateKey(sun), deadline: dateKey(addDays(sun, (dd + 1) % 7)) };
     }
     if (rep === 'month') {
       var m = new Date(t), last = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
