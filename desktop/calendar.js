@@ -148,7 +148,25 @@ async function syncOnce(ctx) {
     local.calMap[id] = { gid: r.gid, upd: r.upd, sig };
     pushed++;
   }
-  if (Object.keys(patch.events).length || Object.keys(patch.todos).length) apply(patch);
+  // Calendar edits queued from any device (cfg records "calop:…"): rename, color, create, delete, subscribe, unsubscribe.
+  const cfg = state.cfg || {};
+  for (const k of Object.keys(cfg)) {
+    const o = cfg[k];
+    if (k.indexOf('calop:') !== 0 || !o || o.del || o.done || o.err) continue;
+    patch.cfg = patch.cfg || {};
+    try {
+      const r = await call(url, { secret, op: 'cal-' + o.op, cal: o.cal || '', name: o.name || '', color: o.color || '', id: o.sub || '', tz });
+      patch.cfg[k] = Object.assign({}, o, { done: now, newId: (r && r.id) || '', ts: Math.max(now, o.ts || 0) + 3, by, pushed: Date.now() });   // newer than the request even if that device's clock runs ahead
+      if (o.op === 'delete' || o.op === 'unsub') {   // its events are gone from Google: Scaffold's own copies must not be sent back
+        for (const id of Object.keys(events)) { const e = events[id]; if (e && !e.del && e.cal === o.cal) patch.events[id] = Object.assign({}, e, { del: true, synced: Math.max(now, e.ts || 0) + 3, ts: Math.max(now, e.ts || 0) + 3, by }); }
+      }
+      changed = true; pushed++;
+    } catch (err) {
+      patch.cfg[k] = Object.assign({}, o, { err: /unknown op/i.test(err.message) ? 'old-script' : err.message, ts: Math.max(now, o.ts || 0) + 3, by });
+      fails.push(`calendar change: ${err.message}`); console.error('calendar op', k, err.message);
+    }
+  }
+  if (Object.keys(patch.events).length || Object.keys(patch.todos).length || patch.cfg) apply(patch);
   if (changed) res = await pull(url, secret, null);   // so this device shows Google's new version right away
   const gev = toGev(res, state.todos || {}, prevGev);
   return { gev, v: gev._meta.v, status: `synced ${new Date().toTimeString().slice(0, 5)} · ${evCount(gev)} Google events` + (pulled || pushed ? ` · ${pulled} in, ${pushed} out` : '') +

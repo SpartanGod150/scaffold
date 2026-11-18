@@ -553,3 +553,23 @@ button.hx { cursor: pointer; color: #fff; font-weight: 700; }
 .hx-future, .hx-before { opacity: .35; }
 .hx.today { box-shadow: 0 0 0 2px var(--fg, #fff) inset; }
 .hx-lg-open { background: var(--line); outline: 1px solid var(--mute); }
+
+/* v0.6.0: editing calendars */
+.cs-h { display: flex; align-items: center; justify-content: space-between; }
+.cs-add { background: none; border: 0; color: var(--mute); font-size: 18px; cursor: pointer; padding: 0 6px; border-radius: 6px; }
+.cs-add:hover { color: var(--fg, #fff); background: var(--card); }
+.cs .cs-c { justify-content: space-between; }
+.cs .cs-c > label { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; cursor: pointer; }
+.cs-more { background: none; border: 0; color: var(--mute); font-size: 18px; cursor: pointer; padding: 0 6px; border-radius: 6px; opacity: 0; }
+.cs-c:hover .cs-more, .cs-modal .cs-more, .p-android .cs-more { opacity: 1; }
+.cs-more:hover { background: var(--line); color: var(--fg, #fff); }
+.cs-c.pend { opacity: .6; }
+.cs-warn { font-size: 12px; margin: 8px 4px; }
+.cal-menu { position: fixed; z-index: 400; background: var(--card, #1c2030); border: 1px solid var(--line); border-radius: 12px; padding: 8px; width: 236px; box-shadow: 0 10px 30px rgba(0,0,0,.5); display: flex; flex-direction: column; }
+.cal-menu .cm-t { padding: 4px 8px 8px; font-size: 13px; color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-menu > button { background: none; border: 0; color: inherit; text-align: left; padding: 8px; border-radius: 8px; font-size: 14px; cursor: pointer; }
+.cal-menu > button:hover { background: var(--line); }
+.cal-menu .cm-danger { color: #ff7a90; }
+.cm-pal { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; padding: 8px; }
+.cm-sw { width: 20px; height: 20px; border-radius: 50%; border: 0; cursor: pointer; padding: 0; }
+.cm-sw.on { box-shadow: 0 0 0 2px var(--card, #1c2030), 0 0 0 4px #fff; }

@@ -72,8 +72,9 @@ function applyPatch(patch, publish) {
   if (changed) {
     tickVault(patch);
     const at = (gev._meta && gev._meta.at) || 0;
-    if (Object.values(patch.events || {}).some((e) => e && e.pushed > at)) lastPull = 0;   // Google just changed: read it soon
-    if (patch.events || patch.todos) calSoon();
+    const ops = Object.keys(patch.cfg || {}).filter((k) => k.indexOf('calop:') === 0).map((k) => patch.cfg[k]);
+    if (Object.values(patch.events || {}).concat(ops).some((e) => e && e.pushed > at)) lastPull = 0;   // Google just changed: read it soon
+    if (patch.events || patch.todos || ops.some((o) => o && !o.done && !o.err)) calSoon();
   }
 }
 function notifyUI() {

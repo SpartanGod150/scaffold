@@ -81,6 +81,18 @@ const Utilities = {
     return '' + Y + M + D + 'T' + h + m + s + 'Z';
   },
 };
+// calendars themselves (v3: editing calendars)
+const CALCOL = { 1: { background: '#ac725e' }, 14: { background: '#9fe1e7' }, 3: { background: '#f83a22' }, 10: { background: '#16a765' }, 22: { background: '#f691b2' } };
+Calendar.Colors.get = ((g) => () => Object.assign(g(), { calendar: CALCOL }))(Calendar.Colors.get);
+const findCal = (id) => CALS.find((c) => c.id === id);
+Calendar.Calendars = {
+  insert(r) { const id = 'new' + nid++ + '@x'; CALS.push({ id, summary: r.summary, backgroundColor: '#9fc6e7', accessRole: 'owner' }); store[id] = {}; return { id }; },
+  patch(r, id) { const c = findCal(id); if (!c || c.accessRole !== 'owner') throw new Error('Forbidden'); if (r.summary) c.summary = r.summary; return c; },
+  remove(id) { const c = findCal(id); if (!c || c.accessRole !== 'owner' || c.primary) throw new Error('Forbidden'); CALS.splice(CALS.indexOf(c), 1); delete store[id]; },
+};
+Calendar.CalendarList.insert = (r) => { CALS.push({ id: r.id, summary: 'Shared ' + r.id, backgroundColor: '#cabdbf', accessRole: 'reader' }); store[r.id] = {}; return { id: r.id }; };
+Calendar.CalendarList.remove = (id) => { const c = findCal(id); CALS.splice(CALS.indexOf(c), 1); delete store[id]; };
+Calendar.CalendarList.patch = (r, id) => { const c = findCal(id); if (r.colorId) c.backgroundColor = CALCOL[r.colorId].background; else if (r.backgroundColor) c.backgroundColor = r.backgroundColor; return c; };
 const LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }), getUserLock: () => ({ waitLock() {}, releaseLock() {} }) };
 const ContentService = { MimeType: { JSON: 'json' }, createTextOutput: (s) => ({ s, setMimeType() { return this; } }) };
 const doPost = new Function('Calendar', 'Utilities', 'LockService', 'ContentService', 'CacheService', SRC + '\nreturn doPost;')(Calendar, Utilities, LockService, ContentService, {});
@@ -115,7 +127,7 @@ if (process.env.SERVE) {   // manual mode: serve the fake Google with a few even
     store['hol@x'].h1 = { id: 'h1', summary: 'Holiday', start: { date: E.dateKey(at(1, '12:00')) }, end: { date: E.dateKey(at(2, '12:00')) }, updated: new Date(tick()).toISOString() };
     store['me@x'].s1 = { id: 's1', summary: 'Gym', recurrence: ['RRULE:FREQ=DAILY;COUNT=4'], start: { dateTime: new Date(at(0, '18:00')).toISOString() }, end: { dateTime: new Date(at(0, '19:00')).toISOString() }, updated: new Date(tick()).toISOString() };
     let r = await run();
-    assert.strictEqual(r.v, 2);
+    assert.strictEqual(r.v, 3);
     const g = state.gev;
     assert.deepStrictEqual(g._cals.list.map((c) => c.name + (c.ro ? '(ro)' : '')), ['Me', 'Work', 'Holidays(ro)']);
     const su = evs().find((e) => e.title === 'Standup');
@@ -180,6 +192,26 @@ if (process.env.SERVE) {   // manual mode: serve the fake Google with a few even
     put(Object.assign({}, rv2, { cal: 'me@x', oldCal: 'work@x' }));
     await run();
     assert.strictEqual(evs().find((e) => e.title === 'Review').cal, 'me@x'); assert.ok(!store['work@x'][rv2.gid]); ok();
+
+    // Editing calendars (queued from any device as cfg "calop:" records; the Mac does them)
+    const op = (o) => E.merge(state, E.opPut('cfg', Object.assign({ id: 'calop:' + nid++, at: tick() }, o), 'phone', tick()));
+    op({ op: 'rename', cal: 'me@x', name: 'Ariel' }); op({ op: 'color', cal: 'me@x', color: '#f691b2' });
+    op({ op: 'create', name: 'Study', color: '#16a765' }); op({ op: 'sub', sub: 'friend@x' });
+    await run();
+    const names = () => state.gev._cals.list.map((c) => c.name + ':' + c.color + ':' + (c.owner ? 'own' : 'other'));
+    assert.ok(names().includes('Ariel:#f691b2:own'), 'renamed + recolored'); assert.ok(names().includes('Study:#16a765:own'), 'created with its color');
+    assert.ok(names().includes('Shared friend@x:#cabdbf:other'), 'subscribed'); ok();
+    const ops = () => Object.keys(state.cfg).filter((k) => k.indexOf('calop:') === 0).map((k) => state.cfg[k]);
+    assert.ok(ops().every((o) => o.done && o.pushed && !o.err), 'every change marked done ' + JSON.stringify(ops())); ok();
+    const study = state.gev._cals.list.find((c) => c.name === 'Study').id;
+    put({ title: 'Exam prep', cal: study, start: E.at(E.addDays(Date.now(), 2), '10:00'), end: E.at(E.addDays(Date.now(), 2), '11:00') });
+    await run();
+    assert.ok(evs().some((e) => e.title === 'Exam prep' && e.cal === study)); ok();
+    op({ op: 'delete', cal: study }); op({ op: 'unsub', cal: 'friend@x' }); op({ op: 'delete', cal: 'me@x' });
+    await run();
+    assert.ok(!state.gev._cals.list.some((c) => c.id === study || c.id === 'friend@x'), 'deleted + unsubscribed'); assert.ok(!evs().some((e) => e.title === 'Exam prep')); ok();
+    assert.ok(ops().some((o) => o.op === 'delete' && o.cal === 'me@x' && o.err), 'the main calendar can\'t be deleted: reported, not retried forever'); ok();
+    await run(); assert.strictEqual(Object.values(state.events).filter((e) => e.cal === study && !e.del).length, 0, 'its Scaffold copies are not sent back'); ok();
 
     console.log(pass + ' bridge v2 checks passed');
   } catch (e) { console.error('FAIL', e); process.exitCode = 1; }

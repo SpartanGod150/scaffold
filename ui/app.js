@@ -76,7 +76,7 @@
     S.local = JSON.parse(B.getLocal());
     E.MAPS.forEach(function (m) { S.state[m] = S.state[m] || {}; });
     S.r = E.compute(S.state, now());
-    S.lb = null;
+    S.lb = null; S.gc = null;
     S.act = E.activeMode(S.state, now(), S.r);
   }
 
@@ -157,6 +157,18 @@
     calPick: function (key) { S.calDay = key; S.calView = 'day'; lsSet('scaffold-calview', 'day'); render(); },
     calView: function (v) { if (v === 'range' && !calRange()) return; if (v !== 'range' && calView() === 'range') S.calDay = calRange().from; S.calView = v; lsSet('scaffold-calview', v); render(); },
     calCals: function () { openCalendars(); },
+    calMenu: function (id, k, el) { calMenu(id, el); },
+    calNew: function () {
+      promptBox('New calendar', 'Name', '', 'Create', function (name) {
+        if (!name) return;
+        calOp('create', { name: name, color: CAL_PAL[Math.abs(hash(name)) % CAL_PAL.length] }); calRefresh(); toast('📅 Creating “' + name + '” in Google…');
+      });
+    },
+    calSub: function () {
+      promptBox('Subscribe to a calendar', 'Their email address, or the calendar ID (Google: the calendar’s Settings → Integrate calendar)', '', 'Add', function (v) {
+        if (!v) return; calOp('sub', { sub: v.trim() }); calRefresh(); toast('📅 Adding it from Google…');
+      });
+    },
     calJump: function (key) {
       if (S.mmDragged && Date.now() - S.mmDragged < 400) return;
       if (calView() === 'range') { S.calRange = { from: key, n: calRange().n }; saveRange(); }
@@ -564,7 +576,30 @@
   function calColor(c) { var x = (c && c.color || '').toLowerCase(); return CAL_COLORS[x] || (c && c.color) || EV_COLOR; }
   var GCOLOR_NAMES = { 1: 'Lavender', 2: 'Sage', 3: 'Grape', 4: 'Flamingo', 5: 'Banana', 6: 'Tangerine', 7: 'Peacock', 8: 'Graphite', 9: 'Blueberry', 10: 'Basil', 11: 'Tomato' };
   function gcalInfo() { return ((S.state.gev || {})._cals) || null; }
-  function gcals() { var g = gcalInfo(); return g ? g.list || [] : []; }
+  // Google's calendars, with edits made here shown right away (until this device has read Google after the Mac sent them).
+  function calOps() {
+    var c = S.state.cfg || {}, gat = ((S.state.gev || {})._meta || {}).at || 0;
+    return Object.keys(c).filter(function (k) { return k.indexOf('calop:') === 0; }).map(function (k) { return c[k]; })
+      .filter(function (o) { return o && !o.del && !o.err && (!o.done || gat < (o.pushed || o.done)); }).sort(function (a, b) { return (a.at || 0) - (b.at || 0); });
+  }
+  function gcals() {
+    if (S.gc) return S.gc;
+    var g = gcalInfo(), list = (g ? g.list || [] : []).map(function (c) { return Object.assign({}, c); });
+    calOps().forEach(function (o) {
+      var c = list.filter(function (x) { return x.id === o.cal; })[0];
+      if (o.op === 'rename' && c) c.name = o.name;
+      else if (o.op === 'color' && c) c.color = o.color;
+      else if ((o.op === 'delete' || o.op === 'unsub') && c) list.splice(list.indexOf(c), 1);
+      else if (o.op === 'create') list.push({ id: 'new:' + o.id, name: o.name, color: o.color, owner: true, pending: true });
+      else if (o.op === 'sub') list.push({ id: o.sub, name: o.sub, ro: true, owner: false, pending: true });
+    });
+    return (S.gc = list);
+  }
+  function calOwned(c) { return c.owner != null ? !!c.owner : !c.ro; }
+  var CAL_PAL = Object.keys(CAL_COLORS);   // Google's calendar colors (the API's names for them; shown as CAL_COLORS)
+  function applyNow(p) { apply(p); E.merge(S.state, p); S.gc = null; }
+  function calOp(op, f) { var o = Object.assign({ id: 'calop:' + E.uid(), op: op, at: now() }, f); applyNow(E.opPut('cfg', o, by(), now())); return o; }
+  function calOpErr() { var c = S.state.cfg || {}; return Object.keys(c).some(function (k) { return k.indexOf('calop:') === 0 && c[k] && c[k].err === 'old-script' && !c[k].del; }); }
   function gcal(id) { var l = gcals(); for (var i = 0; i < l.length; i++) if (l[i].id === id || (!id && l[i].primary)) return l[i]; return null; }
   function palette() { return GCOLORS; }
   function calHidden(id) { var c = id || (gcal('') || {}).id; var r = (S.state.marks || {})['cal:' + c]; return !!(r && !r.del && r.hidden); }
@@ -612,17 +647,23 @@
       cells += '<button class="mm-d' + (d.getMonth() !== m.getMonth() ? ' out' : '') + (k === today ? ' today' : '') + (inSel ? ' sel' : '') + (k === key ? ' anchor' : '') +
         (v === 'week' && k === ws ? ' s0' : '') + (v === 'week' && k === we ? ' s1' : '') + '" data-a="calJump" data-id="' + k + '" data-mm="' + k + '">' + d.getDate() + '</button>';
     }
-    var list = gcals(), mine = list.filter(function (c) { return !c.ro; }), other = list.filter(function (c) { return c.ro; });
-    var group = function (title, cs) {
-      return cs.length ? '<h4>' + title + '</h4>' + cs.map(function (c) {
-        return '<label class="cs-c"><input type="checkbox" data-change="calShow" data-id="' + esc(c.id) + '"' + (calHidden(c.id) ? '' : ' checked') + ' style="--c:' + esc(calColor(c)) + '"><span>' + esc(c.name) + '</span></label>';
-      }).join('') : '';
-    };
+    var list = gcals();
     return '<aside class="cal-side"><div class="mm"><div class="mm-h"><b>' + MONTHS[m.getMonth()] + ' ' + m.getFullYear() + '</b><span><button class="mm-n" data-a="miniPrev">‹</button><button class="mm-n" data-a="miniNext">›</button></span></div>' +
       '<div class="mm-g">' + DAYNAMES.map(function (w) { return '<i>' + w[0] + '</i>'; }).join('') + cells + '</div></div>' +
-      (list.length ? '<div class="cs">' + group('My calendars', mine) + group('Other calendars', other) + '</div>' : '') + '</aside>';
+      (list.length ? '<div class="cs">' + calGroups(list, false) + '</div>' : '') + '</aside>';
   }
 
+  // "My calendars" (yours) and "Other calendars" (subscribed): show / hide, ⋮ menu, ＋ to add. inModal: the phone's Calendars sheet.
+  function calGroups(list, inModal) {
+    var row = function (c) {
+      return '<div class="cs-c' + (c.pending ? ' pend' : '') + '"><label><input type="checkbox" data-change="calShow" data-id="' + esc(c.id) + '"' + (calHidden(c.id) ? '' : ' checked') + (c.pending ? ' disabled' : '') + ' style="--c:' + esc(calColor(c)) + '"><span>' + esc(c.name) + '</span></label>' +
+        (c.pending ? '<small class="muted">…</small>' : '<button type="button" class="cs-more" data-a="calMenu" data-id="' + esc(c.id) + '" title="Options">⋮</button>') + '</div>';
+    };
+    var head = function (title, add, tip) { return '<h4 class="cs-h">' + title + '<button type="button" class="cs-add" data-a="' + add + '" title="' + tip + '">＋</button></h4>'; };
+    return head('My calendars', 'calNew', 'Create a new calendar') + list.filter(calOwned).map(row).join('') +
+      head('Other calendars', 'calSub', 'Subscribe to a calendar') + list.filter(function (c) { return !calOwned(c); }).map(row).join('') +
+      (calOpErr() ? '<p class="muted cs-warn">⚠️ Calendar changes need the updated Google script: Settings → Google Calendar.</p>' : '');
+  }
   function monthCell(t, label, out, lanes) {
     var k = E.dateKey(t), chips = [], due = false;
     shownAgenda(t).forEach(function (a) {
@@ -1187,7 +1228,7 @@
         '<label class="field">Vault folder<input id="vault-path" value="' + esc(L.vaultPath || V.path || '') + '" placeholder="/path/to/Second Brain"></label><button class="btn ghost sm" data-a="saveVault">Save and scan</button>' +
         '<p class="muted">Status: ' + esc(V.status || 'not scanned yet') + '</p></section>';
       h += '<section class="panel"><h3>📅 Google Calendar (two-way)</h3>' + (L.calUrl
-        ? (L.scriptOld || (L.scriptV && L.scriptV < 2) || /Calendar API/.test(C.status || '') ? '<div class="callout"><p>⚠️ <b>Your Google script needs an update</b> (all your calendars with their colors, descriptions, repeating events). About 2 minutes:</p><ol class="steps">' +
+        ? (L.scriptOld || (L.scriptV && L.scriptV < 3) || calOpErr() || /Calendar API/.test(C.status || '') ? '<div class="callout"><p>⚠️ <b>Your Google script needs an update</b> (editing calendars: rename, colors, new, delete, subscribe). About 2 minutes:</p><ol class="steps">' +
             '<li><button class="btn sm" data-a="copyScript">Copy new script</button></li>' +
             '<li>Open <b>script.google.com</b> → your Scaffold project. Select all the code, delete it, paste.</li>' +
             '<li>On the left, next to <b>Services</b>, click <b>+</b> → <b>Google Calendar API</b> → <b>Add</b>.</li>' +
@@ -1730,13 +1771,58 @@
   // Show / hide each Google calendar (on every device).
   function openCalendars() {
     $modal.innerHTML = '<div class="modal-bg"><form class="modal" id="editor"><div class="sec-head"><h2>Calendars</h2><button type="button" class="x" data-close>✕</button></div>' +
-      gcals().map(function (c) {
-        return '<label class="check cal-pick"><input type="checkbox" data-cal="' + esc(c.id) + '"' + (calHidden(c.id) ? '' : ' checked') + '><i style="background:' + esc(calColor(c)) + '"></i> ' + esc(c.name) + (c.ro ? ' <small>(read-only)</small>' : '') + '</label>';
-      }).join('') + '<p class="muted">Hiding a calendar hides it on every device. It stays in Google.</p><div class="modal-actions"><span class="sp"></span><button type="button" class="btn primary" data-close>Done</button></div></form></div>';
-    S.modalOpen = true;
+      '<div class="cs cs-modal">' + calGroups(gcals(), true) + '</div>' +
+      '<p class="muted">Hiding a calendar hides it on every device. It stays in Google.</p><div class="modal-actions"><span class="sp"></span><button type="button" class="btn primary" data-close>Done</button></div></form></div>';
+    S.modalOpen = true; S.calSheet = true;
     var f = document.getElementById('editor');
-    f.addEventListener('change', function (e) { var id = e.target.dataset.cal; if (id) apply(E.opPut('marks', { id: 'cal:' + id, hidden: !e.target.checked }, by(), now())); });
-    f.addEventListener('click', function (e) { if (e.target.closest('[data-close]')) closeModal(); });
+    f.addEventListener('click', function (e) { if (e.target.closest('[data-close]')) { S.calSheet = false; closeModal(); } });
+  }
+
+  function calRefresh() { if (S.calSheet && S.modalOpen) { var b = $modal.querySelector('.cs-modal'); if (b) b.innerHTML = calGroups(gcals(), true); } else paint(shell()); }
+  // The ⋮ menu of one calendar, like Google's: Display this only, rename, colors, delete / unsubscribe.
+  function calMenu(id, anchor) {
+    closeCalMenu();
+    var c = gcals().filter(function (x) { return x.id === id; })[0]; if (!c) return;
+    var own = calOwned(c), cur = (c.color || '').toLowerCase();
+    var m = document.createElement('div'); m.className = 'cal-menu'; m.id = 'cal-menu';
+    m.innerHTML = '<b class="cm-t">' + esc(c.name) + '</b>' +
+      '<button type="button" data-cm="only">👁️ Display this only</button>' +
+      (own ? '<button type="button" data-cm="rename">✏️ Rename</button>' : '') +
+      '<div class="cm-pal">' + CAL_PAL.map(function (k) { return '<button type="button" class="cm-sw' + (k === cur || CAL_COLORS[k] === cur ? ' on' : '') + '" data-cmc="' + k + '" style="background:' + CAL_COLORS[k] + '"></button>'; }).join('') + '</div>' +
+      (own ? (c.primary ? '' : '<button type="button" class="cm-danger" data-cm="delete">🗑️ Delete</button>') : '<button type="button" class="cm-danger" data-cm="unsub">➖ Unsubscribe</button>');
+    document.body.appendChild(m);
+    var r = anchor.getBoundingClientRect(), w = m.offsetWidth, h = m.offsetHeight;
+    m.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)) + 'px';
+    m.style.top = Math.max(8, Math.min(window.innerHeight - h - 8, r.bottom + 4)) + 'px';
+    m.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var b = e.target.closest('button'); if (!b) return;
+      var a = b.getAttribute('data-cm'), col = b.getAttribute('data-cmc');
+      closeCalMenu();
+      if (col) { calOp('color', { cal: id, color: col }); calRefresh(); return; }
+      if (a === 'only') {
+        var p = { marks: {} };
+        gcals().forEach(function (x) { Object.assign(p.marks, E.opPut('marks', { id: 'cal:' + x.id, hidden: x.id !== id }, by(), now()).marks); });
+        applyNow(p); calRefresh(); return;
+      }
+      if (a === 'rename') return promptBox('Rename calendar', 'Name', c.name, 'Save', function (v) { if (v && v !== c.name) { calOp('rename', { cal: id, name: v }); calRefresh(); } });
+      if (a === 'delete') return confirmBox('Delete “' + c.name + '”?', 'The calendar and all its events are deleted from Google, for good.', 'Delete', function () { calOp('delete', { cal: id }); calRefresh(); toast('🗑️ Deleting it from Google…'); }, true);
+      if (a === 'unsub') return confirmBox('Unsubscribe from “' + c.name + '”?', 'It leaves your list in Google too. The calendar itself stays with its owner.', 'Unsubscribe', function () { calOp('unsub', { cal: id }); calRefresh(); }, true);
+    });
+    setTimeout(function () { document.addEventListener('click', outsideCalMenu, true); }, 0);
+  }
+  function outsideCalMenu(e) { var m = document.getElementById('cal-menu'); if (!m || !m.contains(e.target)) closeCalMenu(); }
+  function closeCalMenu() { var m = document.getElementById('cal-menu'); if (m) m.remove(); document.removeEventListener('click', outsideCalMenu, true); }
+  // A one-line text question (like confirmBox).
+  function promptBox(title, label, value, ok, fn) {
+    var el = document.createElement('div');
+    el.className = 'modal-bg top-layer';
+    el.innerHTML = '<form class="modal small"><h2>' + esc(title) + '</h2><label class="field">' + esc(label) + '<input name="v" maxlength="200" value="' + esc(value || '') + '" autocomplete="off"></label>' +
+      '<div class="modal-actions"><span class="sp"></span><button type="button" class="btn ghost" data-no>Cancel</button><button class="btn primary">' + esc(ok) + '</button></div></form>';
+    document.body.appendChild(el);
+    var f = el.querySelector('form'), inp = f.v; inp.focus(); inp.select();
+    f.addEventListener('submit', function (e) { e.preventDefault(); var v = inp.value.trim(); el.remove(); fn(v); });
+    el.addEventListener('click', function (e) { if (e.target.closest('[data-no]') || e.target === el) el.remove(); });
   }
 
   function repeatText(rule) {

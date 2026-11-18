@@ -292,6 +292,8 @@ public final class Sync {
             if (p != null) {
                 JSONObject evs = p.optJSONObject("events");
                 if (evs != null && env.optInt("s", 0) != 1) { java.util.Iterator<String> it = evs.keys(); while (it.hasNext()) { JSONObject e = evs.optJSONObject(it.next()); if (e != null && e.has("pushed")) { pullSoon = true; break; } } }
+                JSONObject cfgP = p.optJSONObject("cfg");   // a calendar was edited on Google
+                if (cfgP != null && env.optInt("s", 0) != 1) { java.util.Iterator<String> it = cfgP.keys(); while (it.hasNext()) { String k = it.next(); JSONObject o = cfgP.optJSONObject(k); if (k.startsWith("calop:") && o != null && o.has("pushed")) { pullSoon = true; break; } } }
                 Store.apply(c, p, false);
             }
         } catch (Exception ignored) {
