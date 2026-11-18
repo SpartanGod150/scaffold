@@ -573,3 +573,11 @@ button.hx { cursor: pointer; color: #fff; font-weight: 700; }
 .cm-pal { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; padding: 8px; }
 .cm-sw { width: 20px; height: 20px; border-radius: 50%; border: 0; cursor: pointer; padding: 0; }
 .cm-sw.on { box-shadow: 0 0 0 2px var(--card, #1c2030), 0 0 0 4px #fff; }
+
+/* v0.6.2: Today on computers: day box left, tasks / habits right, "due later" below both */
+@media (min-width: 900px) {
+  .p-desktop .today-split { display: grid; grid-template-columns: minmax(300px, 34%) minmax(0, 1fr); gap: 14px; align-items: start; }
+  .p-desktop .today-split .today-cal { margin: 0; position: sticky; top: 72px; }
+  .p-desktop .today-split .today-cal .cv-scroll { height: calc(100vh - 200px); min-height: 340px; }
+  .p-desktop .today-split > .cards { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+}

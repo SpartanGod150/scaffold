@@ -350,8 +350,9 @@
       (next ? '<div class="next">Next: ' + esc(next.task.emoji) + ' <b>' + esc(next.task.title) + '</b> · ' + (next.status === 'late' ? '<span class="late-t">late</span>' : next.hasDue ? '<span data-left="' + next.due + '"></span> left' : 'today') + '</div>' : (r.total ? '<div class="next good">Everything done today 🎉</div>' : '')) +
       '</div></section>';
     var pending = function (list) { return list.filter(function (i) { return !i.done; }).concat(list.filter(function (i) { return i.done; })); };
-    return hero + '<section class="today-cal">' + calTimeline([E.dateKey(now())], true) + '</section>' +
-      '<section class="cards">' + sessions + (todayItems.length ? pending(todayItems).map(card).join('') : sessions ? '' : '<p class="empty">Nothing due today. Enjoy it.</p>') + '</section>' +
+    // Computers: the day's timeline on the left, today's tasks and habits on the right; "due later" below both (styles.css).
+    return hero + '<div class="today-split"><section class="today-cal">' + calTimeline([E.dateKey(now())], true) + '</section>' +
+      '<section class="cards">' + sessions + (todayItems.length ? pending(todayItems).map(card).join('') : sessions ? '' : '<p class="empty">Nothing due today. Enjoy it.</p>') + '</section></div>' +
       (later.length ? '<h3 class="mt">Due later or no deadline</h3><section class="cards">' + later.map(card).join('') + '</section>' : '');
   }
 
