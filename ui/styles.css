@@ -532,3 +532,24 @@ details.vault .row { background: var(--card); margin-top: 8px; border-left-color
 .cal-day.drop { outline: 2px solid var(--accent, #7c9cff); outline-offset: -2px; }
 .cp-all { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; padding-bottom: 14px; border-bottom: 1px solid var(--line, rgba(255,255,255,.08)); }
 .cp-all .btn { flex: 1 1 160px; }
+
+/* v0.5.12: habit tabs + tracking history */
+.htabs { margin: 0 0 14px; }
+.htabs .seg-b { flex: 1; }
+#toast.has-undo { pointer-events: auto; display: flex; align-items: center; gap: 12px; }
+#toast { z-index: 300; }
+.t-undo { background: #0f1117; color: #fff; border: 0; border-radius: 999px; padding: 5px 12px; font-weight: 700; cursor: pointer; }
+.hx-month { margin: 14px 0; }
+.hx-month > b { display: block; margin-bottom: 6px; }
+.hx-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; max-width: 420px; }
+.hx-h { text-align: center; font-size: 11px; color: var(--mute); font-style: normal; }
+.hx { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border-radius: 8px; font-size: 13px; font-style: normal; border: 0; padding: 0; color: var(--mute); }
+button.hx { cursor: pointer; color: #fff; font-weight: 700; }
+.hx-full, .hx-tiny { background: var(--c, var(--ok)); color: #0f1117 !important; }
+.hx-tiny { opacity: .65; }
+.hx-miss { background: #4a2532; }
+.hx-pending { background: var(--line); outline: 1px solid var(--mute); outline-offset: -1px; }
+.hx-off { border: 1px dashed var(--line); }
+.hx-future, .hx-before { opacity: .35; }
+.hx.today { box-shadow: 0 0 0 2px var(--fg, #fff) inset; }
+.hx-lg-open { background: var(--line); outline: 1px solid var(--mute); }

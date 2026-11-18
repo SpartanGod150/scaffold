@@ -339,6 +339,32 @@
   function opAck(noteId, by, now) { return one('acks', noteId, { at: now, ts: now, by: by }); }
 
   // ---------- stats (habit tracker) ----------
+  // The day a completion shows on: when it was done (on = set by hand in the history), kept inside its period.
+  function compDay(c, p) { var d = c.on || dateKey(c.ts || 0); return d < p.first ? p.first : d > p.deadline ? p.deadline : d; }
+  // Every instance of a habit from its first day (from) to today, newest first: { key, first, deadline, day (shown on), s }.
+  // s: 'full' | 'tiny' | 'miss' | 'pending' (still open). Paused habits keep their history; it follows the current schedule.
+  function habitHistory(state, id, now) {
+    var task = (state.tasks || {})[id]; if (!task) return [];
+    var tk = {}; for (var f in task) tk[f] = task[f]; tk.active = true; tk.del = false;
+    var out = [], seen = {}, comps = state.comps || {}, today = dateKey(now), from = task.from || dateKey(task.ts || now);
+    for (var t = at(now, '12:00'), n = 0; dateKey(t) >= from && n < 1500; t = addDays(t, -1), n++) {
+      var p = habitPeriod(tk, t);
+      if (!p || seen[p.key]) continue; seen[p.key] = 1;
+      var c = comps[compKey(id, p.key)], done = !!(c && !c.undone), s;
+      if (done) s = c.kind === 'tiny' ? 'tiny' : 'full';
+      else if (p.deadline > today || (p.deadline === today && now < timing(tk, 'habit', p, now).due)) s = 'pending';
+      else s = 'miss';
+      out.push({ key: p.key, first: p.first, deadline: p.deadline, day: done ? compDay(c, p) : p.deadline > today ? today : p.deadline, s: s });
+    }
+    return out;
+  }
+  // Mark one instance (period key) done or not done by hand: fixing a misclick, or something done but never marked.
+  function opSetDone(id, key, done, by, now, state) {
+    var p = null; ((state && habitHistory(state, id, now)) || []).forEach(function (x) { if (x.key === key) p = x; });
+    var on = p ? (p.deadline < dateKey(now) ? p.deadline : dateKey(now)) : undefined;
+    return one('comps', compKey(id, key), done ? { kind: 'full', ts: now, by: by, on: on } : { undone: true, ts: now, by: by });
+  }
+
   function stats(state, now, days) {
     days = days || 28;
     var today = dateKey(now), d0 = new Date(now), tasks = [], sum = 0, count = 0;
@@ -351,7 +377,7 @@
         var p = habitPeriod(task, t);
         if (!p) { cells.push({ day: day, s: 'none' }); continue; }
         var c = (state.comps || {})[compKey(id, p.key)], done = c && !c.undone, s;
-        if (p.key !== day && (done ? dateKey(c.ts || 0) !== day : day !== p.deadline)) { cells.push({ day: day, s: 'none' }); continue; }   // a longer period shows once: the day it was done, or its deadline day
+        if (p.key !== day && (done ? compDay(c, p) !== day : day !== p.deadline)) { cells.push({ day: day, s: 'none' }); continue; }   // a longer period shows once: the day it was done, or its deadline day
         if (done) s = c.kind === 'tiny' ? 'tiny' : 'full';
         else if (day === today && now < timing(task, 'habit', p, now).due) s = 'pending';
         else s = 'miss';
@@ -776,7 +802,7 @@
     MIN: MIN, DAY: DAY, MAPS: MAPS, MAX_SNOOZES: MAX_SNOOZES, SNOOZE_MIN: SNOOZE_MIN,
     pad: pad, dateKey: dateKey, fromKey: fromKey, addDays: addDays, daysBetween: daysBetween, at: at, hhmm: hhmm, compKey: compKey, uid: uid, emptyState: emptyState,
     newer: newer, merge: merge, eventsFor: eventsFor, parseRule: parseRule, buildRule: buildRule, expandRule: expandRule, dropPulledCopies: dropPulledCopies, isPulledCopy: isPulledCopy, scheduledOn: scheduledOn, habitPeriod: habitPeriod, pushOf: pushOf, lockOf: lockOf, hasDue: hasDue, timing: timing, reminderTimes: reminderTimes, periodOf: periodOf,
-    compute: compute, dueReminders: dueReminders, eventReminders: eventReminders, nextEventReminder: nextEventReminder, remOf: remOf, remIndex: remIndex, remLead: remLead, remWhen: remWhen, notePops: notePops, pendingNotes: pendingNotes, plainNote: plainNote, stats: stats,
+    compute: compute, habitHistory: habitHistory, opSetDone: opSetDone, dueReminders: dueReminders, eventReminders: eventReminders, nextEventReminder: nextEventReminder, remOf: remOf, remIndex: remIndex, remLead: remLead, remWhen: remWhen, notePops: notePops, pendingNotes: pendingNotes, plainNote: plainNote, stats: stats,
     projectProgress: projectProgress, dayAgenda: dayAgenda, linkIndex: linkIndex, linkOf: linkOf, sessKey: sessKey, blocksFor: blocksFor, linkedBlocks: linkedBlocks, FULL_LOCK: FULL_LOCK, modeById: modeById, modeEvents: modeEvents, activeMode: activeMode, unblockOf: unblockOf, modeList: modeList, appBlocked: appBlocked, siteBlocked: siteBlocked, parseUrl: parseUrl, vaultProjects: vaultProjects, itemKey: itemKey,
     chunks: chunks, snapshot: snapshot,
     opPut: opPut, opDel: opDel, opTask: opTask, opDelete: opDelete, opComplete: opComplete, opUndo: opUndo, opSnooze: opSnooze, opPause: opPause, opAck: opAck

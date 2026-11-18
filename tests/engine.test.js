@@ -360,6 +360,27 @@ t('task reminders every N days: only on every Nth day from the day it was saved'
   assert.deepStrictEqual([0, 1, 2, 3, 4].map(rems), [1, 0, 1, 0, 1]);
 });
 
+t('habit history: every instance since it started, and fixing one by hand', () => {
+  const s = E.emptyState();
+  Object.assign(s.tasks, E.opTask({ id: 'h', title: 'Read', from: '2026-11-05', days: [1, 3, 5], dueOn: true, due: '21:00', push: 'nudge' }, 'A', at('06:00')).tasks);
+  E.merge(s, E.opComplete('h', 'full', 'A', E.at(E.fromKey('2026-11-06'), '10:00'), s));
+  const h = (now) => E.habitHistory(s, 'h', now).map(x => x.key + ':' + x.s);
+  assert.deepStrictEqual(h(at('12:00')), ['2026-11-09:pending', '2026-11-06:full'], 'Mon/Wed/Fri since Thu 5th, newest first');
+  assert.deepStrictEqual(h(at('22:00')), ['2026-11-09:miss', '2026-11-06:full']);
+  E.merge(s, E.opSetDone('h', '2026-11-09', true, 'A', at('22:05'), s));
+  E.merge(s, E.opSetDone('h', '2026-11-06', false, 'A', at('22:06'), s));
+  assert.deepStrictEqual(h(at('22:10')), ['2026-11-09:full', '2026-11-06:miss'], 'flipped both ways');
+  s.tasks.h.active = false;
+  assert.strictEqual(h(at('22:10')).length, 2, 'a paused habit keeps its history');
+  // A weekly instance marked done later shows on its deadline day, not on the day it was fixed.
+  Object.assign(s.tasks, E.opTask({ id: 'w', title: 'Clean', repeat: 'week', dueDay: 5, from: '2026-11-01', dueOn: true, due: '20:00' }, 'A', at('06:00')).tasks);
+  E.merge(s, E.opSetDone('w', 'W2026-11-01', true, 'A', at('12:00'), s));
+  const w = E.habitHistory(s, 'w', at('12:00'));
+  assert.deepStrictEqual(w.map(x => x.key + ':' + x.s + ':' + x.day), ['W2026-11-08:pending:2026-11-09', 'W2026-11-01:full:2026-11-07']);
+  const st = E.stats(s, at('12:00'), 10).tasks.find(x => x.id === 'w');
+  assert.strictEqual(st.cells.find(c => c.day === '2026-11-07').s, 'full');
+});
+
 // Fixture for the Java mirror: same state, a list of instants, expected lock / next / reminders.
 const fx = base();
 E.merge(fx, E.opSnooze(fx, 'teeth', 'A', at('07:00')));

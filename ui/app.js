@@ -201,6 +201,13 @@
       confirmBox('Turn off ' + a.mode.name + ' Mode?', 'You turned it on by hand, so you can turn it off.', 'Turn off', function () { A.modeOff(); });
     },
     guardAct: function (what, id) { B.guard(what, id); },
+    histToggle: function (id, key) {
+      var x = E.habitHistory(S.state, id, now()).filter(function (i) { return i.key === key; })[0]; if (!x) return;
+      var was = x.s === 'full' || x.s === 'tiny';
+      var put = function (v) { var p = E.opSetDone(id, key, v, by(), now(), S.state); apply(p); E.merge(S.state, p); paintTrack(id); };
+      put(!was);
+      toastUndo(was ? 'Marked as not done' : '✅ Marked as done', function () { put(was); });
+    },
     perm: function (n) { B.openPermission(n); },
     test: function (k) {
       if (k === 'lock') {
@@ -1301,7 +1308,8 @@
     var isNew = !task || !task.id;
     var t = Object.assign({ title: '', emoji: '📖', color: COLORS[0], days: [], push: 'nag', remind: 30, kind: 'check', minutes: 20, allowApps: [], active: true }, task || {});
     var apps = listApps(), r = t.repeat || 'weekdays', dueOn = E.hasDue(t, 'habit');
-    $modal.innerHTML = modalShell(isNew ? 'New habit' : 'Edit habit',
+    $modal.innerHTML = modalShell(isNew ? 'New habit' : esc((t.emoji ? t.emoji + ' ' : '') + t.title),
+      (isNew ? '' : '<div class="seg htabs"><button type="button" class="seg-b on" data-htab="edit">Edit Habit</button><button type="button" class="seg-b" data-htab="track">Habit Tracking</button></div><div class="hab-track" style="display:none"></div><div class="hab-edit">') +
       '<label class="field">What?<input name="title" required maxlength="60" value="' + esc(t.title) + '" placeholder="e.g. Read"></label>' + descField(t, 'Habit') + emojiField(t) + colorField(t) +
       '<label class="field">Repeats<select name="repeat"><option value="weekdays"' + sel('weekdays', r) + '>Every day / on set days</option><option value="week"' + sel('week', r) + '>Every week</option><option value="month"' + sel('month', r) + '>Every month</option><option value="every"' + sel('every', r) + '>Every few days</option></select></label>' +
       '<div class="field f-days">Days <small>(none selected = every day)</small><div class="day-row">' + DAYS.map(function (d, i) { return '<button type="button" class="dp' + ((t.days || []).indexOf(i) >= 0 ? ' on' : '') + '" data-day="' + i + '">' + d + '</button>'; }).join('') + '</div></div>' +
@@ -1311,8 +1319,17 @@
       '<div class="field dl-row"><label class="check"><input type="checkbox" name="dueOn"' + (dueOn ? ' checked' : '') + '> ⏰ Deadline</label>' +
       '<label class="f-dl">at <input type="time" name="due" value="' + esc(dueOn && t.due !== '23:59' ? t.due || '' : '') + '"> <small>(blank = end of the day)</small></label></div>' +
       '<label class="check"><input type="checkbox" name="active"' + (t.active !== false ? ' checked' : '') + '> Active (turn off to pause this habit)</label>' +
-      pushField(t, 'habit') + doneFields(t), !isNew);
+      pushField(t, 'habit') + doneFields(t) + (isNew ? '' : '</div>'), !isNew);
     var drte = wireDesc();
+    if (!isNew) document.getElementById('editor').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-htab]'); if (!b) return;
+      var tr = b.getAttribute('data-htab') === 'track', f = document.getElementById('editor');
+      f.querySelectorAll('[data-htab]').forEach(function (x) { x.classList.toggle('on', x === b); });
+      f.querySelector('.hab-edit').style.display = tr ? 'none' : '';
+      f.querySelector('.hab-track').style.display = tr ? '' : 'none';
+      f.querySelector('.modal-actions').style.display = tr ? 'none' : '';
+      if (tr) paintTrack(t.id);
+    });
     wire(t, function (fd) {
       t.title = fd.get('title').trim(); readDesc(t, drte); t.repeat = fd.get('repeat'); t.dueOn = !!fd.get('dueOn'); t.due = t.dueOn ? fd.get('due') || '' : '';
       if (t.repeat !== 'weekdays') t.days = [];
@@ -1330,6 +1347,31 @@
       f.querySelector('.f-every').style.display = rep === 'every' ? '' : 'none';
       f.querySelector('.f-dl').style.display = f.dueOn.checked ? '' : 'none';
     });
+  }
+
+  // "Habit Tracking": every instance since the habit started, as month calendars (newest first). Tap one to flip it.
+  function paintTrack(id) { var el = $modal.querySelector('.hab-track'); if (!el) return; el.style.setProperty('--c', taskColor(S.state.tasks[id])); el.innerHTML = habitTrackHtml(id); }
+  function habitTrackHtml(id) {
+    var t = S.state.tasks[id]; if (!t) return '';
+    var h = E.habitHistory(S.state, id, now()), byDay = {}, done = 0, counted = 0, today = E.dateKey(now());
+    h.forEach(function (x) { byDay[x.day] = x; if (x.s !== 'pending') { counted++; if (x.s !== 'miss') done++; } });
+    var from = t.from || (h.length ? h[h.length - 1].first : today), long = (t.repeat || 'weekdays') !== 'weekdays';
+    var names = { full: 'done', tiny: 'tiny win', miss: 'not done', pending: 'still open' };
+    var m = new Date(E.fromKey(today)), stop = new Date(E.fromKey(from)), out = '';
+    m = new Date(m.getFullYear(), m.getMonth(), 1, 12); stop = new Date(stop.getFullYear(), stop.getMonth(), 1, 12);
+    for (var guard = 0; m >= stop && guard < 60; guard++) {
+      var cells = '', daysIn = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
+      for (var i = 0; i < m.getDay(); i++) cells += '<i></i>';
+      for (var d = 1; d <= daysIn; d++) {
+        var k = E.dateKey(new Date(m.getFullYear(), m.getMonth(), d, 12).getTime()), x = byDay[k], td = k === today ? ' today' : '';
+        if (x) cells += '<button type="button" class="hx hx-' + x.s + td + '" data-a="histToggle" data-id="' + esc(id) + '" data-k="' + esc(x.key) + '" title="' + esc((long ? 'Period ' + x.first + ' → ' + x.deadline : k) + ': ' + names[x.s] + ' (tap to change)') + '">' + d + '</button>';
+        else cells += '<i class="hx hx-' + (k > today ? 'future' : k < from ? 'before' : 'off') + td + '">' + d + '</i>';
+      }
+      out += '<div class="hx-month"><b>' + MONTHS[m.getMonth()] + ' ' + m.getFullYear() + '</b><div class="hx-grid">' + DAYNAMES.map(function (w) { return '<i class="hx-h">' + w[0] + '</i>'; }).join('') + cells + '</div></div>';
+      m = new Date(m.getFullYear(), m.getMonth() - 1, 1, 12);
+    }
+    return '<p class="muted">' + done + ' of ' + counted + ' done since ' + esc(niceDay(from)) + (long ? ' · one square per ' + ((t.repeat === 'week') ? 'week' : t.repeat === 'month' ? 'month' : 'period') : '') + '. Tap a square to switch it between done and not done.</p>' +
+      '<div class="legend"><span><i class="h-full"></i>done</span><span><i class="h-miss"></i>not done</span><span><i class="hx-lg-open"></i>still open</span><span><i class="h-none"></i>off day</span></div>' + out;
   }
 
   function openTodoEditor(task) {
@@ -1876,6 +1918,15 @@
     });
   }
 
+  // A toast with an Undo button (5 s).
+  function toastUndo(msg, undo) {
+    toast(msg);
+    var el = document.getElementById('toast'), b = document.createElement('button');
+    b.className = 't-undo'; b.type = 'button'; b.textContent = 'Undo';
+    b.onclick = function (e) { e.stopPropagation(); el.className = ''; undo(); };
+    el.appendChild(b); el.classList.add('has-undo');
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { el.className = ''; }, 5000);
+  }
   var toastTimer;
   function toast(msg) {
     var el = document.getElementById('toast');
