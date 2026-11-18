@@ -24,6 +24,42 @@ function get(url, redirects = 5, onProgress) {
   });
 }
 
+// Big files go straight to disk and resume where they stopped: a slow or shaky link (GitHub ~0.5 MB/s here, with pauses)
+// used to start the 120 MB package over from 0% after any 30 s pause, so it never finished.
+function fetchTo(url, file, onProgress, redirects = 5) {
+  return new Promise((resolve, reject) => {
+    const have = fs.existsSync(file) ? fs.statSync(file).size : 0;
+    const headers = { 'User-Agent': 'scaffold-updater', Accept: 'application/octet-stream' };
+    if (have) headers.Range = 'bytes=' + have + '-';
+    const req = https.get(url, { headers }, (res) => {
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirects > 0) {
+        res.resume(); return resolve(fetchTo(new URL(res.headers.location, url).toString(), file, onProgress, redirects - 1));
+      }
+      if (res.statusCode === 416) { res.resume(); return resolve(); }   // already complete
+      if (res.statusCode !== 200 && res.statusCode !== 206) { res.resume(); return reject(new Error('HTTP ' + res.statusCode)); }
+      const start = res.statusCode === 206 ? have : 0, total = start + (+res.headers['content-length'] || 0);
+      const out = fs.createWriteStream(file, { flags: start ? 'a' : 'w' });
+      let got = start;
+      res.on('data', (c) => { got += c.length; if (onProgress && total) onProgress(got / total); });
+      res.pipe(out);
+      out.on('finish', () => (total && got < total ? reject(new Error('cut short')) : resolve()));
+      res.on('error', (e) => { out.end(); reject(e); });
+      res.on('aborted', () => { out.end(); reject(new Error('cut short')); });
+    });
+    req.setTimeout(30000, () => req.destroy(new Error('timeout')));
+    req.on('error', reject);
+  });
+}
+async function download(url, file, onProgress) {
+  for (let i = 0; ; i++) {
+    try { await fetchTo(url, file, onProgress); return; }
+    catch (e) { if (i >= 30) throw e; await new Promise((r) => setTimeout(r, 3000)); }   // pick up where it stopped
+  }
+}
+function sha256File(file) {
+  return new Promise((resolve, reject) => { const h = crypto.createHash('sha256'); fs.createReadStream(file).on('data', (d) => h.update(d)).on('end', () => resolve(h.digest('hex'))).on('error', reject); });
+}
+
 function newer(a, b) {
   const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
   for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0); }
@@ -52,11 +88,9 @@ async function check(repo, current, onProgress, onFound) {
     const dl = `https://github.com/${repo}/releases/download/v${latest}/`;
     const want = ((await get(dl + 'SHA256SUMS.txt')).toString('utf8').split('\n').find((l) => l.trim().endsWith(ASSET)) || '').split(/\s+/)[0];
     if (!want) return { status: 'error: release ' + latest + ' has no ' + ASSET };
-    const data = await get(dl + ASSET, 5, onProgress && ((f) => onProgress(latest, f)));
-    const got = crypto.createHash('sha256').update(data).digest('hex');
-    if (want.toLowerCase() !== got) return { status: 'error: checksum mismatch for ' + latest };
-    const file = path.join(os.tmpdir(), `scaffold-update-${latest}-${ASSET}`);
-    fs.writeFileSync(file, data);
+    const file = path.join(os.tmpdir(), `scaffold-update-${latest}-${ASSET}`), part = file + '.part';   // .part survives a failed check: the next one continues it
+    if (!fs.existsSync(file)) { await download(dl + ASSET, part, onProgress && ((f) => onProgress(latest, f))); fs.renameSync(part, file); }
+    if (want.toLowerCase() !== await sha256File(file)) { try { fs.unlinkSync(file); } catch (e) {} return { status: 'error: checksum mismatch for ' + latest }; }
     return { status: 'ready', version: latest, file };
   } catch (e) { return { status: 'error: ' + e.message }; }
 }
@@ -106,4 +140,4 @@ function install(file) {
   }
 }
 
-module.exports = { check, install, newer, ASSET };
+module.exports = { check, install, newer, ASSET, _download: download };
