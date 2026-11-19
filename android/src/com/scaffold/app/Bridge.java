@@ -49,7 +49,8 @@ public class Bridge {
             JSONObject p = new JSONObject();
             NotificationManager nm = a.getSystemService(NotificationManager.class);
             p.put("notifications", nm.areNotificationsEnabled());
-            p.put("accessibility", Enforcer.accessibilityOn(a));
+            p.put("usage", Blocker.usageOn(a));
+            p.put("overlay", Blocker.overlayOn(a));
             p.put("exactAlarm", Build.VERSION.SDK_INT < 31 || a.getSystemService(android.app.AlarmManager.class).canScheduleExactAlarms());
             p.put("fullScreen", Build.VERSION.SDK_INT < 34 || nm.canUseFullScreenIntent());
             p.put("battery", a.getSystemService(PowerManager.class).isIgnoringBatteryOptimizations(a.getPackageName()));
@@ -111,7 +112,8 @@ public class Bridge {
         Uri pkg = Uri.parse("package:" + a.getPackageName());
         Intent i;
         switch (name) {
-            case "accessibility": i = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS); break;
+            case "usage": i = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS); break;
+            case "overlay": i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, pkg); break;
             case "notifications": i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, a.getPackageName()); break;
             case "exactAlarm": i = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, pkg); break;
             case "fullScreen": i = Build.VERSION.SDK_INT >= 34 ? new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, pkg) : new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg); break;

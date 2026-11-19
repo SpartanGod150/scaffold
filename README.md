@@ -6,7 +6,7 @@ Cross-device ADHD scaffolding: reminders, pop-ups and device locks on Android (p
 - `shared/engine.js`: the rules (scheduling, reminders, locks, merge, stats). `android/src/.../Engine.java` mirrors it.
 - `ui/`: one web UI for every device. `dev-bridge.js` lets it run in a plain browser.
 - `desktop/`: Electron tray app (`main.js`), sync (`sync.js`), distraction closer (`blocker.js`).
-- `android/`: plain-framework Java app, built without Gradle (`build.sh`). The UI runs in a WebView; background work is native (alarms, accessibility blocker, foreground service, widget, quick-settings tile).
+- `android/`: plain-framework Java app, built without Gradle (`build.sh`). The UI runs in a WebView; background work is native (alarms, app blocker via usage access + display-over-apps (no Accessibility service: bank apps refuse to run next to one), foreground service, widget, quick-settings tile).
 - `tests/`: `engine.test.js` (also writes the fixture the Android self-test checks), `gcal.mock.test.js` (two-way calendar sync against a fake Apps Script), `sync.live.js` (real relay).
 - `desktop/vault.js` (Obsidian link), `desktop/calendar.js` + `ui/gcal-script.js` (Google bridge), `tools/scaffold-cli.js` (Claude command, copied to `My Drive/Scaffold/cli/`).
 
@@ -23,4 +23,4 @@ android/build.sh                           # needs openjdk@17 + Android SDK 34 (
 adb install -r android/build/Scaffold.apk && adb shell am start -n com.scaffold.app/.MainActivity --ez selftest true
 adb logcat -s ScaffoldSelfTest             # ENGINE_OK, WIDGET_OK
 ```
-Emulator: AVD `scaffold` (`emulator -avd scaffold -no-window -partition-size 2048`). Enable the blocker with `adb shell settings put secure enabled_accessibility_services com.scaffold.app/com.scaffold.app.BlockerService`.
+Emulator: AVD `scaffold` (`emulator -avd scaffold -no-window -partition-size 2048`). Enable the blocker with `adb shell appops set com.scaffold.app GET_USAGE_STATS allow` and `adb shell appops set com.scaffold.app SYSTEM_ALERT_WINDOW allow`.

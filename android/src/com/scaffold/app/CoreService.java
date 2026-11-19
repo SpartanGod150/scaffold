@@ -19,6 +19,7 @@ public class CoreService extends Service {
         else startForeground(Notif.ID_STATUS, Notif.status(this));
         running = true;
         Sync.start(this);
+        Blocker.start(this);
         Scheduler.reschedule(this);
     }
 

@@ -1209,7 +1209,8 @@
     }
     h += '<label class="field">This device<input id="dev-name" value="' + esc(L.deviceName) + '"></label><button class="btn ghost sm" data-a="saveName">Save name</button></section>';
     if (L.perms) {
-      var P = [['accessibility', 'App blocker', 'Needed to lock apps and keep notes on screen. On Samsung: if it is greyed out, open App info → ⋮ → “Allow restricted settings” first.'],
+      var P = [['usage', 'App blocker: usage access', 'Lets Scaffold see which app is open, so it can lock apps. Bank apps don’t mind this one.'],
+        ['overlay', 'App blocker: display over other apps', 'Lets the lock screen, notes and pop-ups come to the front.'],
         ['notifications', 'Notifications', 'Reminders and the status bar.'],
         ['fullScreen', 'Full-screen pop-ups', 'Lets reminders and notes take over the screen.'],
         ['exactAlarm', 'Exact alarms', 'Reminders on time, to the minute.'],
@@ -1248,7 +1249,7 @@
     }
     h += '<section class="panel"><h3>🧪 Try it</h3><p>Check that everything works before you rely on it.</p><div class="row-btns"><button class="btn" data-a="test" data-id="remind">Test reminder (all devices)</button><button class="btn" data-a="test" data-id="lock">Test lock (all devices)</button></div></section>';
     h += '<section class="panel"><h3>🧯 Removing Scaffold</h3><p class="muted">Emergency stop frees every device instantly. To remove it completely:<br>' +
-      '<b>Android:</b> Settings → Apps → Scaffold → Uninstall.<br><b>Mac:</b> menu bar icon → Quit, then delete the app.<br><b>Windows:</b> tray icon → Quit, then delete the folder.<br>If anything ever gets stuck: <b>Android</b> Settings → Accessibility → Scaffold → Off; <b>computers</b> tray / menu bar icon → Quit Scaffold (Force Quit and Task Manager reopen it within seconds).</p></section>';
+      '<b>Android:</b> Settings → Apps → Scaffold → Uninstall.<br><b>Mac:</b> menu bar icon → Quit, then delete the app.<br><b>Windows:</b> tray icon → Quit, then delete the folder.<br>If anything ever gets stuck: <b>Android</b> Settings → Apps → Scaffold → Force stop; <b>computers</b> tray / menu bar icon → Quit Scaffold (Force Quit and Task Manager reopen it within seconds).</p></section>';
     var U = L.update || {};
     h += '<section class="panel"><h3>⬆️ Updates</h3><p>Version <b>' + esc(L.version || '?') + '</b>. ' + (PLATFORM === 'android' ? 'New versions download by themselves; Android may ask you to tap Install.' : 'New versions install by themselves, never during a lock.') + '</p>' +
       (U.status ? '<p class="muted">Last check: ' + esc(U.status) + (U.checked ? ' (' + new Date(U.checked).toLocaleString() + ')' : '') + '</p>' : '') +

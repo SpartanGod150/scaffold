@@ -37,10 +37,10 @@ The window can be closed. Scaffold keeps running from the menu bar icon.
 1. On the phone, open Google Drive → `Scaffold` folder → **Scaffold.apk**.
 2. Android asks to allow installs from Drive: **allow it**, then **Install**.
 
-**Unlock the app blocker** (Samsung hides this for apps not from the Play Store)
-1. Settings → Apps → **Scaffold** → ⋮ (top right) → **Allow restricted settings**.
-2. Open Scaffold → **Settings**. Tap **Fix** next to every ⚠️:
-   - **App blocker** → turn on "Scaffold app blocker"
+**Permissions**
+1. Open Scaffold → **Settings**. Tap **Fix** next to every ⚠️:
+   - **App blocker: usage access** → turn on Scaffold
+   - **App blocker: display over other apps** → turn on Scaffold
    - **Notifications** → allow
    - **Full-screen pop-ups** → allow
    - **Exact alarms** → allow
@@ -86,7 +86,7 @@ Any of these works, from any device:
 It stays off until you press **Resume**.
 
 **If anything ever gets stuck:**
-- 📱 Settings → Accessibility → Scaffold app blocker → **Off**, or uninstall the app.
+- 📱 Settings → Apps → Scaffold → **Force stop**, or uninstall the app.
 - 💻 Force Quit (Mac: ⌘⌥Esc) or Task Manager (Windows).
 
 ---

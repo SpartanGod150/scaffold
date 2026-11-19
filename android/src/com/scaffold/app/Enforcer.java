@@ -1,7 +1,6 @@
 package com.scaffold.app;
 
 import android.Manifest;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -88,7 +87,7 @@ public final class Enforcer {
         Engine.Result r = Store.now(c);
         boolean locked = r.lock != null;
         setGrey(c, locked);
-        if (locked || Store.mode(c) != null) BlockerService.recheck();
+        if (locked || Store.mode(c) != null) Blocker.recheck();
     }
 
     static boolean canGrey(Context c) {
@@ -112,11 +111,4 @@ public final class Enforcer {
         } catch (Exception ignored) {}
     }
 
-    static boolean accessibilityOn(Context c) {
-        String s = Settings.Secure.getString(c.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-        if (s == null) return false;
-        String me = new ComponentName(c, BlockerService.class).flattenToString();
-        for (String part : s.split(":")) if (part.equalsIgnoreCase(me) || part.equalsIgnoreCase(c.getPackageName() + "/.BlockerService")) return true;
-        return false;
-    }
 }

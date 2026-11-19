@@ -50,7 +50,7 @@ const FROM = 45 * DAY, TO = 300 * DAY;
 function midnight(key) { const p = String(key).split('-'); return new Date(+p[0], +p[1] - 1, +p[2]).getTime(); }
 function toGev(res, todos, prev) {
   if (Array.isArray(res)) res = { events: res };
-  if (res.same && prev && prev._meta) return Object.assign({}, prev, { _meta: Object.assign({}, prev._meta, { at: res.now || Date.now() }) });
+  if (res.same && prev && prev._meta) return Object.assign({}, prev, { _meta: Object.assign({}, prev._meta, { at: res.now || Date.now(), v: res.v || prev._meta.v }) });   // v: a script update shows even when nothing changed
   const gev = {}, v2 = res.v >= 2, cals = {};
   (res.cals || []).forEach((c) => { cals[c.id] = c; });
   let n = 0;

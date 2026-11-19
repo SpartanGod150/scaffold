@@ -74,14 +74,14 @@ public class AlarmReceiver extends BroadcastReceiver {
         Store.putLong(c, "lastCheckEv", now);
         for (Engine.Reminder x : rem) {
             Notif.reminder(c, x.item, x.popup);
-            if (x.popup && r.lock == null) BlockerService.showPopup(x.item.id);
+            if (x.popup && r.lock == null) Blocker.showPopup(x.item.id);
         }
         for (Engine.EvRem h : erem) {
             Notif.eventReminder(c, h);
-            if (h.popup && r.lock == null) BlockerService.showPopup(h.key, "evremind");
+            if (h.popup && r.lock == null) Blocker.showPopup(h.key, "evremind");
         }
         // reminder notes: keep them on screen until dismissed
-        if (Notif.notes(c, r.notes)) BlockerService.showNote();
+        if (Notif.notes(c, r.notes)) Blocker.showNote();
         Sync.retry(c);
         Sync.snapshot(c, false);
         Updater.maybeCheck(c, false);

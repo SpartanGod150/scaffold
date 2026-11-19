@@ -76,7 +76,7 @@ public final class Store {
         Enforcer.evaluate(a);
         Engine.Result r = now(a);
         for (Engine.Item it : r.items) if (it.done) Notif.cancelTask(a, it.id);
-        if (Notif.notes(a, r.notes)) BlockerService.showNote();
+        if (Notif.notes(a, r.notes)) Blocker.showNote();
         Scheduler.reschedule(a);
         CoreService.refresh(a);
         TaskWidget.updateAll(a);

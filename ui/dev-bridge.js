@@ -22,7 +22,7 @@
     getLocal: function () {
       var l = Object.assign({}, local, { sync: { status: local.syncCode ? 'offline (browser preview)' : 'off' } });
       if (q.get('platform') !== 'android') { l.vault = { status: 'browser preview: no vault' }; l.calSecret = 'dev-secret'; }
-      if (q.get('platform') === 'android') l.perms = { notifications: true, accessibility: false, exactAlarm: true, fullScreen: false, battery: false, grayscale: false };
+      if (q.get('platform') === 'android') l.perms = { notifications: true, usage: false, overlay: false, exactAlarm: true, fullScreen: false, battery: false, grayscale: false };
       return JSON.stringify(l);
     },
     apply: function (p) { Engine.merge(state, JSON.parse(p)); changed(); },
