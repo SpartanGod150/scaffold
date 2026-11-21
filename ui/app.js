@@ -48,7 +48,65 @@
   function clock(ms) { ms = Math.max(0, ms); var s = Math.ceil(ms / 1000); return Math.floor(s / 60) + ':' + E.pad(s % 60); }
   function now() { return Date.now(); }
   function by() { return S.local.deviceId; }
-  function apply(patch) { if (patch) B.apply(JSON.stringify(patch)); }
+  function apply(patch) { if (!patch) return; if (!S.undoing) recordUndo(patch); B.apply(JSON.stringify(patch)); try { E.merge(S.state, JSON.parse(JSON.stringify(patch))); } catch (e) {} }
+
+  // ---- Undo / redo (Ctrl/⌘+Z, Ctrl+Y / ⌘⇧Z) for everything you change: events (made, edited, moved, deleted), tasks, habits,
+  // notes, modes, completions… Each step remembers how the changed records were before; undoing writes them back as a
+  // new change (so it reaches every device and Google too). Changes made within 0.4 s of each other are one step.
+  // Not undoable: Emergency stop, sync settings and calendar-list edits (those go through their own buttons).
+  var UNDO_MAPS = ['tasks', 'todos', 'projects', 'events', 'notes', 'acks', 'comps', 'snoozes', 'marks', 'sess', 'modes', 'cfg'];
+  var UNDO = [], REDO = [];
+  function clone(x) { return x == null ? x : JSON.parse(JSON.stringify(x)); }
+  function recordUndo(patch) {
+    var before = {}, after = {}, any = false;
+    UNDO_MAPS.forEach(function (m) {
+      if (!patch[m]) return;
+      Object.keys(patch[m]).forEach(function (k) {
+        if (m === 'cfg' && /^(calop:|relay$|fb$)/.test(k)) return;
+        var prev = (S.state[m] || {})[k];
+        if (!prev && m === 'events') prev = (S.state.gev || {})[k];   // a Google event edited here for the first time: its Google version
+        (before[m] = before[m] || {})[k] = prev ? clone(prev) : null;
+        (after[m] = after[m] || {})[k] = clone(patch[m][k]); any = true;
+      });
+    });
+    if (!any) return;
+    var t = Date.now(), last = UNDO[UNDO.length - 1];
+    if (last && t - last.at < 400) {   // same action: keep the oldest "before", the newest "after"
+      Object.keys(before).forEach(function (m) { last.before[m] = last.before[m] || {}; Object.keys(before[m]).forEach(function (k) { if (!(k in last.before[m])) last.before[m][k] = before[m][k]; }); });
+      Object.keys(after).forEach(function (m) { last.after[m] = Object.assign(last.after[m] || {}, after[m]); });
+      last.at = t;
+    } else UNDO.push({ before: before, after: after, at: t });
+    if (UNDO.length > 100) UNDO.shift();
+    REDO = [];
+  }
+  // Writes one side of a step back as a new change. A record that didn't exist is removed (a task completion is un-done).
+  // Google bookkeeping (gid) is kept from the current record, so nothing is duplicated or orphaned on Google.
+  function writeBack(side) {
+    var p = {}, t = now(), me = by();
+    Object.keys(side).forEach(function (m) {
+      Object.keys(side[m]).forEach(function (k) {
+        var cur = (S.state[m] || {})[k], r = side[m][k];
+        if (r) { r = clone(r); delete r.synced; delete r.gupd; delete r.pushed; if (cur && cur.gid && !r.gid) r.gid = cur.gid; delete r.del; if (side[m][k].del) r.del = true; }
+        else if (m === 'comps') r = { undone: true };
+        else if (m === 'snoozes') r = { n: 0, until: 0 };
+        else if (m === 'acks') r = { at: 0 };
+        else { r = cur ? clone(cur) : { id: k }; delete r.synced; delete r.gupd; delete r.pushed; r.del = true; }
+        if (m === 'events' && r.series && !r.scope) r.scope = 'one';
+        r.id = r.id || k; r.ts = t; r.by = me;
+        (p[m] = p[m] || {})[k] = r;
+      });
+    });
+    S.undoing = true; try { apply(p); } finally { S.undoing = false; }
+  }
+  function undoStep() { var u = UNDO.pop(); if (!u) return toast('Nothing to undo'); REDO.push(u); writeBack(u.before); toast('↩️ Undone'); }
+  function redoStep() { var u = REDO.pop(); if (!u) return toast('Nothing to redo'); UNDO.push(u); u.at = 0; writeBack(u.after); toast('↪️ Redone'); }
+  document.addEventListener('keydown', function (e) {
+    var mod = (e.ctrlKey || e.metaKey) && !e.altKey; if (!mod || (e.code !== 'KeyZ' && e.code !== 'KeyY')) return;
+    var t = e.target; if (t && (/INPUT|TEXTAREA|SELECT/.test(t.nodeName) || t.isContentEditable)) return;   // text boxes keep their own undo
+    if (S.modalOpen || document.querySelector('.top-layer') || (S.mode !== 'main' && S.mode)) return;
+    e.preventDefault();
+    if (e.code === 'KeyZ' && !e.shiftKey) undoStep(); else redoStep();
+  });
   function item(id) { return S.r.items.filter(function (i) { return i.id === id; })[0]; }
   function taskColor(t) { return (t && t.color) || '#7c9cff'; }
   function live(map) { var m = S.state[map] || {}; return Object.keys(m).map(function (k) { return m[k]; }).filter(function (x) { return !x.del; }); }
