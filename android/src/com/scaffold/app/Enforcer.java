@@ -87,7 +87,7 @@ public final class Enforcer {
         Engine.Result r = Store.now(c);
         boolean locked = r.lock != null;
         setGrey(c, locked);
-        if (locked || Store.mode(c) != null) Blocker.recheck();
+        if (locked || Store.mode(c) != null) Blocker.recheck(c);
     }
 
     static boolean canGrey(Context c) {

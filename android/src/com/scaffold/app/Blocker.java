@@ -22,7 +22,7 @@ final class Blocker {
     private static boolean running;
     private static long lastQuery, lastLaunch, actAt;
     private static Engine.Active act;
-    private static boolean note;
+    private static boolean note, once;
 
     private static final Runnable tick = new Runnable() { @Override public void run() { long d = step(); loop.postDelayed(this, d); } };
 
@@ -86,10 +86,13 @@ final class Blocker {
     }
 
     private static void watch(Context c) {
-        if (MainActivity.resumed) return;
+        if (MainActivity.resumed) { once = false; return; }
         String pkg = lastPkg;
         boolean stale = pkg.isEmpty() || pkg.equals(c.getPackageName());   // we think Scaffold is in front, but it isn't
         if (stale && !note && (act == null || !"lock".equals(act.src))) return;
+        // Without usage access the app in front is unknown: cover the screen once when the lock starts, then leave
+        // calls, WhatsApp and the rest reachable (instead of covering them again every second).
+        if (stale && !usageOn(c)) { if (!once) return; once = false; }
         check(c, stale ? "" : pkg);
     }
 
@@ -97,7 +100,7 @@ final class Blocker {
         if (!note && act == null) return;
         if (pkg.equals(c.getPackageName()) || (act != null ? Enforcer.allowed(c, pkg, act) : Enforcer.ALWAYS.contains(pkg))) return;
         long now = System.currentTimeMillis();
-        if (now - lastLaunch < 1500) return;
+        if (now - lastLaunch < 800) return;
         lastLaunch = now;
         if (!note && !"lock".equals(act.src)) {   // a mode: the app just closes (back to the home screen) until the mode ends
             if (pkg.isEmpty() || Enforcer.isHome(c, pkg)) return;
@@ -118,16 +121,21 @@ final class Blocker {
     }
 
     /** A lock or mode just started (or the state changed): look again right away. */
-    static void recheck() { loop.post(() -> { Context c = app; if (c == null) return; actAt = 0; lastLaunch = 0; step(); }); }
+    static void recheck(Context c) {
+        if (app == null) app = c.getApplicationContext();
+        loop.post(() -> { actAt = 0; lastLaunch = 0; once = true; step(); });
+    }
 
-    /** A reminder note is waiting: bring it to the front. */
-    static void showNote() { launch(app, new Intent(app, MainActivity.class).putExtra("mode", "note")); }
+    /** A reminder note is waiting: bring it to the front. Callers pass their context: after a restart an alarm can
+     *  arrive before CoreService (and so the blocker) is running. */
+    static void showNote(Context c) { Context a = c.getApplicationContext(); launch(a, new Intent(a, MainActivity.class).putExtra("mode", "note")); }
 
-    static boolean showPopup(String taskId) { return showPopup(taskId, "remind"); }
-    static boolean showPopup(String taskId, String mode) {
-        return launch(app, new Intent(app, MainActivity.class).putExtra("mode", mode).putExtra("task", taskId));
+    static boolean showPopup(Context c, String taskId) { return showPopup(c, taskId, "remind"); }
+    static boolean showPopup(Context c, String taskId, String mode) {
+        Context a = c.getApplicationContext();
+        return launch(a, new Intent(a, MainActivity.class).putExtra("mode", mode).putExtra("task", taskId));
     }
 
     /** Any screen from the background (the update's Install dialog). */
-    static boolean open(Intent i) { return launch(app, i); }
+    static boolean open(Context c, Intent i) { return launch(c.getApplicationContext(), i); }
 }

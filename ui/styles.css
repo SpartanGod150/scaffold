@@ -590,3 +590,4 @@ button.hx { cursor: pointer; color: #fff; font-weight: 700; }
 /* 0.6.5: several events picked with Shift+click */
 .cv-ev.picked { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--pri); z-index: 6 !important; }
 .chip.picked { outline: 2px solid #fff; outline-offset: 1px; box-shadow: 0 0 0 4px var(--pri); }
+.tickbox.off { opacity: .25; border-style: dashed; cursor: default; }

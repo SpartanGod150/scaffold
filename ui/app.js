@@ -1099,6 +1099,8 @@
     return 'Due ' + niceDay(t.date) + (t.due && t.due !== '23:59' ? ' ' + t.due : '');
   }
   function tickBox(id, done) {
+    var hb = (S.state.tasks || {})[id];
+    if (hb && !E.habitPeriod(hb, now())) return '<span class="tickbox off" title="Nothing due today"></span>';   // a habit's off day (or paused): nothing to tick
     if (done == null) { var c = (S.state.comps || {})[E.itemKey(S.state, id, now())]; done = !!(c && !c.undone); }
     return '<button class="tickbox' + (done ? ' on' : '') + '" data-a="tickDone" data-id="' + esc(id) + '" title="' + (done ? 'Completed: tap to undo' : 'Task Completed') + '" aria-label="Task Completed">' + (done ? '✓' : '') + '</button>';
   }

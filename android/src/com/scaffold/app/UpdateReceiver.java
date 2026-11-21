@@ -34,7 +34,7 @@ public class UpdateReceiver extends BroadcastReceiver {
             c.getSystemService(NotificationManager.class).notify(ID, new Notification.Builder(c, Notif.CH_REMIND)
                     .setSmallIcon(R.drawable.ic_stat).setContentTitle("⬆️ Scaffold update ready")
                     .setContentText("Tap to install version " + v).setAutoCancel(true).setContentIntent(pi).build());
-            Blocker.open(confirm);   // with "Display over other apps" on, the dialog opens right away
+            Blocker.open(c, confirm);   // with "Display over other apps" on, the dialog opens right away
         } else if (st == PackageInstaller.STATUS_SUCCESS) {
             c.getSystemService(NotificationManager.class).cancel(ID); confirm = null;
             Updater.status(c, "updated to " + v);

@@ -114,7 +114,7 @@ public final class Notif {
         for (Engine.Item x : r.items) if (!x.done) { it = x; break; }
         if (it == null) { simple(c, "🧪 Test reminder", "Notifications work. Add a task to test pop-ups."); return; }
         reminder(c, it, true);
-        if (r.lock == null) Blocker.showPopup(it.id);
+        if (r.lock == null) Blocker.showPopup(c, it.id);
     }
 
     /** One ongoing, full-screen notification per waiting note; cleared once dismissed anywhere. */
