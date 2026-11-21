@@ -91,6 +91,12 @@
       if (S.mode === 'remind') B.closeWindow();
     },
     undo: function (id) { apply(E.opUndo(id, by(), now(), S.state)); },
+    // The "Task Completed" box next to the time square (Tasks and Habits lists): done for now / this period, with Undo.
+    tickDone: function (id) {
+      var c = (S.state.comps || {})[E.itemKey(S.state, id, now())], was = !!(c && !c.undone);
+      if (was) { A.undo(id); toastUndo('Marked as not done', function () { A.done(id); }); }
+      else { A.done(id); toastUndo('✅ Marked as done', function () { A.undo(id); }); }
+    },
     snooze: function (id) {
       var p = E.opSnooze(S.state, id, by(), now());
       if (!p) return toast('No snoozes left today');
@@ -171,7 +177,9 @@
     },
     calJump: function (key) {
       if (S.mmDragged && Date.now() - S.mmDragged < 400) return;
-      if (calView() === 'range') { S.calRange = { from: key, n: calRange().n }; saveRange(); }
+      // A click opens that day's whole week (Sunday → Saturday); Shift+click opens just the day.
+      var v = S.clickEv && S.clickEv.shiftKey ? 'day' : 'week';
+      S.calView = v; lsSet('scaffold-calview', v);
       S.calDay = key; S.miniMonth = null; render();
     },
     miniPrev: function () { var m = S.miniMonth; S.miniMonth = new Date(m.getFullYear(), m.getMonth() - 1, 1); render(); },
@@ -179,6 +187,8 @@
     calShow: function (el) { apply(E.opPut('marks', { id: 'cal:' + el.getAttribute('data-id'), hidden: !el.checked }, by(), now())); },
     calMode: function (m) { S.calList = m === 'list'; lsSet('scaffold-callist', S.calList ? '1' : '0'); render(); },
     editEvent: function (id) {
+      if (S.clickEv && S.clickEv.shiftKey && PLATFORM === 'desktop' && S.view === 'calendar') return toggleSel(id);   // Shift+click: add to / drop from the selection
+      if (selCount()) S.calSel = {};
       var all = E.eventsFor(S.state), e = id && all[id] ? JSON.parse(JSON.stringify(all[id])) : null;
       if (e && e.virt) e = JSON.parse(JSON.stringify(S.state.events[e.virt]));   // not on Google yet: edit the whole series
       if (e) { delete e.synced; delete e.gupd; }
@@ -273,7 +283,7 @@
     // A lock or reminder that just popped up ignores clicks for a moment: a click meant for something else must not dismiss it.
     if (S.guardUntil > Date.now() && el.closest('.block, .remind') && /^(done|snooze|timer|evGot)$/.test(el.getAttribute('data-a'))) { e.preventDefault(); return; }
     var fn = A[el.getAttribute('data-a')];
-    if (fn) { e.preventDefault(); e.stopPropagation(); fn(el.getAttribute('data-id'), el.getAttribute('data-k'), el); }
+    if (fn) { e.preventDefault(); e.stopPropagation(); S.clickEv = e; fn(el.getAttribute('data-id'), el.getAttribute('data-k'), el); S.clickEv = null; }
   });
   document.addEventListener('change', function (e) {
     var el = e.target.closest('[data-change]'); if (el && A[el.getAttribute('data-change')]) A[el.getAttribute('data-change')](el);
@@ -685,7 +695,7 @@
       }).join('') + '</div>';
   }
   // Month view: events can be dragged to another day (same time). Not repeats made here (edit the series) or read-only calendars.
-  function mDrag(a) { var r = a.rec; return !r.ro && !r.virt ? ' mdrag" data-ev="' + esc(a.id) + '"' : '"'; }
+  function mDrag(a) { var r = a.rec; return (S.calSel && S.calSel[a.id] ? ' picked' : '') + (!r.ro && !r.virt ? ' mdrag" data-ev="' + esc(a.id) + '"' : '"'); }
   function weekRows(days) { var out = ''; for (var i = 0; i < days.length; i += 7) out += monthWeek(days.slice(i, i + 7)); return out; }
   function monthGrid(key) {
     var m = new Date(E.fromKey(key));
@@ -769,14 +779,14 @@
           var s = Math.max(r.start, d0), e = Math.min(r.end || r.start + 30 * E.MIN, d1);
           var L = E.linkOf(ix, r), sk = L ? E.sessKey(L, r) : '', ss = sk ? (S.state.sess || {})[sk] : null;
           items.push({ a: a, s: s, e: Math.max(e, s + 15 * E.MIN), color: evColor(r), drag: !viewOnly && !r.ro && !r.virt, rsz: (r.end || 0) <= d1, rs: r.start, re: r.end || r.start + 30 * E.MIN,
-            link: L && L.link, sdone: !!(ss && ss.done), hi: !!(hi && L && blockMatch({ link: L.link, tasks: (ss && ss.tasks) || [] }, hi.k, hi.id)) });
+            link: L && L.link, sdone: !!(ss && ss.done) || !!(L && E.linkDone(S.state, L.link, r.start)), hi: !!(hi && L && blockMatch({ link: L.link, tasks: (ss && ss.tasks) || [] }, hi.k, hi.id)) });
         }
       });
       var d = new Date(t);
       heads += '<div class="cv-dh' + (k === today ? ' today' : '') + '" data-a="calPick" data-id="' + k + '"><small>' + DAYNAMES[d.getDay()] + '</small><b>' + d.getDate() + '</b></div>';
       var blocks = layoutDay(items).map(function (it) {
         var a = it.a, r = a.rec, top = (it.s - d0) / 3600000 * HOUR_PX, h = Math.max(16, (it.e - it.s) / 3600000 * HOUR_PX - 2);
-        var cls = 'cv-ev ' + (a.kind === 'habit' ? 'hb' + (a.done ? ' dn' : '') : 'ev') + (it.drag ? ' drag' : '') + (h < 34 ? ' short' : '') + (it.link ? ' lk' : '') + (it.sdone ? ' sdn' : '') + (it.hi ? ' hi' : '') + (it.col > 0 ? ' ov' : '');
+        var cls = 'cv-ev ' + (a.kind === 'habit' ? 'hb' + (a.done ? ' dn' : '') : 'ev') + (it.drag ? ' drag' : '') + (h < 34 ? ' short' : '') + (it.link ? ' lk' : '') + (it.sdone ? ' sdn' : '') + (it.hi ? ' hi' : '') + (it.col > 0 ? ' ov' : '') + (a.kind === 'event' && S.calSel && S.calSel[a.id] ? ' picked' : '');
         var lr = it.link ? linkRec(it.link) : null;
         var act = a.kind === 'habit' ? 'editHabit' : 'editEvent';
         return '<div class="' + cls + '" data-a="' + act + '" data-id="' + a.id + '" data-ev="' + a.id + '" data-s="' + it.rs + '" data-e="' + it.re + '" style="top:' + top + 'px;height:' + h + 'px;left:calc(' + (it.left * 100) + '% + 1px);width:calc(' + ((it.right - it.left) * 100) + '% - 3px);z-index:' + (2 + it.col) + ';--c:' + it.color + ';--ink:' + inkOn(it.color) + '">' +
@@ -825,6 +835,102 @@
     sc.style.height = Math.max(260, Math.floor(innerHeight - (r.top + scrollY) - below - padB)) + 'px';
   }
   window.addEventListener('resize', function () { fitTimeline(); });
+  // ---- Several events at once (computers): Shift+click picks them; dragging one moves them all; Ctrl/⌘+C, Ctrl/⌘+V copies them.
+  function selCount() { return S.calSel ? Object.keys(S.calSel).length : 0; }
+  function toggleSel(id) {
+    S.calSel = S.calSel || {};
+    if (S.calSel[id]) delete S.calSel[id]; else S.calSel[id] = 1;
+    render();
+    if (selCount() > 1 && !S.selHinted) { S.selHinted = true; toast(selCount() + ' events picked · drag one to move all · ' + (IS_MAC ? '⌘' : 'Ctrl+') + 'C / ' + (IS_MAC ? '⌘' : 'Ctrl+') + 'V to copy · Esc to drop'); }
+  }
+  function mergePatch(into, p) { Object.keys(p || {}).forEach(function (k) { if (p[k] && typeof p[k] === 'object' && !Array.isArray(p[k])) into[k] = Object.assign(into[k] || {}, p[k]); else into[k] = p[k]; }); return into; }
+  // Moves every picked event by whole days and minutes. Each keeps its length; crossing midnight carries it into the next day.
+  // Read-only calendars and repeats not on Google yet stay put. Repeating ones share one "This / following / all" question.
+  function moveSel(days, mins) {
+    var all = E.eventsFor(S.state), list = [];
+    Object.keys(S.calSel || {}).forEach(function (id) {
+      var ev = all[id]; if (!ev || ev.ro || ev.virt || ev.del) return;
+      var c = JSON.parse(JSON.stringify(ev)), len = (ev.end || ev.start) - ev.start; delete c.synced; delete c.gupd;
+      c.start = E.at(E.addDays(ev.start, days), hm(ev.start)) + (ev.allDay ? 0 : mins * E.MIN);
+      c.end = ev.allDay ? E.at(E.addDays(ev.end || ev.start, days), '00:00') : c.start + len;
+      list.push(c);
+    });
+    if (!list.length) return render();
+    var go = function (scope) {
+      var p = {};
+      list.forEach(function (c) { if (c.series) { c.scope = scope; c.keepRule = true; } mergePatch(p, E.opPut('events', c, by(), now())); });
+      apply(p);
+    };
+    if (list.some(function (c) { return c.series; })) return scopeBox('Change repeating events', false, go, render);
+    go('');
+  }
+  function copySel() {
+    var all = E.eventsFor(S.state), ix = E.linkIndex(S.state), rix = E.remIndex(S.state), out = [];
+    Object.keys(S.calSel || {}).forEach(function (id) {
+      var ev = all[id]; if (!ev || ev.del) return;
+      var L = E.linkOf(ix, ev), Lm = ix['i:' + (ev.virt || ev.id)] || (ev.gid && ix['g:' + ev.gid]) || (ev.series && ix['g:' + ev.series]);
+      var base = ev.virt && S.state.events[ev.virt];
+      out.push({ title: ev.title || '', allDay: !!ev.allDay, start: ev.start, end: ev.end || ev.start + 30 * E.MIN, cal: ev.cal || '', ro: !!ev.ro, color: ev.color || '', desc: ev.desc || '',
+        rrule: ev.rrule || (base && base.rrule) || '', link: L && L.link && L.link.k ? { k: L.link.k, id: L.link.id } : null,
+        mode: ev.mode != null ? ev.mode : (Lm && Lm.mode) || '', rem: E.remOf(rix, ev, ev.id) || [] });
+    });
+    if (!out.length) return;
+    S.calClip = out; toast('📋 ' + out.length + ' event' + (out.length > 1 ? 's' : '') + ' copied');
+  }
+  // Where a paste lands: the time under the mouse (week / day view), the day under it (month view: same times),
+  // otherwise the next quarter hour from now. The earliest copied event goes there; the others keep their distance from it.
+  function pasteSpot() {
+    var m = S.mouse, el = m && document.elementFromPoint(m.x, m.y);
+    var col = el && el.closest('.cal-main .cv-col');
+    if (col) { var y = m.y - col.getBoundingClientRect().top, mins = Math.max(0, Math.min(23 * 60 + 45, Math.round(y / HOUR_PX * 4) * 15)); return { t: E.at(E.fromKey(col.dataset.day), (mins / 60 | 0) + ':' + (mins % 60)) }; }
+    var cell = el && el.closest('.cal-grid .cal-day[data-id]');
+    if (cell) return { day: cell.getAttribute('data-id') };
+    return { t: Math.ceil((now() + 1) / (15 * E.MIN)) * 15 * E.MIN };
+  }
+  function pasteClip() {
+    var clip = S.calClip; if (!clip || !clip.length) return;
+    var spot = pasteSpot(), first = Math.min.apply(null, clip.map(function (c) { return c.start; }));
+    var cals = gcals().filter(function (c) { return !c.ro; }), mine = (gcal('') || {}).id || '';
+    var go = function (keepRule) {
+      var p = {}, ids = {};
+      clip.forEach(function (c) {
+        var n = { id: E.uid(), title: c.title, allDay: c.allDay, color: c.color };
+        var shift = spot.day ? E.daysBetween(E.fromKey(E.dateKey(first)), E.fromKey(spot.day)) : E.daysBetween(E.fromKey(E.dateKey(first)), E.fromKey(E.dateKey(spot.t)));
+        if (c.allDay) { var nd = Math.max(1, Math.round((c.end - c.start) / E.DAY)); n.start = E.at(E.addDays(c.start, shift), '00:00'); n.end = E.at(E.addDays(n.start, nd), '00:00'); }
+        else { n.start = spot.day ? E.at(E.addDays(c.start, shift), hm(c.start)) : spot.t + (c.start - first); n.end = n.start + (c.end - c.start); }
+        if (cals.length) n.cal = !c.ro && cals.some(function (x) { return x.id === c.cal; }) ? c.cal : mine;
+        if (c.desc) n.desc = c.desc;
+        if (keepRule && c.rrule) n.rrule = c.rrule;
+        if (c.link) n.link = { k: c.link.k, id: c.link.id, o: n.id };
+        if (c.mode) n.mode = c.mode;
+        if (c.rem && c.rem.length) n.rem = c.rem;
+        mergePatch(p, E.opPut('events', n, by(), now())); ids[n.id] = 1;
+      });
+      apply(p); S.calSel = ids; load(); render();
+      toast('📋 ' + clip.length + ' event' + (clip.length > 1 ? 's' : '') + ' pasted' + (spot.day ? '' : ' · ' + niceDay(E.dateKey(spot.t)) + ' ' + hm(spot.t)));
+    };
+    if (!clip.some(function (c) { return c.rrule; })) return go(false);
+    var el = document.createElement('div');
+    el.className = 'modal-bg top-layer';
+    el.innerHTML = '<div class="modal small"><h2>Paste repeating events</h2><p>Keep their “Repeat” setting, or paste them as one-time events?</p>' +
+      '<div class="modal-actions"><span class="sp"></span><button class="btn ghost" data-no>Cancel</button><button class="btn" data-once>Doesn’t repeat</button><button class="btn primary" data-keep>Keep repeat</button></div></div>';
+    document.body.appendChild(el);
+    el.addEventListener('click', function (e) {
+      if (e.target.closest('[data-keep]')) { el.remove(); go(true); }
+      else if (e.target.closest('[data-once]')) { el.remove(); go(false); }
+      else if (e.target.closest('[data-no]') || e.target === el) el.remove();
+    });
+  }
+  document.addEventListener('mousemove', function (e) { S.mouse = { x: e.clientX, y: e.clientY }; }, { passive: true });
+  document.addEventListener('keydown', function (e) {
+    if (PLATFORM !== 'desktop' || S.view !== 'calendar' || S.modalOpen || document.querySelector('.top-layer')) return;
+    var t = e.target; if (t && (/INPUT|TEXTAREA|SELECT/.test(t.nodeName) || t.isContentEditable)) return;
+    var mod = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
+    if (e.key === 'Escape' && selCount()) { S.calSel = {}; render(); return; }
+    if (mod && e.code === 'KeyC' && selCount()) { var ws = window.getSelection(); if (ws && String(ws).trim()) return; e.preventDefault(); copySel(); return; }
+    if (mod && e.code === 'KeyV' && S.calClip && S.calClip.length) { e.preventDefault(); pasteClip(); }
+  });
+
   // Drag an event in the month grid to another day: it keeps its time (or stays all day) and its length.
   function wireMonth() {
     var grid = $app.querySelector('.cal-grid.month'); if (!grid) return;
@@ -834,10 +940,12 @@
       var el = e.target.closest('.mdrag'); if (!el || (e.pointerType === 'mouse' && e.button !== 0)) return;
       var from = dayAt(e.clientX, e.clientY); if (!from) return;
       d = { el: el, id: el.getAttribute('data-ev'), from: from.getAttribute('data-id'), x: e.clientX, y: e.clientY, on: false, touch: e.pointerType !== 'mouse', pid: e.pointerId, over: null };
+      if (S.calSel && S.calSel[d.id] && selCount() > 1) d.group = true;
       if (d.touch) d.timer = setTimeout(function () { if (d && !d.on) { begin(e.clientX, e.clientY); try { navigator.vibrate && navigator.vibrate(15); } catch (x) {} } }, 380);
     });
     function begin(x, y) {
       d.on = true; S.dragging = true; d.el.classList.add('dragsrc');
+      if (d.group) grid.querySelectorAll('.picked').forEach(function (x) { x.classList.add('dragsrc'); });
       var r = d.el.getBoundingClientRect(), g = d.el.cloneNode(true);
       g.className += ' drag-ghost'; g.removeAttribute('data-a'); g.style.cssText += ';position:fixed;left:' + r.left + 'px;top:' + r.top + 'px;width:' + Math.min(r.width, 220) + 'px;height:' + r.height + 'px;margin:0';
       d.dx = x - r.left; d.dy = y - r.top; d.ghost = g; document.body.appendChild(g);
@@ -862,6 +970,7 @@
       var cell = e && e.type === 'pointerup' ? dayAt(e.clientX, e.clientY) : null, to = cell && cell.getAttribute('data-id');
       var dd = to ? E.daysBetween(E.fromKey(was.from), E.fromKey(to)) : 0;
       if (!dd) return render();
+      if (was.group) return moveSel(dd, 0);
       var ev = E.eventsFor(S.state)[was.id]; if (!ev) return render();
       var c = JSON.parse(JSON.stringify(ev)); delete c.synced; delete c.gupd;
       c.start = E.at(E.addDays(ev.start, dd), hm(ev.start)); c.end = E.at(E.addDays(ev.end || ev.start, dd), hm(ev.end || ev.start));
@@ -889,6 +998,7 @@
       if (S.dragEnded && Date.now() - S.dragEnded < 400) { e.preventDefault(); e.stopPropagation(); return; }
       var col = e.target.closest('.cv-col');
       if (!col || e.target.closest('.cv-ev')) return;
+      if (selCount()) { S.calSel = {}; render(); return; }   // a click on empty time first ends the selection
       var y = e.clientY - col.getBoundingClientRect().top, mins = Math.max(0, Math.min(23 * 60 + 30, Math.floor(y / HOUR_PX * 2) * 30));
       var s = E.fromKey(col.dataset.day); s = E.at(s, (mins / 60 | 0) + ':' + (mins % 60));
       openEventEditor({ title: '', allDay: false, start: s, end: s + 60 * E.MIN });
@@ -898,9 +1008,12 @@
       var colsEls = Array.prototype.slice.call(body.querySelectorAll('.cv-col')), col = el.parentNode;
       d = { el: el, id: el.dataset.ev, mode: e.target.classList.contains('rs') ? 'resize' : 'move', x: e.clientX, y: e.clientY, top: el.offsetTop, h: el.offsetHeight,
         colW: col.getBoundingClientRect().width, ci: colsEls.indexOf(col), n: colsEls.length, s: +el.dataset.s, e: +el.dataset.e, dm: 0, dc: 0, on: false, touch: e.pointerType !== 'mouse', pid: e.pointerId };
+      // A selected event drags the whole selection with it.
+      if (d.mode === 'move' && S.calSel && S.calSel[d.id] && selCount() > 1)
+        d.group = Array.prototype.slice.call(body.querySelectorAll('.cv-ev.picked')).filter(function (x) { return x !== el; }).map(function (x) { return { el: x, top: x.offsetTop, s: +x.dataset.s, e: +x.dataset.e }; });
       if (d.touch) d.timer = setTimeout(function () { if (d && !d.on) { begin(); try { navigator.vibrate && navigator.vibrate(15); } catch (x) {} } }, 380);
     });
-    function begin() { d.on = true; S.dragging = true; d.el.classList.add('dragging'); try { d.el.setPointerCapture(d.pid); } catch (x) {} }
+    function begin() { d.on = true; S.dragging = true; d.el.classList.add('dragging'); (d.group || []).forEach(function (g) { g.el.classList.add('dragging'); }); try { d.el.setPointerCapture(d.pid); } catch (x) {} }
     body.addEventListener('pointermove', function (e) {
       if (!d) return;
       var dx = e.clientX - d.x, dy = e.clientY - d.y;
@@ -912,6 +1025,10 @@
         d.dm = dm;
         d.el.style.top = (d.top + dm / 60 * HOUR_PX) + 'px';
         d.el.style.transform = 'translateX(' + d.dc * d.colW + 'px)';
+        (d.group || []).forEach(function (g) {
+          g.el.style.top = (g.top + dm / 60 * HOUR_PX) + 'px'; g.el.style.transform = 'translateX(' + d.dc * d.colW + 'px)';
+          var gl = g.el.querySelector('small'); if (gl) gl.textContent = hm(g.s + dm * E.MIN) + '–' + hm(g.e + dm * E.MIN);
+        });
       } else {
         d.dm = Math.max(dm, 15 - Math.round((d.e - d.s) / E.MIN));
         d.el.style.height = Math.max(16, d.h + d.dm / 60 * HOUR_PX) + 'px';
@@ -927,6 +1044,7 @@
       if (!was.on) return;
       S.dragging = false; S.dragEnded = Date.now();
       if (!was.dm && !was.dc) return render();
+      if (was.group) return moveSel(was.dc, was.dm);
       var ev = E.eventsFor(S.state)[was.id]; if (!ev) return render();
       var c = JSON.parse(JSON.stringify(ev)); delete c.synced; delete c.gupd;
       if (was.mode === 'move') { var ds = was.dm * E.MIN; c.start = E.at(E.addDays(c.start, was.dc), hm(c.start)) + ds; c.end = c.start + (ev.end - ev.start); }
@@ -976,12 +1094,16 @@
     if (!t.date) return 'No deadline';
     return 'Due ' + niceDay(t.date) + (t.due && t.due !== '23:59' ? ' ' + t.due : '');
   }
+  function tickBox(id, done) {
+    if (done == null) { var c = (S.state.comps || {})[E.itemKey(S.state, id, now())]; done = !!(c && !c.undone); }
+    return '<button class="tickbox' + (done ? ' on' : '') + '" data-a="tickDone" data-id="' + esc(id) + '" title="' + (done ? 'Completed: tap to undo' : 'Task Completed') + '" aria-label="Task Completed">' + (done ? '✓' : '') + '</button>';
+  }
   function todoRow(t) {
     var proj = projectOf(t), c = (S.state.comps || {})[E.itemKey(S.state, t.id, now())], done = c && !c.undone;
     var late = !done && (t.repeat || 'none') === 'none' && t.date && t.date < E.dateKey(now());
     return '<div class="row-wrap"><button class="row' + (done ? ' dn' : '') + '" data-a="editTodo" data-id="' + t.id + '" style="--c:' + taskColor(t) + '">' +
       '<span class="emoji sm">' + esc(t.emoji || '✅') + '</span><span class="row-main"><b>' + (done ? '✓ ' : '') + esc(t.title) + '</b><small' + (late ? ' class="late-t"' : '') + '>' + esc(todoWhen(t)) + (proj ? ' · ' + esc(proj.name) : '') + '</small></span>' +
-      '<span class="row-lvl">' + pushIcons(t, 'todo') + '</span></button>' + (done ? '' : periodSquare('todo', t.id, t)) + '</div>';
+      '<span class="row-lvl">' + pushIcons(t, 'todo') + '</span></button>' + (done ? '' : periodSquare('todo', t.id, t)) + tickBox(t.id, done) + '</div>';
   }
 
   function projectCard(p) {
@@ -1020,7 +1142,7 @@
       return '<div class="stat-row' + (on ? '' : ' off') + '" style="--c:' + taskColor(t) + '"><div class="stat-head">' +
         '<button class="habit-open" ' + (t.id === lockedId ? 'disabled title="Locked habits cannot be edited"' : 'data-a="editHabit" data-id="' + t.id + '"') + '><span class="emoji sm">' + esc(t.emoji) + '</span><span class="row-main"><b>' + esc(t.title) + '</b><small>' + esc(habitWhen(t)) + ' · ' + pushIcons(t, 'habit') + '</small></span></button>' +
         '<span class="stat-num">' + p + '</span>' + (x && x.streak ? '<span class="streak">🔥 ' + x.streak + '</span>' : '') +
-        periodSquare('habit', t.id, t) + '<button class="switch' + (on ? ' on' : '') + '" data-a="toggleHabit" data-id="' + t.id + '" title="' + (on ? 'Active' : 'Paused') + '"><i></i></button></div>' +
+        periodSquare('habit', t.id, t) + tickBox(t.id) + '<button class="switch' + (on ? ' on' : '') + '" data-a="toggleHabit" data-id="' + t.id + '" title="' + (on ? 'Active' : 'Paused') + '"><i></i></button></div>' +
         (x ? '<div class="heat">' + x.cells.map(function (c) { return '<i class="h-' + c.s + '" title="' + c.day + '"></i>'; }).join('') + '</div>' : '') + '</div>';
     }).join('');
     return '<div class="sec-head"><h2>Habits</h2><button class="btn primary sm" data-a="editHabit">＋ Habit</button></div>' +
@@ -1545,6 +1667,80 @@
     return ls.join('\n');
   }
 
+  // Plain text pasted into a note: read as Markdown (bullets, numbers, checklists, headings, **bold**…), indents of 4 spaces = one level.
+  function plainToMd(t) {
+    return String(t || '').replace(/\r/g, '').split('\n').map(function (l) {
+      var m = /^((?:\t| {4}| {2}(?=[-*+] |\d+\. ))*)(.*)$/.exec(l), lvl = (m[1].match(/\t| {4}| {2}/g) || []).length, body = m[2];
+      body = body.replace(/^#{3,6} /, '## ').replace(/^\+ /, '- ');
+      return '\t'.repeat(Math.min(MAX_INDENT, lvl)) + body;
+    }).join('\n').replace(/\n+$/, '');
+  }
+  // Formatted text from another app (web page, Google Docs, Word…): blocks, lists, checkboxes, headings, bold / italic / underline / strikethrough.
+  function htmlToMd(html) {
+    var doc; try { doc = new DOMParser().parseFromString(html, 'text/html'); } catch (e) { return ''; }
+    var own = doc.body.querySelectorAll('div[data-t]');
+    if (own.length) { var box0 = document.createElement('div'); own.forEach(function (d) { if (!d.parentElement.closest('[data-t]')) box0.appendChild(document.importNode(d, true)); }); return mdFromEditor(box0); }
+    var blocks = [], cur = null, BLOCK = /^(p|div|h[1-6]|li|blockquote|pre|tr|section|article|header|footer|ul|ol|table|dl|dt|dd|figure|hr)$/;
+    function open(t, lvl, c) { cur = { t: t, i: Math.min(MAX_INDENT, lvl), c: c, runs: [] }; blocks.push(cur); }
+    function close() { cur = null; }
+    function fmtOf(el, f) {
+      var tag = el.nodeName.toLowerCase(), st = el.style || {}, fw = st.fontWeight, fs = st.fontStyle, td = (st.textDecoration || '') + ' ' + (st.textDecorationLine || '');
+      f = Object.assign({}, f);
+      if (/^(b|strong)$/.test(tag)) f.b = 1; if (/^(i|em)$/.test(tag)) f.i = 1; if (tag === 'u' || tag === 'ins') f.u = 1; if (/^(s|strike|del)$/.test(tag)) f.s = 1;
+      if (/^h[1-6]$/.test(tag)) f.b = 0;
+      if (fw) f.b = fw === 'bold' || fw === 'bolder' || +fw >= 600 ? 1 : 0;
+      if (fs) f.i = fs === 'italic' || fs === 'oblique' ? 1 : 0;
+      if (/underline/.test(td)) f.u = 1; if (/line-through/.test(td)) f.s = 1; if (/none/.test(td) && !/underline|line-through/.test(td)) { f.u = 0; f.s = 0; }
+      return f;
+    }
+    function walk(n, f, lists) {
+      if (n.nodeType === 3) {
+        var tx = n.data.replace(/[\s\u00a0]+/g, ' ');
+        if (!cur) { if (!tx.trim()) return; open('p', Math.max(0, lists.length - 1)); }
+        if (!cur.runs.length) tx = tx.replace(/^ /, '');
+        if (tx) cur.runs.push({ k: (f.b ? 'b' : '') + (f.i ? 'i' : '') + (f.u ? 'u' : '') + (f.s ? 's' : ''), s: tx });
+        return;
+      }
+      if (n.nodeType !== 1) return;
+      var tag = n.nodeName.toLowerCase();
+      if (/^(script|style|head|meta|title|template|noscript)$/.test(tag)) return;
+      if (tag === 'br') { var lv = cur ? cur.i : 0; open('p', lv); return; }
+      if (tag === 'input' && /checkbox/i.test(n.type || '') && cur) { cur.t = 'cl'; cur.c = n.checked || n.hasAttribute('checked'); return; }
+      var ff = fmtOf(n, f), isBlock = BLOCK.test(tag), L = lists;
+      if (tag === 'ul' || tag === 'ol') L = lists.concat(tag);
+      if (isBlock) {
+        close();
+        if (tag === 'li') {
+          var lt = lists[lists.length - 1] || 'ul', chk = n.getAttribute('data-task') != null || /task-list-item/.test(n.className || '');
+          open(lt, Math.max(0, lists.length - 1));
+          if (chk) { cur.t = 'cl'; cur.c = /^[xX]$/.test(n.getAttribute('data-task') || '') || !!n.querySelector('input[type=checkbox][checked]'); }
+        } else if (/^h1$/.test(tag)) open('h1', 0); else if (/^h[2-6]$/.test(tag)) open('h2', 0);
+      }
+      n.childNodes.forEach(function (c) {
+        if (isBlock && tag === 'li' && c.nodeType === 1 && /^(ul|ol)$/i.test(c.nodeName)) { walk(c, ff, L); return; }
+        if (isBlock && !cur && c.nodeType === 3 && c.data.trim() && tag !== 'li') open('p', Math.max(0, lists.length - 1));
+        walk(c, ff, L);
+      });
+      if (isBlock) close();
+    }
+    walk(doc.body, {}, []);
+    var box = document.createElement('div');
+    blocks.forEach(function (bk) {
+      var d = document.createElement('div'); d.dataset.t = bk.t; if (bk.i) d.dataset.i = bk.i; if (bk.t === 'cl' && bk.c) d.dataset.c = '1';
+      var runs = []; bk.runs.forEach(function (r) { var p = runs[runs.length - 1]; if (p && p.k === r.k) p.s += r.s; else runs.push({ k: r.k, s: r.s }); });
+      if (runs.length) runs[runs.length - 1].s = runs[runs.length - 1].s.replace(/ $/, '');
+      runs.forEach(function (r) {
+        var node = document.createTextNode(r.s);
+        ['s', 'u', 'i', 'b'].forEach(function (k) { if (r.k.indexOf(k) >= 0) { var w = document.createElement(k); w.appendChild(node); node = w; } });
+        d.appendChild(node);
+      });
+      if (!d.textContent.trim() && bk.t === 'p') { if (box.lastChild && !box.lastChild.textContent.trim()) return; }
+      box.appendChild(d);
+    });
+    while (box.firstChild && !box.firstChild.textContent.trim()) box.removeChild(box.firstChild);
+    return mdFromEditor(box);
+  }
+
   var IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || '');
   var RTE_TOOLS = [['bold', '<b>B</b>', 'Bold (' + (IS_MAC ? '⌘' : 'Ctrl+') + 'B)'], ['italic', '<i>I</i>', 'Italic (' + (IS_MAC ? '⌘' : 'Ctrl+') + 'I)'], ['underline', '<u>U</u>', 'Underline (' + (IS_MAC ? '⌘' : 'Ctrl+') + 'U)'], ['strikeThrough', '<s>S</s>', 'Strikethrough (' + (IS_MAC ? '⌘⇧X' : 'Alt+Shift+5') + ')'],
     ['|'], ['ul', '•', 'Bullets (' + (IS_MAC ? '⌘⇧8' : 'Ctrl+Shift+8') + ')'], ['ol', '1.', 'Numbered (' + (IS_MAC ? '⌘⇧7' : 'Ctrl+Shift+7') + ')'], ['cl', '☑', 'Checklist (' + (IS_MAC ? '⌘⇧9' : 'Ctrl+Shift+9') + ')'], ['h1', 'H', 'Heading (' + (IS_MAC ? '⌘⌥1' : 'Ctrl+Alt+1') + ')'], ['|'], ['outdent', '⇤', 'Move left (Shift+Tab)'], ['indent', '⇥', 'Move right (Tab)']];
@@ -1560,6 +1756,29 @@
     function blockOf(n) { while (n && n.parentNode !== ed) { if (n === ed) return null; n = n.parentNode; } return n && n.nodeType === 1 ? n : null; }
     function caretAt(node, off) { var r = document.createRange(); r.setStart(node, off); r.collapse(true); var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); }
     function fill(b) { if (!b.textContent.replace(/\u200B/g, '') && !b.querySelector('br')) b.innerHTML = '<br>'; }
+    // Own undo / redo: the browser's own history misses Tab, Enter and pastes (they change the page directly),
+    // so every change goes through here. Typing groups into one step until a pause or a switch between typing and deleting.
+    var hist = [], fut = [], lastType = 0, lastKind = '';
+    function posOf(node, off) {
+      var b = blockOf(node); if (!b) return null;
+      var x = document.createRange(); x.setStart(b, 0); try { x.setEnd(node, off); } catch (e) { return null; }
+      return { b: Array.prototype.indexOf.call(ed.children, b), o: x.toString().length };
+    }
+    function nodeAt(p) {
+      var b = ed.children[p.b] || ed.lastElementChild; if (!b) return [ed, 0];
+      var w = document.createTreeWalker(b, NodeFilter.SHOW_TEXT), tx, k = p.o;
+      while ((tx = w.nextNode())) { if (k <= tx.data.length) return [tx, k]; k -= tx.data.length; }
+      return [b, b.childNodes.length];
+    }
+    function snap() { var r = sel(); return { h: ed.innerHTML, a: r && posOf(r.startContainer, r.startOffset), z: r && posOf(r.endContainer, r.endOffset) }; }
+    function restore(st) {
+      ed.innerHTML = st.h;
+      if (st.a) { var A = nodeAt(st.a), Z = st.z ? nodeAt(st.z) : A, r = document.createRange(); r.setStart(A[0], A[1]); try { r.setEnd(Z[0], Z[1]); } catch (e) { r.collapse(true); } var ws = window.getSelection(); ws.removeAllRanges(); ws.addRange(r); }
+      blank(); paintBar(); lastType = 0;
+    }
+    function save() { var st = snap(); lastType = 0; if (hist.length && hist[hist.length - 1].h === st.h) return; hist.push(st); if (hist.length > 300) hist.shift(); fut = []; }
+    function undo() { var cur = snap(); while (hist.length && hist[hist.length - 1].h === cur.h) hist.pop(); if (!hist.length) return; fut.push(cur); restore(hist.pop()); }
+    function redo() { if (!fut.length) return; hist.push(snap()); restore(fut.pop()); }
     function setType(b, t, ticked) { b.dataset.t = t; if (t === 'cl') b.dataset.c = ticked ? '1' : '0'; else delete b.dataset.c; }
     function before(r, b) { var x = document.createRange(); x.setStart(b, 0); x.setEnd(r.startContainer, r.startOffset); return x; }
     function normalize() {
@@ -1584,6 +1803,7 @@
     }
     function block(t) {
       var r = sel(); if (!r) { ed.focus(); r = sel(); if (!r) return; }
+      save();
       var bs = blocksInSel(r), all = bs.every(function (b) { return b.dataset.t === t; });
       bs.forEach(function (b) { setType(b, all ? 'p' : t); });
       renumber(); paintBar();
@@ -1592,16 +1812,18 @@
     function setIndent(b, lvl) { lvl = Math.max(0, Math.min(MAX_INDENT, lvl)); if (lvl) b.dataset.i = lvl; else delete b.dataset.i; }
     function indent(dir) {
       var r = sel(); if (!r) { ed.focus(); r = sel(); if (!r) return; }
+      save();
       blocksInSel(r).forEach(function (b) { setIndent(b, (+b.dataset.i || 0) + dir); });
       renumber();
     }
     function fmt(cmd) {
       if (cmd === 'indent' || cmd === 'outdent') return indent(cmd === 'indent' ? 1 : -1);
       if (LIST[cmd] || cmd === 'h1' || cmd === 'h2' || cmd === 'p') return block(cmd === 'p' ? 'p' : cmd);
-      document.execCommand(cmd, false, null); normalize(); paintBar();
+      save(); document.execCommand(cmd, false, null); normalize(); paintBar();
     }
-    function enter() {
+    function enter(noSave) {
       var r = sel(); if (!r) return;
+      if (!noSave) save();
       if (!r.collapsed) r.deleteContents();
       normalize(); r = sel(); if (!r) return;
       var b = blockOf(r.startContainer); if (!b) return;
@@ -1695,6 +1917,13 @@
       fmt(k);
     });
     ed.addEventListener('beforeinput', function (e) {
+      if (e.inputType === 'historyUndo') { e.preventDefault(); undo(); return; }
+      if (e.inputType === 'historyRedo') { e.preventDefault(); redo(); return; }
+      if (e.inputType !== 'insertParagraph' && e.inputType !== 'insertLineBreak' && e.inputType !== 'insertFromPaste') {
+        var kind = /^delete/.test(e.inputType) ? 'del' : 'ins', t0 = Date.now();
+        if (t0 - lastType > 1000 || kind !== lastKind || /^(format|insertReplacementText|deleteBy)/.test(e.inputType)) save();
+        lastType = t0; lastKind = kind;
+      }
       if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') { e.preventDefault(); enter(); return; }
       if (e.inputType === 'deleteContentBackward') {
         var r = sel(); if (!r || !r.collapsed) return;
@@ -1709,6 +1938,9 @@
     ed.addEventListener('compositionend', function (e) { var k = e.data ? e.data.length : 1; setTimeout(function () { marks(k); }, 0); });
     ed.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); enter(); return; }
+      var zk = (e.ctrlKey || e.metaKey) && !e.altKey ? e.code : '';
+      if (zk === 'KeyZ' && !e.shiftKey) { e.preventDefault(); undo(); return; }
+      if ((zk === 'KeyZ' && e.shiftKey) || (zk === 'KeyY' && !e.shiftKey)) { e.preventDefault(); redo(); return; }
       if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); indent(e.shiftKey ? -1 : 1); return; }
       var mod = e.ctrlKey || e.metaKey, c = e.code, cmd = null;
       if (mod && !e.shiftKey && !e.altKey) cmd = { KeyB: 'bold', KeyI: 'italic', KeyU: 'underline' }[c];
@@ -1717,15 +1949,61 @@
       else if (!mod && e.altKey && e.shiftKey && c === 'Digit5') cmd = 'strikeThrough';
       if (cmd) { e.preventDefault(); fmt(cmd); }
     });
+    // Copy / cut / paste keep the formatting: Scaffold's own format inside Scaffold, formatted HTML from other apps,
+    // and plain text read as Markdown (Obsidian copies its notes that way). A paste is one undo step.
+    function selMd(r) {
+      var a = blockOf(r.startContainer), z = blockOf(r.endContainer), box = document.createElement('div');
+      if (!a || !z) return '';
+      if (a === z) {
+        var whole = !before(r, a).toString().replace(/\u200B/g, '') && r.toString().length >= a.textContent.replace(/\u200B/g, '').length;
+        var d = document.createElement('div'); d.dataset.t = whole ? a.dataset.t || 'p' : 'p';
+        if (whole && a.dataset.i) d.dataset.i = a.dataset.i; if (whole && a.dataset.c) d.dataset.c = a.dataset.c;
+        d.appendChild(r.cloneContents()); box.appendChild(d);
+      } else box.appendChild(r.cloneContents());
+      return mdFromEditor(box);
+    }
+    function toClip(e) {
+      var r = sel(), cd = e.clipboardData; if (!r || r.collapsed || !cd) return false;
+      var md = selMd(r); e.preventDefault();
+      cd.setData('text/plain', E.plainNote(md)); cd.setData('text/html', mdHtml(md));
+      try { cd.setData('application/x-scaffold-md', md); } catch (x) {}
+      return true;
+    }
+    ed.addEventListener('copy', function (e) { toClip(e); });
+    ed.addEventListener('cut', function (e) { if (!toClip(e)) return; save(); sel().deleteContents(); normalize(); renumber(); blank(); paintBar(); lastType = 0; });
+    function insertMd(md) {
+      var r = sel(); if (!r) { ed.focus(); r = sel(); if (!r) return; }
+      save();
+      if (!r.collapsed) { r.deleteContents(); normalize(); r = sel(); if (!r) return; }
+      var b = blockOf(r.startContainer); if (!b) return;
+      var box = document.createElement('div'); box.innerHTML = mdHtml(md);
+      var nbs = Array.prototype.slice.call(box.children); if (!nbs.length) return;
+      var x = document.createRange(); x.setStart(r.startContainer, r.startOffset); x.setEnd(b, b.childNodes.length);
+      var tail = x.extractContents(), first = nbs[0], empty = !b.textContent.replace(/\u200B/g, '');
+      if (empty) { b.innerHTML = ''; if (nbs.length > 1 || first.dataset.t !== 'p') { setType(b, first.dataset.t, first.dataset.c === '1'); setIndent(b, +first.dataset.i || 0); } }
+      while (first.firstChild) { if (first.firstChild.nodeName === 'BR') first.removeChild(first.firstChild); else b.appendChild(first.firstChild); }
+      var last = b, ref = b.nextSibling;
+      for (var i = 1; i < nbs.length; i++) { ed.insertBefore(nbs[i], ref); last = nbs[i]; }
+      if (last !== b && !last.textContent) last.innerHTML = '';
+      var mark = document.createTextNode('\u200B'); last.appendChild(mark); last.appendChild(tail);
+      if (last.lastChild && last.lastChild.nodeName === 'BR' && last.textContent.replace(/\u200B/g, '')) last.removeChild(last.lastChild);
+      fill(b); fill(last); caretAt(mark, 1);
+      renumber(); normalize(); blank(); paintBar(); lastType = 0;
+      mark.parentNode && mark.scrollIntoView && last.scrollIntoView({ block: 'nearest' });
+    }
     ed.addEventListener('paste', function (e) {
       e.preventDefault();
-      var lines = ((e.clipboardData || window.clipboardData).getData('text/plain') || '').replace(/\r/g, '').split('\n');
-      lines.forEach(function (l, i) { if (i) enter(); if (l) document.execCommand('insertText', false, l); });
+      var cd = e.clipboardData || window.clipboardData; if (!cd) return;
+      var md = '';
+      try { md = cd.getData('application/x-scaffold-md') || ''; } catch (x) {}
+      if (!md) { var h = cd.getData('text/html'); if (h) md = htmlToMd(h); }
+      if (!md) md = plainToMd(cd.getData('text/plain') || '');
+      if (md) insertMd(md);
     });
     // Tick a checklist box in the editor by tapping it.
     ed.addEventListener('click', function (e) {
       var b = blockOf(e.target);
-      if (b && b.dataset.t === 'cl' && e.clientX - b.getBoundingClientRect().left < 26) { b.dataset.c = b.dataset.c === '1' ? '0' : '1'; e.preventDefault(); }
+      if (b && b.dataset.t === 'cl' && e.clientX - b.getBoundingClientRect().left < 26) { save(); b.dataset.c = b.dataset.c === '1' ? '0' : '1'; e.preventDefault(); }
     });
     document.addEventListener('selectionchange', paintBar);
     blank();
@@ -1863,6 +2141,9 @@
     var ro = !!t.ro, dis = ro ? ' disabled' : '', was = isNew ? false : monthlyOn(t);
     var cals = gcals().filter(function (c) { return !c.ro; }), v2 = cals.length > 0, myCal = t.cal || (gcal('') || {}).id || '';
     var rule = E.parseRule(t.rrule), canRule = !rule || rule.simple, desc0 = plainDesc(t.desc);
+    // A new event made for a task or habit starts with its description (a copy: the two boxes aren't linked).
+    var linkDesc = function (v) { var i = (v || '').indexOf(':'), r = i > 0 && /^(todo|habit)$/.test(v.slice(0, i)) ? linkRec({ k: v.slice(0, i), id: v.slice(i + 1) }) : null; return r && r.desc ? E.plainNote(r.desc).trim() : ''; };
+    var autoDesc = isNew && !desc0 && t.link && t.link.k ? linkDesc(t.link.k + ':' + t.link.id) : '';
     var rf = rule && rule.simple ? rule.freq : rule ? 'custom' : 'none', rdays = rule && rule.days.length ? rule.days : [new Date(t.start).getDay()];
     var rend = rule && rule.count ? 'count' : rule && rule.until ? 'until' : 'never';
     var L0 = isNew ? null : E.linkOf(E.linkIndex(S.state), t), link0 = L0 ? L0.link.k + ':' + L0.link.id : t.link && t.link.k ? t.link.k + ':' + t.link.id : '';
@@ -1871,7 +2152,7 @@
     var mode0 = t.mode != null ? t.mode : (Lm && Lm.mode) || '';
     var rem0 = normRem(isNew ? t.rem || [] : E.remOf(E.remIndex(S.state), t, t.id) || []);
     var orig = JSON.stringify([t.title, t.allDay, t.start, t.end, myCal, t.color || '', desc0, t.rrule || '', link0, mode0, rem0]);
-    var sessBox = L0 && !ro && t.start <= now() && linkRec(L0.link) ? '<div class="sess-box"><b>Session</b>' + sessionControls({ e: t, link: L0.link, key: sk0, done: !!(ss0 && ss0.done), tasks: (ss0 && ss0.tasks) || [] }) + '</div>' : '';
+    var sessBox = L0 && !ro && t.start <= now() && linkRec(L0.link) ? '<div class="sess-box"><b>Session</b>' + sessionControls({ e: t, link: L0.link, key: sk0, done: !!(ss0 && ss0.done) || E.linkDone(S.state, L0.link, t.start), tasks: (ss0 && ss0.tasks) || [] }) + '</div>' : '';
     var linkSel = function () {
       var o = function (k, r, label) { var v = k + ':' + r.id; return '<option value="' + esc(v) + '"' + (v === link0 ? ' selected' : '') + '>' + esc(label) + '</option>'; };
       var todos = live('todos').filter(function (x) { var c = (S.state.comps || {})[E.itemKey(S.state, x.id, now())]; return !x.test && (!(c && !c.undone) || 'todo:' + x.id === link0); });
@@ -1898,7 +2179,7 @@
       (ro ? '' : '<div class="field">🔔 Reminders <small>(Scaffold only: every device, not Google)</small><div class="erems">' + rem0.map(remRow).join('') + '</div>' +
         '<button type="button" class="btn sm" data-erem-add>＋ Add Event Reminder</button></div>') +
       (ro ? '' : '<div class="field">Color<div class="color-row">' + colorBtns + '</div></div>') +
-      '<label class="field">Description<textarea name="desc" rows="3"' + dis + '>' + esc(desc0) + '</textarea></label>' +
+      '<label class="field">Description<textarea name="desc" rows="3"' + dis + '>' + esc(desc0 || autoDesc) + '</textarea></label>' +
       '<label class="check"><input type="checkbox" name="monthly"' + (was ? ' checked' : '') + '> Show in monthly</label>' +
       (ro ? '' : t.gid ? '<p class="muted">Synced with Google Calendar.</p>' : (S.local.calUrl || (S.local.cal || {}).status ? '' : '<p class="muted">Connect Google Calendar on a computer to sync it there too.</p>')), !isNew && !ro);
     var f = document.getElementById('editor'), color = t.color || '', rd = rdays.slice(), stasks0 = (ss0 && ss0.tasks) || [];
@@ -1924,6 +2205,11 @@
       box.innerHTML = 'Tasks for this session <small>(this day only)</small>' + (list.length ? '<div class="apps">' + list.map(function (x) { return '<label class="check sm"><input type="checkbox" name="stask" value="' + esc(x.id) + '"' + (stasks0.indexOf(x.id) >= 0 ? ' checked' : '') + '> ' + esc((x.emoji || '') + ' ' + x.title) + '</label>'; }).join('') + '</div>' : '<p class="muted">This project has no open tasks.</p>');
     };
     paintSt(); if (f.link) f.link.addEventListener('change', paintSt);
+    // Linking a task or habit fills an empty description, or replaces the one it filled itself (until you edit it).
+    if (f.link && f.desc) f.link.addEventListener('change', function () {
+      var cur = f.desc.value.trim(); if (cur && cur !== autoDesc) return;
+      autoDesc = linkDesc(f.link.value); f.desc.value = autoDesc;
+    });
     f.addEventListener('change', function (e) { if (e.target.classList.contains('erem-w')) e.target.closest('.erem').querySelector('.erem-c').style.display = e.target.value === 'custom' ? '' : 'none'; });
     var readRem = function () {
       var out = [];

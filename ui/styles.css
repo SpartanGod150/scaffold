@@ -362,7 +362,7 @@ details.vault .row { background: var(--card); margin-top: 8px; border-left-color
 .cv-ev.hb.dn { background: color-mix(in srgb, var(--c) 42%, transparent); border-color: var(--c); opacity: 1; }
 .cv-ev.drag { touch-action: pan-y; }
 .cv-ev .rs { position: absolute; left: 0; right: 0; bottom: 0; height: 8px; cursor: ns-resize; }
-.cv-ev.dragging { z-index: 50 !important; box-shadow: 0 8px 22px rgba(0,0,0,.5); opacity: .92; }
+.cv-ev.dragging { z-index: 15 !important; box-shadow: 0 8px 22px rgba(0,0,0,.5); opacity: .92; }
 .cv.n7 .cv-ev { padding: 2px 3px; font-size: 10.5px; }
 .cv.n7 .cv-ev small { display: none; }
 .ag-row.hb { cursor: pointer; }
@@ -528,7 +528,7 @@ details.vault .row { background: var(--card); margin-top: 8px; border-left-color
 .ev-desc { white-space: pre-wrap; }
 .chip.mdrag { cursor: grab; touch-action: pan-y; }
 .chip.dragsrc { opacity: .35; }
-.drag-ghost { z-index: 1000; pointer-events: none; opacity: .92; box-shadow: 0 6px 18px rgba(0,0,0,.45); cursor: grabbing; display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.drag-ghost { z-index: 19; pointer-events: none; opacity: .92; box-shadow: 0 6px 18px rgba(0,0,0,.45); cursor: grabbing; display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .cal-day.drop { outline: 2px solid var(--accent, #7c9cff); outline-offset: -2px; }
 .cp-all { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; padding-bottom: 14px; border-bottom: 1px solid var(--line, rgba(255,255,255,.08)); }
 .cp-all .btn { flex: 1 1 160px; }
@@ -581,3 +581,9 @@ button.hx { cursor: pointer; color: #fff; font-weight: 700; }
   .p-desktop .today-split .today-cal .cv-scroll { height: calc(100vh - 200px); min-height: 340px; }
   .p-desktop .today-split > .cards { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
 }
+
+/* 0.6.4: "Task Completed" box next to the time square (Tasks and Habits lists) */
+.tickbox { flex: none; align-self: center; width: 30px; height: 30px; border-radius: 8px; border: 2px solid var(--mute); background: transparent; color: #0f1117; font-weight: 800; font-size: 17px; line-height: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+.tickbox:hover { border-color: var(--ok, #4ade80); }
+.tickbox.on { background: var(--ok, #4ade80); border-color: var(--ok, #4ade80); }
+.stat-head .tickbox { margin-left: 4px; }

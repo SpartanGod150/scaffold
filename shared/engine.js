@@ -478,6 +478,11 @@
     return L && L.link && L.link.k ? L : null;
   }
   function sessKey(L, e) { return L.o + '@' + dateKey(e.ostart || e.start); }
+  // A time block counts as done once its task / habit is done for the cycle the block falls in (undoing that undoes this too).
+  function linkDone(state, link, t) {
+    if (!link || !link.id || (link.k !== 'todo' && link.k !== 'habit')) return false;
+    var c = (state.comps || {})[itemKey(state, link.id, t)]; return !!(c && !c.undone);
+  }
   // The time blocks of one task / habit / project between from and to, soonest first. A task also gets the project
   // sessions it was given. Each: { e (the event), key (its session key), start, end, done (session ended), via ('project' or '') }.
   function blocksFor(state, k, id, from, to) {
@@ -491,7 +496,7 @@
         if (!(k === 'todo' && L.link.k === 'project' && L.link.id === pid && s && (s.tasks || []).indexOf(id) >= 0)) return;
         via = 'project';
       }
-      out.push({ e: e, link: L.link, key: key, start: e.start, end: e.end || e.start, done: !!(s && s.done), via: via });
+      out.push({ e: e, link: L.link, key: key, start: e.start, end: e.end || e.start, done: !!(s && s.done) || linkDone(state, L.link, e.start), via: via });
     });
     out.sort(function (a, b) { return a.start - b.start; });
     return out;
@@ -504,7 +509,7 @@
       if (!e || e.del || e.start >= to || (e.end || e.start) <= from) return;
       var L = linkOf(ix, e); if (!L) return;
       var key = sessKey(L, e), s = sess[key];
-      out.push({ e: e, link: L.link, key: key, start: e.start, end: e.end || e.start, done: !!(s && s.done), tasks: (s && s.tasks) || [] });
+      out.push({ e: e, link: L.link, key: key, start: e.start, end: e.end || e.start, done: !!(s && s.done) || linkDone(state, L.link, e.start), tasks: (s && s.tasks) || [] });
     });
     out.sort(function (a, b) { return a.start - b.start; });
     return out;
@@ -803,7 +808,7 @@
     pad: pad, dateKey: dateKey, fromKey: fromKey, addDays: addDays, daysBetween: daysBetween, at: at, hhmm: hhmm, compKey: compKey, uid: uid, emptyState: emptyState,
     newer: newer, merge: merge, eventsFor: eventsFor, parseRule: parseRule, buildRule: buildRule, expandRule: expandRule, dropPulledCopies: dropPulledCopies, isPulledCopy: isPulledCopy, scheduledOn: scheduledOn, habitPeriod: habitPeriod, pushOf: pushOf, lockOf: lockOf, hasDue: hasDue, timing: timing, reminderTimes: reminderTimes, periodOf: periodOf,
     compute: compute, habitHistory: habitHistory, opSetDone: opSetDone, dueReminders: dueReminders, eventReminders: eventReminders, nextEventReminder: nextEventReminder, remOf: remOf, remIndex: remIndex, remLead: remLead, remWhen: remWhen, notePops: notePops, pendingNotes: pendingNotes, plainNote: plainNote, stats: stats,
-    projectProgress: projectProgress, dayAgenda: dayAgenda, linkIndex: linkIndex, linkOf: linkOf, sessKey: sessKey, blocksFor: blocksFor, linkedBlocks: linkedBlocks, FULL_LOCK: FULL_LOCK, modeById: modeById, modeEvents: modeEvents, activeMode: activeMode, unblockOf: unblockOf, modeList: modeList, appBlocked: appBlocked, siteBlocked: siteBlocked, parseUrl: parseUrl, vaultProjects: vaultProjects, itemKey: itemKey,
+    projectProgress: projectProgress, dayAgenda: dayAgenda, linkIndex: linkIndex, linkOf: linkOf, sessKey: sessKey, linkDone: linkDone, blocksFor: blocksFor, linkedBlocks: linkedBlocks, FULL_LOCK: FULL_LOCK, modeById: modeById, modeEvents: modeEvents, activeMode: activeMode, unblockOf: unblockOf, modeList: modeList, appBlocked: appBlocked, siteBlocked: siteBlocked, parseUrl: parseUrl, vaultProjects: vaultProjects, itemKey: itemKey,
     chunks: chunks, snapshot: snapshot,
     opPut: opPut, opDel: opDel, opTask: opTask, opDelete: opDelete, opComplete: opComplete, opUndo: opUndo, opSnooze: opSnooze, opPause: opPause, opAck: opAck
   };
