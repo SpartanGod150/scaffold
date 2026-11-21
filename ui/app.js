@@ -922,6 +922,10 @@
     });
   }
   document.addEventListener('mousemove', function (e) { S.mouse = { x: e.clientX, y: e.clientY }; }, { passive: true });
+  // The Mac menu's Copy / Paste (and some keyboards) send copy / paste events instead of the key press.
+  function calKeysOn(t) { return PLATFORM === 'desktop' && S.view === 'calendar' && !S.modalOpen && !document.querySelector('.top-layer') && !(t && (/INPUT|TEXTAREA|SELECT/.test(t.nodeName) || t.isContentEditable)); }
+  document.addEventListener('copy', function (e) { var ws = window.getSelection(); if (!calKeysOn(e.target) || !selCount() || (ws && String(ws).trim())) return; e.preventDefault(); copySel(); });
+  document.addEventListener('paste', function (e) { if (!calKeysOn(e.target) || !S.calClip || !S.calClip.length) return; e.preventDefault(); pasteClip(); });
   document.addEventListener('keydown', function (e) {
     if (PLATFORM !== 'desktop' || S.view !== 'calendar' || S.modalOpen || document.querySelector('.top-layer')) return;
     var t = e.target; if (t && (/INPUT|TEXTAREA|SELECT/.test(t.nodeName) || t.isContentEditable)) return;

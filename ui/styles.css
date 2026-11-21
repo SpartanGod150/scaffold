@@ -587,3 +587,6 @@ button.hx { cursor: pointer; color: #fff; font-weight: 700; }
 .tickbox:hover { border-color: var(--ok, #4ade80); }
 .tickbox.on { background: var(--ok, #4ade80); border-color: var(--ok, #4ade80); }
 .stat-head .tickbox { margin-left: 4px; }
+/* 0.6.5: several events picked with Shift+click */
+.cv-ev.picked { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--pri); z-index: 6 !important; }
+.chip.picked { outline: 2px solid #fff; outline-offset: 1px; box-shadow: 0 0 0 4px var(--pri); }
