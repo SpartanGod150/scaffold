@@ -315,7 +315,7 @@
     if (!appsSent && S.mode === 'main' && S.state) { appsSent = true; setTimeout(function () { try { publishAndroidApps(); } catch (e) {} }, 3000); }
     var full = /^<section class="(block|remind)/.exec(html), key = full ? full[1] + (S.r.lock ? S.r.lock.id : S.modeTask) : '';
     if (key && key !== S.guardKey) { S.guardUntil = Date.now() + 1500; S.guardKey = key; } else if (!key) S.guardKey = '';
-    $app.innerHTML = html; tick(); wireTimeline(); wireMini(); wireMonth();
+    $app.innerHTML = html; tick(); wireTimeline(); wireMini(); wireMonth(); fitMonth();
     var ne = $app.querySelector('.note-edit .rte'); if (ne) { S.noteRte = wireRte(ne, $app.querySelector('.note-edit .rte-bar')); ne.focus(); }
   }
 
@@ -834,7 +834,17 @@
     var below = $app.getBoundingClientRect().bottom - padB - r.bottom;
     sc.style.height = Math.max(260, Math.floor(innerHeight - (r.top + scrollY) - below - padB)) + 'px';
   }
-  window.addEventListener('resize', function () { fitTimeline(); });
+  // The month grid fills the window too: the weeks share the height left below the header (never shorter than before).
+  function fitMonth() {
+    var g = $app.querySelector('.cal-main .cal-grid.month'); if (!g) return;
+    var rows = Array.prototype.slice.call(g.children).filter(function (x) { return x.classList.contains('cal-week'); }); if (!rows.length) return;
+    rows.forEach(function (w) { w.style.minHeight = ''; });
+    var cs = getComputedStyle($app), padB = parseFloat(cs.paddingBottom) || 0, r = g.getBoundingClientRect();
+    var below = $app.getBoundingClientRect().bottom - padB - r.bottom, gap = parseFloat(getComputedStyle(g).rowGap) || 4;
+    var avail = Math.floor(innerHeight - (r.top + scrollY) - below - padB - 6), h = Math.floor((avail - gap * (rows.length - 1)) / rows.length);
+    rows.forEach(function (w) { if (h > w.offsetHeight) w.style.minHeight = h + 'px'; });
+  }
+  window.addEventListener('resize', function () { fitTimeline(); fitMonth(); });
   // ---- Several events at once (computers): Shift+click picks them; dragging one moves them all; Ctrl/⌘+C, Ctrl/⌘+V copies them.
   function selCount() { return S.calSel ? Object.keys(S.calSel).length : 0; }
   function toggleSel(id) {
