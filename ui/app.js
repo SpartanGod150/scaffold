@@ -178,7 +178,7 @@
     openApp: function (pkg) { B.openApp(pkg); },
     close: function () { B.closeWindow(); },
     evGot: function () { B.closeWindow(); },
-    nav: function (v) { S.view = v; S.project = ''; try { localStorage.setItem('scaffold-view', v); } catch (e) {} render(); window.scrollTo(0, 0); },
+    nav: function (v) { if (v !== 'calendar') { S.calSel = {}; S.selSig = ''; } S.view = v; S.project = ''; try { localStorage.setItem('scaffold-view', v); } catch (e) {} render(); window.scrollTo(0, 0); },
     editHabit: function (id) { openHabitEditor(id && S.state.tasks[id] ? JSON.parse(JSON.stringify(S.state.tasks[id])) : null); },
     template: function (i) { openHabitEditor(Object.assign({}, TEMPLATES[i])); },
     toggleHabit: function (id) { var h = S.state.tasks[id]; if (!h) return; var c = JSON.parse(JSON.stringify(h)); c.active = h.active === false; apply(E.opPut('tasks', c, by(), now())); toast(c.active ? '▶️ Habit on' : '⏸ Habit paused'); },
@@ -679,6 +679,9 @@
 
   function calendarView() {
     var v = calView(), key = calAnchor(), d = new Date(E.fromKey(key)), title;
+    // Picked events are dropped when the shown days change (another week, month or view), so nothing moves out of sight.
+    var sig = v + '|' + (v === 'month' ? key.slice(0, 7) : v === 'week' ? E.dateKey(weekStart(key)) : v === 'range' ? key + '+' + calRange().n : key);
+    if (S.selSig !== sig) { S.selSig = sig; S.calSel = {}; }
     if (v === 'month') title = MONTHS[d.getMonth()] + ' ' + d.getFullYear();
     else if (v === 'week') {
       var a = new Date(weekStart(key)), b = new Date(E.addDays(weekStart(key), 6));
@@ -739,7 +742,8 @@
       if (a.kind === 'event' && monthlyOn(a.rec)) { if (!multiDay(a.rec)) chips.push('<i class="chip ev' + mDrag(a) + ' style="background:' + evColor(a.rec) + ';color:' + inkOn(evColor(a.rec)) + '">' + esc(a.rec.title) + '</i>'); }
       else if (a.kind === 'todo' && a.rec.monthly && !a.done) { due = true; chips.push('<i class="chip dl">' + esc(a.rec.title) + ' Deadline</i>'); }
     });
-    var room = Math.max(1, 3 - (lanes || 0)), shown = chips.length > room ? chips.slice(0, room - 1).concat('<i class="chip more">+' + (chips.length - room + 1) + ' more</i>') : chips;
+    // Every event goes in; fitChips() hides what doesn't fit the box and shows "+N more" instead.
+    var shown = chips.length ? chips.concat('<i class="chip more" style="display:none"></i>') : chips;
     return '<button class="cal-day' + (k === E.dateKey(now()) ? ' today' : '') + (due ? ' due' : '') + (out ? ' out' : '') + '" data-a="calPick" data-id="' + k + '"><b>' + label + '</b><span class="chips">' + shown.join('') + '</span></button>';
   }
   // One week row of the month grid. days: 7 of { t, label, out } or null (blank). Multi-day events are bars across it.
@@ -896,11 +900,28 @@
   function fitMonth() {
     var g = $app.querySelector('.cal-main .cal-grid.month'); if (!g) return;
     var rows = Array.prototype.slice.call(g.children).filter(function (x) { return x.classList.contains('cal-week'); }); if (!rows.length) return;
-    rows.forEach(function (w) { w.style.minHeight = ''; });
-    var cs = getComputedStyle($app), padB = parseFloat(cs.paddingBottom) || 0, r = g.getBoundingClientRect();
-    var below = $app.getBoundingClientRect().bottom - padB - r.bottom, gap = parseFloat(getComputedStyle(g).rowGap) || 4;
+    rows.forEach(function (w) { w.style.height = ''; });
+    var leg = g.parentNode.querySelector('.cal-legend'), cs = getComputedStyle($app), padB = parseFloat(cs.paddingBottom) || 0, r = g.getBoundingClientRect();
+    var below = leg ? leg.getBoundingClientRect().height + 12 : 0, gap = parseFloat(getComputedStyle(g).rowGap) || 4;
     var avail = Math.floor(innerHeight - (r.top + scrollY) - below - padB - 6), h = Math.floor((avail - gap * (rows.length - 1)) / rows.length);
-    rows.forEach(function (w) { if (h > w.offsetHeight) w.style.minHeight = h + 'px'; });
+    // Each week gets its share of the window, never less than a box with its multi-day bars and two event lines.
+    rows.forEach(function (w) { var lanes = +w.style.getPropertyValue('--lanes') || 0; w.style.height = Math.max(h, 76 + lanes * 18) + 'px'; });
+    fitChips(g);
+  }
+  // Shows as many event lines as fit each day box; the rest become "+N more".
+  function fitChips(g) {
+    g.querySelectorAll('.cal-day').forEach(function (d) {
+      var box = d.querySelector('.chips'); if (!box) return;
+      var all = Array.prototype.slice.call(box.children).filter(function (x) { return !x.classList.contains('more'); }), more = box.querySelector('.chip.more');
+      if (!all.length || !more) return;
+      all.forEach(function (x) { x.style.display = ''; }); more.style.display = 'none';
+      var limit = d.getBoundingClientRect().bottom - 4, fit = 0;
+      all.forEach(function (x) { if (x.getBoundingClientRect().bottom <= limit) fit++; });
+      if (fit >= all.length) return;
+      var keep = Math.max(0, fit - 1);
+      all.forEach(function (x, i) { if (i >= keep) x.style.display = 'none'; });
+      more.textContent = '+' + (all.length - keep) + ' more'; more.style.display = '';
+    });
   }
   window.addEventListener('resize', function () { fitTimeline(); fitMonth(); });
   // ---- Several events at once (computers): Shift+click picks them; dragging one moves them all; Ctrl/⌘+C, Ctrl/⌘+V copies them.
