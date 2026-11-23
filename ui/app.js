@@ -877,9 +877,10 @@
     var paintSel = function () { var a = d0 < d1 ? d0 : d1, b = d0 < d1 ? d1 : d0; g.querySelectorAll('[data-mm]').forEach(function (x) { var k = x.getAttribute('data-mm'); x.classList.toggle('drag', k >= a && k <= b); }); };
     g.addEventListener('pointerdown', function (e) { var k = keyAt(e); if (!k || (e.pointerType === 'mouse' && e.button !== 0)) return; d0 = d1 = k; try { g.setPointerCapture(e.pointerId); } catch (x) {} });
     g.addEventListener('pointermove', function (e) { if (!d0) return; var k = keyAt(e); if (k && k !== d1) { d1 = k; paintSel(); } });
-    var end = function () {
+    var end = function (e) {
       if (!d0) return; var a = d0 < d1 ? d0 : d1, b = d0 < d1 ? d1 : d0; d0 = null;
-      if (a === b) return;
+      // A plain tap: the pointer capture above sends the click to the grid, not the day, so jump from here.
+      if (a === b) { S.clickEv = e; A.calJump(a); S.clickEv = null; S.mmDragged = Date.now(); return; }
       S.mmDragged = Date.now();
       var n = Math.round((E.fromKey(b) - E.fromKey(a)) / E.DAY) + 1;
       if (n === 7 && E.dateKey(weekStart(a)) === a) { S.calDay = a; S.calView = 'week'; lsSet('scaffold-calview', 'week'); }
