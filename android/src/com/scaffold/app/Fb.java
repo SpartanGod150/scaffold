@@ -27,6 +27,30 @@ public final class Fb {
     private static final ArrayDeque<String> outbox = new ArrayDeque<>();
     private static final LinkedHashSet<String> seen = new LinkedHashSet<>();
     private static Thread listener, sender;
+    // Some networks hold back streaming answers (the connection opens, nothing comes through). Then Scaffold asks
+    // Firebase every few seconds for 15 min instead, and tries the stream again after that (same as desktop/firebase.js).
+    private static volatile long pollUntil = 0;
+    private static final ArrayList<Long> drops = new ArrayList<>();
+    private static void toPolling() { if (System.currentTimeMillis() >= pollUntil) pollUntil = System.currentTimeMillis() + 15 * 60_000L; }
+    private static synchronized void dropped(long lived) {
+        long now = System.currentTimeMillis();
+        if (lived < 120_000) drops.add(now);
+        for (Iterator<Long> it = drops.iterator(); it.hasNext(); ) if (now - it.next() > 600_000) it.remove();
+        if (drops.size() >= 3) { drops.clear(); toPolling(); }
+    }
+    private static String query(long since) throws Exception { return "?orderBy=" + URLEncoder.encode("\"t\"", "UTF-8") + "&startAt=" + since; }
+    /** One look at the new messages (polling mode). */
+    private static void pollOnce(Context c, String b, String code) throws Exception {
+        long since = Math.max(Store.getLong(c, "fbSince", 0), System.currentTimeMillis() - 12 * 3600_000L) - 2000;
+        HttpURLConnection h = (HttpURLConnection) new URL(path(b, code, query(since))).openConnection();
+        try {
+            h.setConnectTimeout(20000); h.setReadTimeout(30000);
+            if (h.getResponseCode() != 200) throw new Exception("Firebase " + h.getResponseCode());
+            String body; try (InputStream in = h.getInputStream()) { body = new String(Updater.read(in), StandardCharsets.UTF_8).trim(); }
+            if (!ok) { ok = true; Sync.status = "connected (Firebase, checking every few seconds: this network holds back live updates)"; MainActivity.notifyState(); }
+            if (body.startsWith("{")) event(c, code, "put", new JSONObject().put("path", "/").put("data", new JSONObject(body)).toString());
+        } finally { h.disconnect(); }
+    }
 
     static String base(Context c) {
         JSONObject cfg = Store.state(c).optJSONObject("cfg"), f = cfg == null ? null : cfg.optJSONObject("fb");
@@ -53,25 +77,39 @@ public final class Fb {
     private static void listen(Context c, String key, String b, String code) {
         long backoff = 2000;
         while (key.equals(activeBase)) {
+            if (System.currentTimeMillis() < pollUntil) {
+                try { pollOnce(c, b, code); backoff = 2000; } catch (Exception e) { ok = false; Sync.status = "offline (" + e.getMessage() + ")"; MainActivity.notifyState(); }
+                try { Thread.sleep(ok ? 4000 : 10000); } catch (InterruptedException ignored) {}
+                continue;
+            }
             HttpURLConnection h = null;
+            final boolean[] got = {false};
+            Thread wd = null;
+            long opened = System.currentTimeMillis();
             try {
                 long since = Math.max(Store.getLong(c, "fbSince", 0), System.currentTimeMillis() - 12 * 3600_000L) - 60000;
-                h = (HttpURLConnection) new URL(path(b, code, "?orderBy=" + URLEncoder.encode("\"t\"", "UTF-8") + "&startAt=" + since)).openConnection();
+                h = (HttpURLConnection) new URL(path(b, code, query(since))).openConnection();
                 h.setRequestProperty("Accept", "text/event-stream");
-                h.setConnectTimeout(20000); h.setReadTimeout(90000);   // keep-alives arrive every ~30 s
+                h.setConnectTimeout(20000); h.setReadTimeout(70000);   // keep-alives arrive every ~30 s
                 if (h.getResponseCode() != 200) throw new Exception("Firebase " + h.getResponseCode());
-                ok = true; backoff = 2000; Sync.fbStatus(); MainActivity.notifyState();
+                // Connected only once the first event arrives (Firebase sends one right away); silence = held back.
+                final HttpURLConnection hh = h;
+                wd = new Thread(() -> { try { Thread.sleep(15000); } catch (InterruptedException e) { return; } if (!got[0]) { toPolling(); hh.disconnect(); } }, "scaffold-fb-wd");
+                wd.setDaemon(true); wd.start();
                 BufferedReader br = new BufferedReader(new InputStreamReader(h.getInputStream(), StandardCharsets.UTF_8));
                 String line, ev = ""; StringBuilder data = new StringBuilder();
                 while ((line = br.readLine()) != null && key.equals(activeBase)) {
+                    if (!got[0]) { got[0] = true; ok = true; backoff = 2000; Sync.fbStatus(); MainActivity.notifyState(); }
                     if (line.startsWith("event:")) ev = line.substring(6).trim();
                     else if (line.startsWith("data:")) data.append(line.substring(5).trim());
                     else if (line.isEmpty()) { event(c, code, ev, data.toString()); ev = ""; data.setLength(0); }
                 }
             } catch (Exception e) {
                 Sync.status = "offline (" + e.getMessage() + ")";
-            } finally { if (h != null) h.disconnect(); }
+            } finally { if (wd != null) wd.interrupt(); if (h != null) h.disconnect(); }
+            if (got[0]) dropped(System.currentTimeMillis() - opened);
             ok = false; MainActivity.notifyState();
+            if (System.currentTimeMillis() < pollUntil) continue;   // straight to polling
             try { Thread.sleep(backoff); } catch (InterruptedException ignored) {}
             backoff = Math.min(30000, backoff * 2);
         }

@@ -6,6 +6,10 @@ const https = require('https');
 const { URL } = require('url');
 
 const KEEP = 24 * 3600e3;
+// Some networks (school / office Wi-Fi, often the ones that block ntfy) hold back streaming answers: the connection opens
+// but nothing comes through, so it times out and starts over, again and again. When that happens Scaffold asks Firebase
+// every few seconds instead (polling) for a while, then tries the stream again.
+const FIRST_EVENT_MS = 15000, POLL_MS = 4000, POLL_FOR = 15 * 60000, IDLE_MS = 70000;
 
 function req(method, url, body) {
   return new Promise((resolve, reject) => {
@@ -22,34 +26,61 @@ function req(method, url, body) {
 
 class FirebaseChannel {
   // opts: { base, topic, since (ms), onMessage(b64), onStatus(text), onSince(ms) }
-  constructor(opts) { this.o = opts; this.alive = true; this.backoff = 2000; this.seen = new Set(); this.outbox = []; this.ok = false; }
+  constructor(opts) { this.o = opts; this.alive = true; this.backoff = 2000; this.seen = new Set(); this.outbox = []; this.ok = false; this.drops = []; this.pollUntil = 0; }
   path(q) { return this.o.base.replace(/\/+$/, '') + '/s/' + this.o.topic + '/m.json' + (q || ''); }
   start() { this._listen(); this.cleanT = setInterval(() => this._clean(), 3600e3); setTimeout(() => this._clean(), 60000); }
-  stop() { this.alive = false; if (this.req) this.req.destroy(); clearTimeout(this.reconT); clearInterval(this.cleanT); clearTimeout(this.flushT); }
+  stop() { this.alive = false; if (this.req) this.req.destroy(); clearTimeout(this.reconT); clearInterval(this.cleanT); clearTimeout(this.flushT); clearTimeout(this.firstT); clearTimeout(this.pollT); }
 
   _listen() {
     if (!this.alive) return;
+    if (Date.now() < this.pollUntil) return this._poll();
     const since = Math.max(this.o.since || 0, Date.now() - 12 * 3600e3) - 60000;   // a minute of overlap; duplicates are skipped
     const u = new URL(this.path('?orderBy=' + encodeURIComponent('"t"') + '&startAt=' + since));
     this.req = https.get({ hostname: u.hostname, path: u.pathname + u.search, headers: { Accept: 'text/event-stream', 'User-Agent': 'Scaffold' } }, (res) => {
       if (res.statusCode === 307 && res.headers.location) { res.resume(); this.o.base = new URL(res.headers.location).origin; return this._retry('redirect', 0); }
       if (res.statusCode !== 200) { res.resume(); return this._retry('Firebase ' + res.statusCode); }
-      this.ok = true; this.backoff = 2000; this.o.onStatus('connected');
+      // Connected only once the first event arrives (Firebase sends one right away); silence means the network holds it back.
+      const opened = Date.now(); let got = false;
+      clearTimeout(this.firstT);
+      this.firstT = setTimeout(() => { if (!got) { this._toPolling('no data on the stream'); if (this.req) this.req.destroy(); } }, FIRST_EVENT_MS);
       this._flush();
       let buf = '';
       res.setEncoding('utf8');
       res.on('data', (c) => {
+        if (!got) { got = true; clearTimeout(this.firstT); this.ok = true; this.backoff = 2000; this.o.onStatus('connected'); }
         buf += c; let i;
         while ((i = buf.indexOf('\n\n')) >= 0) { const block = buf.slice(0, i); buf = buf.slice(i + 2); this._event(block); }
       });
-      res.on('end', () => this._retry('reconnecting'));
-      res.on('error', (e) => this._retry(e.message));
+      const dropped = (why) => { clearTimeout(this.firstT); if (got) this._dropped(Date.now() - opened); this._retry(why); };
+      res.on('end', () => dropped('reconnecting'));
+      res.on('error', (e) => dropped(e.message));
     });
-    this.req.setTimeout(90000, () => this.req.destroy(new Error('timeout')));   // Firebase sends keep-alives every ~30 s
+    this.req.setTimeout(IDLE_MS, () => this.req.destroy(new Error('timeout')));   // Firebase sends keep-alives every ~30 s
     this.req.on('error', (e) => this._retry(e.message));
+  }
+  // A stream that keeps dying young (3 times within 10 min, each under 2 min) gets the polling treatment too.
+  _dropped(lived) {
+    const now = Date.now();
+    if (lived < 120000) this.drops.push(now);
+    this.drops = this.drops.filter((t) => now - t < 600000);
+    if (this.drops.length >= 3) { this.drops = []; this._toPolling('the stream keeps dropping'); }
+  }
+  _toPolling(why) { if (Date.now() < this.pollUntil) return; this.pollUntil = Date.now() + POLL_FOR; this.why = why; }
+  async _poll() {
+    if (!this.alive) return;
+    if (Date.now() >= this.pollUntil) return this._listen();   // time to try the stream again
+    try {
+      const since = Math.max(this.o.since || 0, Date.now() - 12 * 3600e3) - 2000;
+      const data = await req('GET', this.path('?orderBy=' + encodeURIComponent('"t"') + '&startAt=' + since));
+      if (!this.ok) { this.ok = true; this.backoff = 2000; this.o.onStatus('connected (checking every few seconds: this network holds back live updates)'); this._flush(); }
+      if (data && typeof data === 'object') this._event('event: put\ndata: ' + JSON.stringify({ path: '/', data }));
+    } catch (e) { this.ok = false; this.o.onStatus('offline (' + e.message + ')'); }
+    clearTimeout(this.pollT);
+    this.pollT = setTimeout(() => this._poll(), this.ok ? POLL_MS : 10000);
   }
   _retry(why, wait) {
     if (!this.alive) return;
+    if (Date.now() < this.pollUntil) { clearTimeout(this.reconT); this.reconT = setTimeout(() => this._poll(), 0); return; }
     this.ok = false; this.o.onStatus('offline (' + why + ')');
     clearTimeout(this.reconT);
     this.reconT = setTimeout(() => this._listen(), wait === undefined ? this.backoff : wait);
