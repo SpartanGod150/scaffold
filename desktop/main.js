@@ -43,17 +43,30 @@ function saveLocal() { writeJSON(LOCAL_F, local); }
 function E_MAPS_FIX() { Engine.MAPS.forEach((m) => { state[m] = state[m] || {}; }); }
 function rec(id) { return (state.tasks || {})[id] || (state.todos || {})[id] || {}; }
 
+// A key for this computer that survives reinstalling Scaffold (the OS's own machine id, hashed), so a reinstall
+// gets its old place in Devices back instead of showing up twice.
+function hardwareKey() {
+  try {
+    const { execFileSync } = require('child_process');
+    let raw = '';
+    if (process.platform === 'darwin') raw = (/"IOPlatformUUID" = "([^"]+)"/.exec(execFileSync('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf8', timeout: 5000 })) || [])[1] || '';
+    else if (process.platform === 'win32') raw = (/MachineGuid\s+REG_SZ\s+(\S+)/.exec(execFileSync('reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid'], { encoding: 'utf8', timeout: 5000, windowsHide: true })) || [])[1] || '';
+    return raw ? crypto.createHash('sha256').update('scaffold:' + raw).digest('hex').slice(0, 16) : '';
+  } catch (e) { return ''; }
+}
 function loadAll() {
   state = readJSON(STATE_F, Engine.emptyState());
   gev = readJSON(GEV_F, {});
   if (Engine.dropPulledCopies(state, Date.now())) saveState();
+  const hw = hardwareKey();
   local = Object.assign({
-    deviceId: (process.platform === 'darwin' ? 'mac-' : 'pc-') + crypto.randomBytes(4).toString('hex'),
+    deviceId: (process.platform === 'darwin' ? 'mac-' : 'pc-') + (hw ? hw.slice(0, 8) : crypto.randomBytes(4).toString('hex')),
     deviceName: process.platform === 'darwin' ? 'MacBook' : 'PC',
     syncCode: '', since: '', timer: null, autostart: true, frozen: {},
     lastCheck: Date.now(), lastSnapSeen: 0, firstRun: true,
     vaultPath: '', vaultSig: '', ticked: {}, calUrl: '', calSecret: crypto.randomBytes(18).toString('hex'), calMap: {}
   }, readJSON(LOCAL_F, {}));
+  local.hw = hw;
   E_MAPS_FIX();
   saveLocal();
 }
@@ -346,13 +359,21 @@ async function publishCatalog() {
     const parts = Math.max(1, Math.ceil(apps.length / per));
     for (let i = 0; i < parts; i++) {
       const r = { id: i ? base + '#' + i : base, part: i, apps: apps.slice(i * per, (i + 1) * per), ts: now, by: local.deviceId };
-      if (!i) Object.assign(r, { name: local.deviceName, platform: process.platform === 'darwin' ? 'mac' : 'win', parts });
+      if (!i) Object.assign(r, { name: local.deviceName, platform: process.platform === 'darwin' ? 'mac' : 'win', parts, hw: local.hw || undefined });
       patch.devs[r.id] = r;
     }
     Object.keys(state.devs || {}).forEach((k) => { const n = +(k.split('#')[1] || 0); if (k.split('#')[0] === base && n >= parts && !state.devs[k].del) patch.devs[k] = { id: k, del: true, ts: now, by: local.deviceId }; });
     local.catSig = sig; local.catAt = now; saveLocal();
     applyPatch(patch, true);
   } catch (e) { console.error('catalog', e); }
+}
+
+// "Still here": every 6 h, so other devices can show this one as inactive once it's gone (uninstalled, or off for days).
+function heartbeat() {
+  if (!local.syncCode || !local.deviceId) return;
+  const id = local.deviceId + '#seen', r = { id, ts: Date.now(), by: local.deviceId };
+  if (local.hw) r.hw = local.hw;
+  applyPatch({ devs: { [id]: r } }, true);
 }
 
 function openWhatsApp() {
@@ -416,11 +437,12 @@ ipcMain.on('apply', (e, p) => { try { applyPatch(JSON.parse(p), true); } catch (
 ipcMain.on('start-timer', (e, id, min) => { local.timer = { taskId: id, endsAt: Date.now() + min * 60000, minutes: min }; saveLocal(); notifyUI(); });
 ipcMain.on('stop-timer', () => { local.timer = null; saveLocal(); evaluate(); notifyUI(); });
 ipcMain.on('set-local', (e, k, v) => {
-  if (!['syncCode', 'deviceName', 'blocklist', 'autostart', 'vaultPath', 'calUrl'].includes(k)) return;
+  if (!['syncCode', 'deviceName', 'blocklist', 'autostart', 'vaultPath', 'calUrl', 'deviceId'].includes(k)) return;
   local[k] = JSON.parse(v); saveLocal();
   if (k === 'vaultPath') { local.vaultSig = ''; vaultFiles = null; scanVault(); }
   if (k === 'calUrl') { local.cal = { status: local.calUrl ? 'connecting…' : '' }; local.calMap = {}; runCal(); shareRelay(); }
   if (k === 'syncCode') { local.since = ''; startSync(); }
+  if (k === 'deviceId') { local.catSig = ''; startSync(); setTimeout(publishCatalog, 5000); setTimeout(heartbeat, 6000); }
   if (k === 'autostart') setAutostart(local.autostart);
   notifyUI();
 });
@@ -514,11 +536,12 @@ app.whenReady().then(() => {
   safe('window', () => { if (local.firstRun) { local.firstRun = false; saveLocal(); showMain(); } else if (process.argv.includes('--show')) showMain(); });
   safe('sync', startSync);
   safe('modes', () => {
-    guard = Modes.Guard({ Engine, getState: () => Object.assign({}, state, { gev }), local, saveLocal, deviceId: local.deviceId, ui: guardUI });
+    guard = Modes.Guard({ Engine, getState: () => Object.assign({}, state, { gev }), local, saveLocal, get deviceId() { return local.deviceId; }, ui: guardUI });
     const toDip = (r) => process.platform === 'win32' ? screen.screenToDipRect(null, r) : r;
     setInterval(() => safe('guard', () => guard.tick()), 2000);
     setInterval(() => safe('sites', () => guard.sites(toDip)), 1000);
     setTimeout(publishCatalog, 20000); setInterval(publishCatalog, 6 * 3600e3);
+    setTimeout(heartbeat, 30000); setInterval(heartbeat, 6 * 3600e3);
   });
   setInterval(() => safe('evaluate', evaluate), 5000);
   safe('evaluate', () => { evaluate(); updateTray(); });

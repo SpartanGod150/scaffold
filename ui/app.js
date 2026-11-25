@@ -374,6 +374,7 @@
   }
   var appsSent = false;
   function paint(html) {
+    if (S.mode === 'main' && S.state) try { adoptDevice(); } catch (e) {}
     if (!appsSent && S.mode === 'main' && S.state) { appsSent = true; setTimeout(function () { try { publishAndroidApps(); } catch (e) {} }, 3000); }
     var full = /^<section class="(block|remind)/.exec(html), key = full ? full[1] + (S.r.lock ? S.r.lock.id : S.modeTask) : '';
     if (key && key !== S.guardKey) { S.guardUntil = Date.now() + 1500; S.guardKey = key; } else if (!key) S.guardKey = '';
@@ -1330,17 +1331,36 @@
     var by = {}, d = S.state.devs || {};
     Object.keys(d).forEach(function (k) {
       var r = d[k]; if (!r || r.del) return;
-      var base = k.split('#')[0], x = by[base] || (by[base] = { id: base, parts: [] });
+      var base = k.split('#')[0], x = by[base] || (by[base] = { id: base, parts: [], seen: 0 });
+      x.seen = Math.max(x.seen, r.ts || 0);
+      if (k.slice(-5) === '#seen') return;
       x.parts.push(r); if (r.name) { x.name = r.name; x.platform = r.platform; }
     });
     var out = Object.keys(by).map(function (k) {
       var x = by[k]; x.parts.sort(function (a, b) { return (a.part || 0) - (b.part || 0); });
-      x.apps = [].concat.apply([], x.parts.map(function (r) { return r.apps || []; })); delete x.parts; return x;
+      x.apps = [].concat.apply([], x.parts.map(function (r) { return r.apps || []; })); delete x.parts;
+      x.inactive = x.id !== myDev() && now() - x.seen > DEV_IDLE; return x;
     }).filter(function (x) { return x.name; });
     if (myDev() && !by[myDev()]) out.push({ id: myDev(), name: S.local.deviceName || 'This device', platform: PLATFORM === 'android' ? 'android' : /mac/i.test(navigator.platform) ? 'mac' : 'win', apps: PLATFORM === 'android' ? listApps().map(function (a) { return { id: a.pkg, label: a.label }; }) : [] });
-    return out.sort(function (a, b) { return (a.id === myDev() ? -1 : 0) - (b.id === myDev() ? -1 : 0) || a.name.localeCompare(b.name); });
+    return out.sort(function (a, b) { return (a.id === myDev() ? -1 : 0) - (b.id === myDev() ? -1 : 0) || (a.inactive ? 1 : 0) - (b.inactive ? 1 : 0) || a.name.localeCompare(b.name); });
   }
   var DEV_ICON = { android: '📱', mac: '💻', win: '🖥️' };
+  // A device that hasn't checked in for 3 days (uninstalled, or off) shows as inactive. Each running Scaffold checks in every 6 h.
+  var DEV_IDLE = 3 * 864e5;
+  function devTag(d) { return d.inactive ? ' <small class="dev-off" title="Not seen since ' + esc(niceDay(E.dateKey(d.seen))) + '. It comes back by itself if Scaffold runs there again.">· inactive</small>' : ''; }
+  // After a reinstall: this device is already listed under its old id (same hardware key) → take that id back, drop the new one.
+  function adoptDevice() {
+    if (S.adopted || !S.local.hw || !S.local.syncCode || !myDev()) return;
+    var d = S.state.devs || {}, best = null, mine = myDev();
+    Object.keys(d).forEach(function (k) { var r = d[k], base = k.split('#')[0]; if (r && !r.del && r.hw === S.local.hw && base !== mine && (!best || (r.ts || 0) > best.ts)) best = { id: base, ts: r.ts || 0 }; });
+    if (!best) return;
+    S.adopted = true;
+    var p = { devs: {} }, t = now();
+    Object.keys(d).forEach(function (k) { if (k.split('#')[0] === mine && !d[k].del) p.devs[k] = { id: k, del: true, ts: t, by: by() }; });
+    if (Object.keys(p.devs).length) apply(p);
+    B.setLocal('deviceId', JSON.stringify(best.id)); S.local.deviceId = best.id;
+    var old = (d[best.id] || {}).name; toast('🔗 Reconnected as ' + (old || 'this device') + ' (same device as before)');
+  }
   // Phones and tablets publish their apps from here (computers do it from the desktop app).
   function publishAndroidApps() {
     if (PLATFORM !== 'android' || !myDev() || !S.local.syncCode) return;
@@ -1348,7 +1368,7 @@
     var cur = (S.state.devs || {})[myDev()], sig = JSON.stringify(apps.map(function (a) { return a.id; })) + (S.local.deviceName || '');
     if (cur && cur.sig === sig && now() - (cur.ts || 0) < 7 * E.DAY) return;
     var per = 40, parts = Math.max(1, Math.ceil(apps.length / per)), p = { devs: {} }, t = now();
-    for (var i = 0; i < parts; i++) { var r = { id: i ? myDev() + '#' + i : myDev(), part: i, apps: apps.slice(i * per, (i + 1) * per), ts: t, by: by() }; if (!i) { r.name = S.local.deviceName || 'Phone'; r.platform = 'android'; r.parts = parts; r.sig = sig; } p.devs[r.id] = r; }
+    for (var i = 0; i < parts; i++) { var r = { id: i ? myDev() + '#' + i : myDev(), part: i, apps: apps.slice(i * per, (i + 1) * per), ts: t, by: by() }; if (!i) { r.name = S.local.deviceName || 'Phone'; r.platform = 'android'; r.parts = parts; r.sig = sig; if (S.local.hw) r.hw = S.local.hw; } p.devs[r.id] = r; }
     apply(p);
   }
   function modeChip() {
@@ -1373,7 +1393,7 @@
     var ub = devices().map(function (d) {
       var u = E.unblockOf(S.state, d.id), set = u || presetFor(d), names = {}; (d.apps || []).forEach(function (x) { names[x.id] = x.label; });
       var list = (set.apps || []).filter(function (id) { return names[id]; }).map(function (id) { return names[id]; }).concat(d.platform !== 'android' ? set.sites || [] : []);
-      return '<button class="row" data-a="editUnblock" data-id="' + esc(d.id) + '"><span class="emoji sm">' + (DEV_ICON[d.platform] || '•') + '</span><span class="row-main"><b>' + esc(d.name) + (d.id === myDev() ? ' (this device)' : '') + '</b><small>' + esc(list.join(', ') || 'Nothing') + (u ? '' : ' · preset') + '</small></span></button>';
+      return '<button class="row" data-a="editUnblock" data-id="' + esc(d.id) + '"><span class="emoji sm">' + (DEV_ICON[d.platform] || '•') + '</span><span class="row-main"><b>' + esc(d.name) + (d.id === myDev() ? ' (this device)' : '') + devTag(d) + '</b><small>' + esc(list.join(', ') || 'Nothing') + (u ? '' : ' · preset') + '</small></span></button>';
     }).join('');
     return head + '<h3 class="mt">Modes</h3><div class="grid-cards">' + rows + '</div>' +
       '<h3 class="mt">🔓 Unblockable</h3><p class="muted">No mode ever blocks these, on each device.</p><div class="grid-cards">' + ub + '</div>' +
@@ -1403,7 +1423,7 @@
       }).join('') + '</div></div>' +
       ds.map(function (d, i) {
         var l = E.modeList(t, d.id);
-        return '<details class="dev-box"' + (i === 0 ? ' open' : '') + '><summary>' + (DEV_ICON[d.platform] || '•') + ' ' + esc(d.name) + ' <small>' + l.apps.length + ' apps' + (d.platform !== 'android' ? ', ' + l.sites.length + ' sites' : '') + '</small></summary>' +
+        return '<details class="dev-box"' + (i === 0 ? ' open' : '') + '><summary>' + (DEV_ICON[d.platform] || '•') + ' ' + esc(d.name) + devTag(d) + ' <small>' + l.apps.length + ' apps' + (d.platform !== 'android' ? ', ' + l.sites.length + ' sites' : '') + '</small></summary>' +
           '<div class="field">Apps' + appPicker(d, l.apps, 'a_' + d.id) + '</div>' +
           (d.platform !== 'android' ? '<label class="field">Websites <small>(one per line, e.g. youtube.com; searching always works)</small><textarea name="s_' + esc(d.id) + '" rows="3">' + sitesText(l.sites) + '</textarea></label>' : '') + '</details>';
       }).join('') + '<p class="muted">The unblockable apps are never blocked, whatever is picked here.</p>', !isNew);

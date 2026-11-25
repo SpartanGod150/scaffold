@@ -11,6 +11,8 @@ import android.os.IBinder;
 /** Keeps Scaffold alive in the background: the status notification and the sync connection. */
 public class CoreService extends Service {
     static volatile boolean running;
+    private final android.os.Handler beat = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable beatRun = new Runnable() { @Override public void run() { Store.heartbeat(CoreService.this); beat.postDelayed(this, 6 * 3600 * 1000L); } };
 
     @Override public void onCreate() {
         super.onCreate();
@@ -21,10 +23,11 @@ public class CoreService extends Service {
         Sync.start(this);
         Blocker.start(this);
         Scheduler.reschedule(this);
+        beat.postDelayed(beatRun, 30000);
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) { Sync.start(this); return START_STICKY; }
-    @Override public void onDestroy() { running = false; super.onDestroy(); }
+    @Override public void onDestroy() { running = false; beat.removeCallbacks(beatRun); super.onDestroy(); }
     @Override public IBinder onBind(Intent intent) { return null; }
 
     static void start(Context c) {

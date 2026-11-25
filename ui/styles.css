@@ -380,7 +380,7 @@ details.vault .row { background: var(--card); margin-top: 8px; border-left-color
 .cal-side { display: none; }
 @media (min-width: 900px) {
   .m-main #app { padding-left: 120px; padding-right: 28px; max-width: 1800px; }
-  .cards, .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; align-items: start; }
+  .cards, .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; align-items: stretch; }
   .grid-cards > * { margin: 0 !important; }
   .grid-cards.wide { grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); }
   .panels { columns: 2 440px; column-gap: 16px; }
@@ -592,3 +592,5 @@ button.hx { cursor: pointer; color: #fff; font-weight: 700; }
 .cv-ev.picked { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--pri); z-index: 6 !important; }
 .chip.picked { outline: 2px solid #fff; outline-offset: 1px; box-shadow: 0 0 0 4px var(--pri); }
 .tickbox.off { opacity: .25; border-style: dashed; cursor: default; }
+
+.dev-off { color: var(--mute); font-weight: 400; }

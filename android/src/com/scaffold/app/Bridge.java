@@ -38,6 +38,7 @@ public class Bridge {
             o.put("platform", "android");
             o.put("deviceId", Store.deviceId(a));
             o.put("deviceName", Store.get(a, "deviceName", "Phone"));
+            o.put("hw", Store.hw(a));
             o.put("syncCode", Store.get(a, "syncCode", ""));
             JSONObject sync = new JSONObject(); sync.put("status", Sync.status); o.put("sync", sync);
             long ends = Store.getLong(a, "timerEnds", 0);
@@ -82,6 +83,7 @@ public class Bridge {
             Object v = new JSONArray("[" + json + "]").get(0);
             if ("syncCode".equals(k)) { Store.put(a, "syncCode", String.valueOf(v)); Store.put(a, "since", ""); Sync.start(a); }
             else if ("deviceName".equals(k)) Store.put(a, "deviceName", String.valueOf(v));
+            else if ("deviceId".equals(k) && String.valueOf(v).matches("(phone|tab)-[0-9a-z]+")) { Store.put(a, "deviceId", String.valueOf(v)); Store.heartbeat(a); }
             MainActivity.notifyState();
         } catch (Exception ignored) {}
     }

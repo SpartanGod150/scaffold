@@ -34,10 +34,33 @@ public final class Store {
         String id = p.getString("deviceId", null);
         if (id == null) {
             boolean tablet = c.getResources().getConfiguration().smallestScreenWidthDp >= 600;
-            id = (tablet ? "tab-" : "phone-") + UUID.randomUUID().toString().substring(0, 8);
+            String hw = hw(c);   // same id after a reinstall, so the device keeps its place in Devices
+            id = (tablet ? "tab-" : "phone-") + (hw.length() >= 8 ? hw.substring(0, 8) : UUID.randomUUID().toString().substring(0, 8));
             p.edit().putString("deviceId", id).putString("deviceName", tablet ? "Tablet" : "Phone").apply();
         }
         return id;
+    }
+
+    /** A key for this device that survives reinstalling Scaffold (Android's own id for this app + device, hashed). */
+    static String hw(Context c) {
+        try {
+            String raw = android.provider.Settings.Secure.getString(c.getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
+            if (raw == null || raw.isEmpty()) return "";
+            byte[] h = java.security.MessageDigest.getInstance("SHA-256").digest(("scaffold:" + raw).getBytes("UTF-8"));
+            StringBuilder b = new StringBuilder(); for (int i = 0; i < 8; i++) b.append(String.format("%02x", h[i]));
+            return b.toString();
+        } catch (Exception e) { return ""; }
+    }
+
+    /** "Still here" (every 6 h, from CoreService): other devices show this one as inactive once it stops. */
+    static void heartbeat(Context c) {
+        try {
+            if (get(c, "syncCode", "").isEmpty()) return;
+            String id = deviceId(c) + "#seen";
+            JSONObject r = new JSONObject().put("id", id).put("ts", System.currentTimeMillis()).put("by", deviceId(c));
+            String hw = hw(c); if (!hw.isEmpty()) r.put("hw", hw);
+            apply(c, new JSONObject().put("devs", new JSONObject().put(id, r)), true);
+        } catch (Exception ignored) {}
     }
 
     static String get(Context c, String k, String d) { return prefs(c).getString(k, d); }
