@@ -14,7 +14,13 @@ const ALWAYS = MAC
   ? ['com.apple.finder', 'com.apple.systempreferences', 'com.apple.Preferences', 'com.apple.loginwindow', 'com.apple.dock', 'com.apple.SecurityAgent',
      'com.apple.controlcenter', 'com.apple.notificationcenterui', 'com.apple.Spotlight', 'com.apple.systemuiserver', 'com.scaffold.desktop', 'com.github.Electron']
   : ['explorer.exe', 'scaffold.exe', 'applicationframehost.exe', 'shellexperiencehost.exe', 'searchhost.exe', 'searchapp.exe', 'startmenuexperiencehost.exe',
-     'textinputhost.exe', 'systemsettings.exe', 'lockapp.exe', 'electron.exe', 'dwm.exe', 'winlogon.exe', 'csrss.exe', 'taskmgr.exe'];
+     'textinputhost.exe', 'systemsettings.exe', 'lockapp.exe', 'electron.exe', 'dwm.exe', 'winlogon.exe', 'csrss.exe', 'taskmgr.exe',
+     // Windows' own background parts (hidden windows): freezing one hangs clicks on the whole computer.
+     'svchost.exe', 'conhost.exe', 'dllhost.exe', 'runtimebroker.exe', 'taskhostw.exe', 'sihost.exe', 'ctfmon.exe', 'fontdrvhost.exe', 'smss.exe',
+     'services.exe', 'lsass.exe', 'wininit.exe', 'spoolsv.exe', 'audiodg.exe', 'wmiprvse.exe', 'unsecapp.exe', 'sapisvr.exe', 'searchindexer.exe',
+     'securityhealthsystray.exe', 'securityhealthservice.exe', 'smartscreen.exe', 'filecoauth.exe', 'useroobebroker.exe', 'widgets.exe',
+     'widgetservice.exe', 'phoneexperiencehost.exe', 'crossdeviceresume.exe', 'gamebarpresencewriter.exe', 'nvcontainer.exe',
+     'nvdisplay.container.exe', 'msedgewebview2.exe', 'wfs.exe', 'tabtip.exe', 'mip.exe', 'consent.exe', 'werfault.exe', 'backgroundtaskhost.exe'];
 // Unblockable until the user sets the list: the browser (websites are filtered inside it), WhatsApp and Scaffold.
 const PRESET = MAC
   ? { apps: ['com.operasoftware.Opera', 'com.operasoftware.OperaGX', 'net.whatsapp.WhatsApp', 'desktop.WhatsApp', 'com.scaffold.desktop'], sites: ['web.whatsapp.com'] }
@@ -41,13 +47,14 @@ async function listOpen() {
     });
     return apps;
   }
-  const out = await run('tasklist', ['/v', '/fo', 'csv', '/nh']), apps = [];
+  // Only programs with a window you can see (tasklist also counted hidden ones, so svchost, conhost… looked like open programs).
+  const ps = "Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle } | ForEach-Object { [Console]::Out.WriteLine($_.ProcessName + '|' + $_.Id + '|' + $_.MainWindowTitle) }";
+  const out = await run('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps]), apps = [];
   out.split(/\r?\n/).forEach((l) => {
-    const c = (l.match(/"((?:[^"]|"")*)"/g) || []).map((x) => x.slice(1, -1));
-    if (c.length < 9 || !c[8] || c[8] === 'N/A') return;   // no window
-    apps.push({ id: c[0].toLowerCase(), name: c[0].replace(/\.exe$/i, ''), pid: +c[1], title: c[8] });
+    const m = /^(.+?)\|(\d+)\|(.*)$/.exec(l.trim()); if (!m) return;
+    apps.push({ id: m[1].toLowerCase() + '.exe', name: m[1], pid: +m[2], title: m[3] });
   });
-  return apps;
+  return apps.filter((a) => !ALWAYS.includes(a.id));
 }
 function alive(pid) { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } }
 

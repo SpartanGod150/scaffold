@@ -218,7 +218,11 @@
     calPrev: function () { calMove(-1); },
     calNext: function () { calMove(1); },
     calToday: function () { S.calDay = null; S.calScroll = null; if (calView() === 'range') { S.calRange = { from: E.dateKey(now()), n: calRange().n }; saveRange(); } render(); },
-    calPick: function (key) { S.calDay = key; S.calView = 'day'; lsSet('scaffold-calview', 'day'); render(); },
+    calPick: function (key) {
+      // Shift+click on an event inside a month day box picks the event (the box itself opens the day).
+      var c = S.clickEv && S.clickEv.shiftKey && S.clickEv.target.closest && S.clickEv.target.closest('[data-sel]');
+      if (c && PLATFORM === 'desktop') return toggleSel(c.getAttribute('data-sel'));
+      S.calDay = key; S.calView = 'day'; lsSet('scaffold-calview', 'day'); render(); },
     calView: function (v) { if (v === 'range' && !calRange()) return; if (v !== 'range' && calView() === 'range') S.calDay = calRange().from; S.calView = v; lsSet('scaffold-calview', v); render(); },
     calCals: function () { openCalendars(); },
     calMenu: function (id, k, el) { calMenu(id, el); },
@@ -739,7 +743,7 @@
   function monthCell(t, label, out, lanes) {
     var k = E.dateKey(t), chips = [], due = false;
     shownAgenda(t).forEach(function (a) {
-      if (a.kind === 'event' && monthlyOn(a.rec)) { if (!multiDay(a.rec)) chips.push('<i class="chip ev' + mDrag(a) + ' style="background:' + evColor(a.rec) + ';color:' + inkOn(evColor(a.rec)) + '">' + esc(a.rec.title) + '</i>'); }
+      if (a.kind === 'event' && monthlyOn(a.rec)) { if (!multiDay(a.rec)) chips.push('<i class="chip ev' + mDrag(a) + ' data-sel="' + esc(a.id) + '" style="background:' + evColor(a.rec) + ';color:' + inkOn(evColor(a.rec)) + '">' + esc(a.rec.title) + '</i>'); }
       else if (a.kind === 'todo' && a.rec.monthly && !a.done) { due = true; chips.push('<i class="chip dl">' + esc(a.rec.title) + ' Deadline</i>'); }
     });
     // Every event goes in; fitChips() hides what doesn't fit the box and shows "+N more" instead.
@@ -863,7 +867,7 @@
       (keys.length > 1 ? '<div class="cv-row" style="' + grid + '"><i></i>' + heads + '</div>' : '') +
       (anyAll ? '<div class="cv-row cv-alls" style="' + grid + '"><i class="cv-gut" style="grid-row:1 / span ' + bars.lanes + '">all day</i>' + bars.map(function (b) {
         var c = evColor(b.a.rec);
-        return '<button class="chip ev bar' + (b.cl ? ' cl' : '') + (b.cr ? ' cr' : '') + '" data-a="editEvent" data-id="' + b.a.id + '" style="grid-column:' + (b.i0 + 2) + ' / ' + (b.i1 + 3) + ';grid-row:' + (b.lane + 1) + ';background:' + c + ';color:' + inkOn(c) + '">' + esc(b.a.rec.title) + '</button>';
+        return '<button class="chip ev bar' + (b.cl ? ' cl' : '') + (b.cr ? ' cr' : '') + (S.calSel && S.calSel[b.a.id] ? ' picked' : '') + '" data-a="editEvent" data-id="' + b.a.id + '" style="grid-column:' + (b.i0 + 2) + ' / ' + (b.i1 + 3) + ';grid-row:' + (b.lane + 1) + ';background:' + c + ';color:' + inkOn(c) + '">' + esc(b.a.rec.title) + '</button>';
       }).join('') + '</div>' : '') +
       '<div class="cv-scroll"><div class="cv-body" style="' + grid + ';height:' + 24 * HOUR_PX + 'px"><div class="cv-hours">' + hours + '</div>' + cols + '</div></div></div>';
   }
@@ -953,6 +957,68 @@
     };
     if (list.some(function (c) { return c.series; })) return scopeBox('Change repeating events', false, go, render);
     go('');
+  }
+  // Right-click on a picked event: actions for the whole selection.
+  document.addEventListener('contextmenu', function (e) {
+    if (!calKeysOn(e.target) || !selCount()) return;
+    var el = e.target.closest('[data-sel], .cv-ev[data-ev], .chip.ev[data-a="editEvent"]'); if (!el) return;
+    var id = el.getAttribute('data-sel') || el.getAttribute('data-id'); if (!S.calSel[id]) return;
+    e.preventDefault(); selMenu(e.clientX, e.clientY);
+  });
+  function selMenu(x, y) {
+    closeCalMenu();
+    var n = selCount(), m = document.createElement('div'); m.className = 'cal-menu'; m.id = 'cal-menu';
+    m.innerHTML = '<b class="cm-t">' + n + ' event' + (n > 1 ? 's' : '') + ' picked</b>' +
+      '<button type="button" data-cm="move">📅 Move all events to…</button>' +
+      '<button type="button" class="cm-danger" data-cm="delete">🗑️ Delete all events</button>';
+    document.body.appendChild(m);
+    m.style.left = Math.max(8, Math.min(window.innerWidth - m.offsetWidth - 8, x)) + 'px';
+    m.style.top = Math.max(8, Math.min(window.innerHeight - m.offsetHeight - 8, y)) + 'px';
+    m.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var b = e.target.closest('button'); if (!b) return;
+      closeCalMenu();
+      if (b.getAttribute('data-cm') === 'move') moveSelTo(); else delSel();
+    });
+    setTimeout(function () { document.addEventListener('click', outsideCalMenu, true); }, 0);
+  }
+  // The picked events that can be changed: read-only calendars and repeats not on Google yet stay as they are.
+  function selEditable() {
+    var all = E.eventsFor(S.state), out = [];
+    Object.keys(S.calSel || {}).forEach(function (id) { var ev = all[id]; if (ev && !ev.ro && !ev.virt && !ev.del) out.push(ev); });
+    return out;
+  }
+  // "Move all events to…": the earliest picked event goes to that day (same time); the others keep their distance from it.
+  function moveSelTo() {
+    var list = selEditable(); if (!list.length) return toast('These events can’t be moved here');
+    var first = list.reduce(function (a, b) { return b.start < a.start ? b : a; });
+    dateBox('Move ' + list.length + ' event' + (list.length > 1 ? 's' : '') + ' to', 'The earliest one goes to this day. The others keep their distance from it.', E.dateKey(first.start), 'Move', function (k) {
+      var days = Math.round((E.fromKey(k) - E.fromKey(E.dateKey(first.start))) / E.DAY);
+      if (days) moveSel(days, 0);
+    });
+  }
+  function delSel() {
+    var list = selEditable(), skip = selCount() - list.length; if (!list.length) return toast('These events can’t be deleted here');
+    var go = function (scope) {
+      var p = {};
+      list.forEach(function (ev) { var c = JSON.parse(JSON.stringify(ev)); if (c.series) c.scope = scope; mergePatch(p, E.opDel('events', c, by(), now())); });
+      apply(p); S.calSel = {}; render();
+      toast('🗑️ ' + list.length + ' event' + (list.length > 1 ? 's' : '') + ' deleted' + (skip ? ' (' + skip + ' read-only kept)' : '') + ' · ' + (IS_MAC ? '⌘Z' : 'Ctrl+Z') + ' to undo');
+    };
+    var rep = list.some(function (ev) { return ev.series; });
+    if (rep) return scopeBox('Delete repeating events', false, go, null, true);
+    confirmBox('Delete ' + list.length + ' event' + (list.length > 1 ? 's' : '') + '?', 'They are removed from every device' + (list.some(function (ev) { return ev.gid; }) ? ' and from Google Calendar' : '') + '.', 'Delete', function () { go(''); }, true);
+  }
+  // A one-date question (like promptBox).
+  function dateBox(title, text, value, ok, fn) {
+    var el = document.createElement('div');
+    el.className = 'modal-bg top-layer';
+    el.innerHTML = '<form class="modal small"><h2>' + esc(title) + '</h2><p class="muted">' + esc(text) + '</p><label class="field">Day<input type="date" name="v" required value="' + esc(value || '') + '"></label>' +
+      '<div class="modal-actions"><span class="sp"></span><button type="button" class="btn ghost" data-no>Cancel</button><button class="btn primary">' + esc(ok) + '</button></div></form>';
+    document.body.appendChild(el);
+    var f = el.querySelector('form'); f.v.focus();
+    f.addEventListener('submit', function (e) { e.preventDefault(); var v = f.v.value; if (!v) return; el.remove(); fn(v); });
+    el.addEventListener('click', function (e) { if (e.target.closest('[data-no]') || e.target === el) el.remove(); });
   }
   function copySel() {
     var all = E.eventsFor(S.state), ix = E.linkIndex(S.state), rix = E.remIndex(S.state), out = [];
@@ -1618,6 +1684,7 @@
     h.forEach(function (x) { byDay[x.day] = x; if (x.s !== 'pending') { counted++; if (x.s !== 'miss') done++; } });
     var from = t.from || (h.length ? h[h.length - 1].first : today), long = (t.repeat || 'weekdays') !== 'weekdays';
     var names = { full: 'done', tiny: 'tiny win', miss: 'not done', pending: 'still open' };
+    if (long) return instTrackHtml(id, t, h, from, done, counted, names, today);
     var m = new Date(E.fromKey(today)), stop = new Date(E.fromKey(from)), out = '';
     m = new Date(m.getFullYear(), m.getMonth(), 1, 12); stop = new Date(stop.getFullYear(), stop.getMonth(), 1, 12);
     for (var guard = 0; m >= stop && guard < 60; guard++) {
@@ -1633,6 +1700,31 @@
     }
     return '<p class="muted">' + done + ' of ' + counted + ' done since ' + esc(niceDay(from)) + (long ? ' · one square per ' + ((t.repeat === 'week') ? 'week' : t.repeat === 'month' ? 'month' : 'period') : '') + '. Tap a square to switch it between done and not done.</p>' +
       '<div class="legend"><span><i class="h-full"></i>done</span><span><i class="h-miss"></i>not done</span><span><i class="hx-lg-open"></i>still open</span><span><i class="h-none"></i>off day</span></div>' + out;
+  }
+
+  // Weekly, monthly and every-few-days habits: one square per instance (a week, a month, a run of days), not per day.
+  // Grouped by month (by year for monthly habits), newest group first; squares run oldest → newest like a calendar.
+  function instTrackHtml(id, t, h, from, done, counted, names, today) {
+    var monthly = t.repeat === 'month', groups = [], byG = {};
+    var short = function (k) { var d = new Date(E.fromKey(k)); return MONTHS[d.getMonth()].slice(0, 3) + ' ' + d.getDate(); };
+    h.forEach(function (x) {
+      var g = monthly ? x.first.slice(0, 4) : x.first.slice(0, 7);
+      if (!byG[g]) { byG[g] = []; groups.push(g); }
+      byG[g].unshift(x);
+    });
+    var out = groups.map(function (g) {
+      var d = new Date(E.fromKey(g.length === 4 ? g + '-01-01' : g + '-01'));
+      var cells = byG[g].map(function (x) {
+        var a = new Date(E.fromKey(x.first)), end = t.repeat === 'week' ? E.dateKey(E.addDays(E.fromKey(x.first), 6)) : x.deadline, b = new Date(E.fromKey(end));
+        var label = monthly ? MONTHS[a.getMonth()].slice(0, 3) : a.getDate() + '–' + b.getDate();
+        var td = x.first <= today && today <= end ? ' today' : '';
+        return '<button type="button" class="hx hx-r hx-' + x.s + td + '" data-a="histToggle" data-id="' + esc(id) + '" data-k="' + esc(x.key) + '" title="' + esc(short(x.first) + ' → ' + short(end) + (end !== x.deadline ? ' (deadline ' + short(x.deadline) + ')' : '') + ': ' + names[x.s] + ' (tap to change)') + '">' + label + '</button>';
+      }).join('');
+      return '<div class="hx-month"><b>' + (g.length === 4 ? g : MONTHS[d.getMonth()] + ' ' + d.getFullYear()) + '</b><div class="hx-grid">' + cells + '</div></div>';
+    }).join('');
+    var per = t.repeat === 'week' ? 'week' : monthly ? 'month' : (t.every || 2) + ' days';
+    return '<p class="muted">' + done + ' of ' + counted + ' done since ' + esc(niceDay(from)) + ' · one square per ' + per + '. Tap a square to switch it between done and not done.</p>' +
+      '<div class="legend"><span><i class="h-full"></i>done</span><span><i class="h-miss"></i>not done</span><span><i class="hx-lg-open"></i>still open</span></div>' + out;
   }
 
   function openTodoEditor(task) {

@@ -551,6 +551,7 @@ button.hx { cursor: pointer; color: #fff; font-weight: 700; }
 .hx-pending { background: var(--line); outline: 1px solid var(--mute); outline-offset: -1px; }
 .hx-off { border: 1px dashed var(--line); }
 .hx-future, .hx-before { opacity: .35; }
+.hx-r { font-size: 11px; letter-spacing: -.2px; }
 .hx.today { box-shadow: 0 0 0 2px var(--fg, #fff) inset; }
 .hx-lg-open { background: var(--line); outline: 1px solid var(--mute); }
 
