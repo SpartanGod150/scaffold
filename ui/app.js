@@ -378,7 +378,11 @@
     if (!appsSent && S.mode === 'main' && S.state) { appsSent = true; setTimeout(function () { try { publishAndroidApps(); } catch (e) {} }, 3000); }
     var full = /^<section class="(block|remind)/.exec(html), key = full ? full[1] + (S.r.lock ? S.r.lock.id : S.modeTask) : '';
     if (key && key !== S.guardKey) { S.guardUntil = Date.now() + 1500; S.guardKey = key; } else if (!key) S.guardKey = '';
-    $app.innerHTML = html; tick(); wireTimeline(); wireMini(); wireMonth(); fitMonth();
+    // Keep the scroll position of the same pop-up / note / description across a repaint (e.g. after ticking a box).
+    var keep = {}; $app.querySelectorAll('[data-sk]').forEach(function (el) { if (el.scrollTop) keep[el.getAttribute('data-sk')] = el.scrollTop; });
+    $app.innerHTML = html;
+    $app.querySelectorAll('[data-sk]').forEach(function (el) { var v = keep[el.getAttribute('data-sk')]; if (v) el.scrollTop = v; });
+    tick(); wireTimeline(); wireMini(); wireMonth(); fitMonth();
     var ne = $app.querySelector('.note-edit .rte'); if (ne) { S.noteRte = wireRte(ne, $app.querySelector('.note-edit .rte-bar')); ne.focus(); }
   }
 
@@ -555,7 +559,7 @@
   // ---------- full-screen modes ----------
   function blockView(it) {
     var t = it.task, isLate = now() >= it.due;
-    return '<section class="block" style="--c:' + taskColor(t) + '">' +
+    return '<section class="block" data-sk="b:' + esc(t.id || '') + '" style="--c:' + taskColor(t) + '">' +
       '<div class="block-emoji">' + esc(t.emoji || '🔒') + '</div>' +
       '<div class="block-kicker">🔒 Your devices are locked until you do this</div>' +
       '<h1>' + esc(t.title) + '</h1>' + descBox(t) +
@@ -579,7 +583,7 @@
     var t = it.task;
     var when = it.status === 'late' ? 'Late · deadline was ' + (it.dueToday ? '' : niceDay(it.deadlineDay) + ' ') + hm(it.due) : !it.hasDue ? 'No deadline' : it.future ? 'Due ' + niceDay(it.deadlineDay) + ' ' + hm(it.due) : 'Due ' + hm(it.due) + ' · <span data-left="' + it.due + '"></span> left';
     var lockWarn = (E.lockOf(t) && it.hasDue && it.status !== 'late') ? '<div class="warn">🔒 Devices lock at ' + hm(it.due) + (it.future ? ' on ' + niceDay(it.deadlineDay) : '') + ' if this is not done.</div>' : '';
-    return '<section class="remind" style="--c:' + taskColor(t) + '"><div class="remind-emoji">' + esc(t.emoji) + '</div>' +
+    return '<section class="remind" data-sk="r:' + esc(t.id || '') + '" style="--c:' + taskColor(t) + '"><div class="remind-emoji">' + esc(t.emoji) + '</div>' +
       '<h2>' + esc(t.title) + '</h2>' + descBox(t) + '<div class="remind-sub">' + when + '</div>' + lockWarn +
       '<div class="remind-actions">' + actions(it) + '<button class="btn ghost sm" data-a="close">Later</button></div></section>';
   }
@@ -601,7 +605,7 @@
     if (!S.noteSeen[p.id] || S.noteSeen[p.id].key !== key) S.noteSeen[p.id] = { key: key, at: now() };
     var hold = Math.max(0, +n.hold || 0) * 1000, until = S.noteSeen[p.id].at + hold;
     var edit = S.noteEdit === p.id, locked = until > now();
-    return '<section class="note-pop" style="--c:' + taskColor(n) + '"><div class="note-kicker">📌 Note' + (count > 1 ? ' · 1 of ' + count : '') + '</div>' +
+    return '<section class="note-pop" data-sk="n:' + esc(p.id) + '" style="--c:' + taskColor(n) + '"><div class="note-kicker">📌 Note' + (count > 1 ? ' · 1 of ' + count : '') + '</div>' +
       (edit
         ? '<div class="note-text note-edit">' + rteBar() + '<div class="rte md" contenteditable="true" spellcheck="true" data-ph="Write the note">' + mdHtml(n.text) + '</div></div>' +
           '<div class="note-btns"><button class="btn ghost" data-a="noteEditCancel">Cancel</button><button class="btn primary" data-a="noteEditSave" data-id="' + p.id + '">Save</button></div>'
@@ -1649,7 +1653,7 @@
   function descField(t, what) { return rteField(t.desc || '', what + ' description <small>(shows in its notifications, pop-up and lock screen)</small>', 'e.g. Draw them standing upright, in their fighting clothes, weapons in hand'); }
   function wireDesc() { return wireRte($modal.querySelector('.rte'), $modal.querySelector('.rte-bar')); }
   function readDesc(t, rte) { var d = rte.value(); if (E.plainNote(d).trim()) t.desc = d.replace(/\s+$/, ''); else delete t.desc; }
-  function descBox(t) { return t.desc ? '<div class="task-desc md">' + mdHtml(t.desc, t.id, 'tickDesc') + '</div>' : ''; }
+  function descBox(t) { return t.desc ? '<div class="task-desc md" data-sk="d:' + esc(t.id || '') + '">' + mdHtml(t.desc, t.id, 'tickDesc') + '</div>' : ''; }
 
   function openHabitEditor(task) {
     var isNew = !task || !task.id;
