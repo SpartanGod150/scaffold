@@ -238,6 +238,11 @@ details.vault .row { background: var(--card); margin-top: 8px; border-left-color
 .note-row { display: flex; align-items: flex-start; max-height: 50vh; box-sizing: border-box; gap: 10px; background: var(--card); border-radius: 16px; padding: 12px; margin-bottom: 10px; border-left: 4px solid var(--c); }
 .note-open { flex: 1; min-width: 0; max-height: calc(50vh - 24px); min-height: 0; text-align: left; display: flex; flex-direction: column; gap: 6px; }
 .note-body { display: block; flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; font-size: 15px; line-height: 1.45; white-space: normal; word-break: break-word; }
+/* A thin, quiet scrollbar on long note cards (the system's default one is thick, with a grey track). */
+.note-body { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--c) 55%, transparent) transparent; padding-right: 8px; }
+.note-body::-webkit-scrollbar { width: 6px; }
+.note-body::-webkit-scrollbar-track { background: transparent; }
+.note-body::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--c) 55%, transparent); border-radius: 3px; }
 .note-open small { color: var(--mute); font-size: 12px; }
 .note-pop { position: fixed; inset: 0; z-index: 9; overflow-y: auto; background: radial-gradient(circle at 50% 25%, color-mix(in srgb, var(--c) 28%, transparent), transparent 65%), var(--bg); display: flex; flex-direction: column; align-items: center; text-align: center; padding: 30px 18px; }
 .note-pop > :first-child { margin-top: auto; }   /* centered when short, scrolls from the top when long */
