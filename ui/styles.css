@@ -244,6 +244,11 @@ details.vault .row { background: var(--card); margin-top: 8px; border-left-color
 .note-body::-webkit-scrollbar-track { background: transparent; }
 .note-body::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--c) 55%, transparent); border-radius: 3px; }
 .note-open small { color: var(--mute); font-size: 12px; }
+/* The toggle sits in the top-right corner over the text area; the text wraps around it, then uses the full width.
+   The scrollbar runs along the card's right edge, to the right of the toggle. */
+.note-row { position: relative; padding-right: 6px; }
+.note-row > .switch { position: absolute; top: 12px; right: 24px; z-index: 1; }
+.note-body::before { content: ''; float: right; width: 58px; height: 32px; }
 .note-pop { position: fixed; inset: 0; z-index: 9; overflow-y: auto; background: radial-gradient(circle at 50% 25%, color-mix(in srgb, var(--c) 28%, transparent), transparent 65%), var(--bg); display: flex; flex-direction: column; align-items: center; text-align: center; padding: 30px 18px; }
 .note-pop > :first-child { margin-top: auto; }   /* centered when short, scrolls from the top when long */
 .note-pop > :last-child { margin-bottom: auto; }
