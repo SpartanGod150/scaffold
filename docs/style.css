@@ -1,0 +1,32 @@
+:root {
+  --bg: #f6f7fb; --bg2: #ffffff; --line: #e1e4ee; --txt: #161925; --mute: #5d6478;
+  --pri: #4f6fe0; --ok: #2f9e78; --warn: #b36b12; --r: 16px;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f1117; --bg2: #171a23; --line: #2a2f42; --txt: #eef0f7; --mute: #9aa1b8; --pri: #7c9cff; --ok: #5ed3a8; --warn: #ffb86b; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--txt); font: 17px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", sans-serif; }
+main { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
+a { color: var(--pri); }
+header { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+header img { width: 56px; height: 56px; border-radius: 14px; }
+h1 { font-size: 30px; margin: 0; }
+h2 { font-size: 21px; margin: 36px 0 10px; }
+h3 { font-size: 17px; margin: 0 0 6px; }
+.lead { color: var(--mute); margin: 4px 0 24px; }
+.btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 560px) { .btns { grid-template-columns: 1fr; } }
+.btn { display: block; text-align: center; padding: 16px 12px; border-radius: var(--r); background: var(--pri); color: #fff; font-weight: 700; text-decoration: none; }
+.btn small { display: block; font-weight: 500; opacity: .85; font-size: 13px; }
+.btn.off { background: var(--line); color: var(--mute); pointer-events: none; }
+.alt { font-size: 14px; color: var(--mute); text-align: center; margin-top: 6px; }
+.alt a.off { color: var(--mute); pointer-events: none; text-decoration: none; }
+.note { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; margin: 16px 0; }
+.steps { display: grid; gap: 12px; }
+.card { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; }
+.card ol { margin: 0; padding-left: 22px; }
+.card li { margin: 4px 0; }
+footer { margin-top: 48px; font-size: 14px; color: var(--mute); }
+ul { padding-left: 22px; }
+li { margin: 4px 0; }

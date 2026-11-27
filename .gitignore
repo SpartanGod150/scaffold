@@ -5,3 +5,4 @@ android/build/
 android/debug.keystore
 release/
 .DS_Store
+.secrets/

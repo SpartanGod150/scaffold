@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scaffold</title>
+<meta name="description" content="Scaffold: reminders, pop-ups and focus locks for people with ADHD, on Android, Windows and Mac.">
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header><img src="icon.png" alt=""><h1>Scaffold</h1></header>
+  <p class="lead">Reminders, pop-ups and focus locks for people with ADHD. Habits, tasks, projects and your calendar, synced across your phone and computers.</p>
+
+  <div class="btns">
+    <a class="btn off" data-asset="Scaffold.apk" href="#">Android<small>phone or tablet</small></a>
+    <a class="btn off" data-asset="Scaffold-win-x64.zip" href="#">Windows<small>Windows 10 or 11</small></a>
+    <a class="btn off" data-asset="Scaffold-mac-arm64.zip" href="#">Mac<small>Apple chip (M1 or newer)</small></a>
+  </div>
+  <p class="alt">Older Mac with an Intel chip? <a class="off" data-asset="Scaffold-mac-x64.zip" href="#">Download the Intel version</a></p>
+  <p class="alt" id="ver">Checking the current version…</p>
+
+  <h2>How to install</h2>
+  <div class="steps">
+    <div class="card"><h3>📱 Android</h3><ol>
+      <li>Tap <b>Android</b> above and download the file.</li>
+      <li>Open it. If Android asks, allow your browser to install apps.</li>
+      <li>Open Scaffold and follow the setup.</li>
+    </ol></div>
+    <div class="card"><h3>🪟 Windows</h3><ol>
+      <li>Click <b>Windows</b> above and download the file.</li>
+      <li>Unzip it, then open <b>Scaffold.exe</b>. If Windows warns you, click <b>More info → Run anyway</b>.</li>
+      <li>Follow the setup.</li>
+    </ol></div>
+    <div class="card"><h3>🍎 Mac</h3><ol>
+      <li>Click <b>Mac</b> above and download the file.</li>
+      <li>Unzip it and drag <b>Scaffold</b> into Applications. Open it. If macOS blocks it, go to <b>System Settings → Privacy &amp; Security</b> and click <b>Open Anyway</b>.</li>
+      <li>Follow the setup.</li>
+    </ol></div>
+  </div>
+
+  <h2>Your data</h2>
+  <p>Scaffold has no accounts and no ads. Your data lives on your own devices and travels between them end-to-end encrypted. If you connect Google Calendar, Scaffold uses it only to show and sync your own events. Details in the <a href="privacy.html">privacy policy</a>.</p>
+
+  <footer><a href="privacy.html">Privacy policy</a> · <a href="https://github.com/SpartanGod150/scaffold">Source code</a></footer>
+</main>
+<script>
+// Testers get the version the developer promoted (stable.txt). Until one exists, downloads stay off.
+(function () {
+  var repo = 'SpartanGod150/scaffold', ver = document.getElementById('ver');
+  fetch('https://raw.githubusercontent.com/' + repo + '/main/stable.txt', { cache: 'no-store' })
+    .then(function (r) { return r.ok ? r.text() : ''; })
+    .then(function (t) {
+      var v = (t || '').trim().replace(/^v/, '');
+      if (!/^\d+\.\d+\.\d+$/.test(v)) { ver.textContent = 'Coming soon: the first test version isn’t out yet.'; return; }
+      document.querySelectorAll('[data-asset]').forEach(function (a) {
+        a.href = 'https://github.com/' + repo + '/releases/download/v' + v + '/' + a.getAttribute('data-asset');
+        a.classList.remove('off');
+      });
+      ver.textContent = 'Version ' + v;
+    })
+    .catch(function () { ver.textContent = 'Couldn’t check the version. Try reloading the page.'; });
+})();
+</script>
+</body>
+</html>
