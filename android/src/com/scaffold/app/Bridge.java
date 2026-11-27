@@ -127,6 +127,20 @@ public class Bridge {
         catch (Exception e) { a.startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
     }
 
+    /** An app's icon as a PNG data URL (for the lock screen's app picker). "" if it can't be read. */
+    @JavascriptInterface public String appIcon(String pkg) {
+        try {
+            android.graphics.drawable.Drawable d = a.getPackageManager().getApplicationIcon(pkg);
+            int n = 96;
+            android.graphics.Bitmap b = android.graphics.Bitmap.createBitmap(n, n, android.graphics.Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas cv = new android.graphics.Canvas(b);
+            d.setBounds(0, 0, n, n); d.draw(cv);
+            java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+            b.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, o);
+            return "data:image/png;base64," + android.util.Base64.encodeToString(o.toByteArray(), android.util.Base64.NO_WRAP);
+        } catch (Exception e) { return ""; }
+    }
+
     @JavascriptInterface public String listApps() {
         PackageManager pm = a.getPackageManager();
         List<ResolveInfo> ris = pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0);

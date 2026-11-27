@@ -176,12 +176,17 @@
     whatsapp: function () { B.openWhatsApp(); },
     dialer: function () { B.openDialer(); },
     openApp: function (pkg) { B.openApp(pkg); },
+    appPicker: function () { openAppPicker(); },
+    addToProject: function (pid) { addTasksToProject(pid); },
     close: function () {
       // "Later" on a task / habit pop-up closes it on every device (like "Got it" on notes).
       if (S.mode === 'remind' && S.modeTask) apply(E.opAck('pop:' + S.modeTask, by(), now()));
       B.closeWindow();
     },
-    evGot: function () { B.closeWindow(); },
+    evGot: function () {   // closes this event reminder on every device (the key names the occurrence)
+      if (S.mode === 'evremind' && S.modeTask) apply(E.opAck('evpop:' + S.modeTask, by(), now()));
+      B.closeWindow();
+    },
     nav: function (v) { if (v !== 'calendar') { S.calSel = {}; S.selSig = ''; } S.view = v; S.project = ''; try { localStorage.setItem('scaffold-view', v); } catch (e) {} render(); window.scrollTo(0, 0); },
     editHabit: function (id) { openHabitEditor(id && S.state.tasks[id] ? JSON.parse(JSON.stringify(S.state.tasks[id])) : null); },
     template: function (i) { openHabitEditor(Object.assign({}, TEMPLATES[i])); },
@@ -223,9 +228,13 @@
     calNext: function () { calMove(1); },
     calToday: function () { S.calDay = null; S.calScroll = null; if (calView() === 'range') { S.calRange = { from: E.dateKey(now()), n: calRange().n }; saveRange(); } render(); },
     calPick: function (key) {
-      // Shift+click on an event inside a month day box picks the event (the box itself opens the day).
-      var c = S.clickEv && S.clickEv.shiftKey && S.clickEv.target.closest && S.clickEv.target.closest('[data-sel]');
-      if (c && PLATFORM === 'desktop') return toggleSel(c.getAttribute('data-sel'));
+      var tg = S.clickEv && S.clickEv.target && S.clickEv.target.closest ? S.clickEv.target : null;
+      var c = tg && tg.closest('[data-sel]'), cell = tg && tg.closest('.cal-day');
+      // Shift+click on an event inside a month day box picks it; a plain click opens it.
+      if (c && S.clickEv.shiftKey && PLATFORM === 'desktop') return toggleSel(c.getAttribute('data-sel'));
+      if (c) return A.editEvent(c.getAttribute('data-sel'));
+      // A month day box: a new all-day event on that day. "+N more" and the week view's day headers still open the day.
+      if (cell && !(tg.closest('.chip.more'))) { var d0 = E.at(E.fromKey(key), '00:00'); return openEventEditor({ title: '', allDay: true, start: d0, end: E.at(E.addDays(d0, 1), '00:00') }); }
       S.calDay = key; S.calView = 'day'; lsSet('scaffold-calview', 'day'); render(); },
     calView: function (v) { if (v === 'range' && !calRange()) return; if (v !== 'range' && calView() === 'range') S.calDay = calRange().from; S.calView = v; lsSet('scaffold-calview', v); render(); },
     calCals: function () { openCalendars(); },
@@ -368,7 +377,7 @@
     if (lockHere) return paint(blockView(S.r.lock));
     if (S.mode === 'closeprog') return paint(closeProgView());
     if (S.mode === 'block') { S.mode = 'main'; if (PLATFORM === 'desktop') return B.closeWindow(); }
-    if (S.mode === 'evremind') { var evp = !S.r.paused && evRemindView(S.modeTask); return evp ? paint(evp) : B.closeWindow(); }
+    if (S.mode === 'evremind') { var evp = !S.r.paused && !(S.state.acks || {})['evpop:' + S.modeTask] && evRemindView(S.modeTask); return evp ? paint(evp) : B.closeWindow(); }
     if (S.mode === 'remind') {
       var it = item(S.modeTask), ak = (S.state.acks || {})['pop:' + S.modeTask];
       if (!S.popAt) S.popAt = now();
@@ -386,6 +395,7 @@
     if (key && key !== S.guardKey) { S.guardUntil = Date.now() + 1500; S.guardKey = key; } else if (!key) S.guardKey = '';
     // Keep the scroll position of the same pop-up / note / description across a repaint (e.g. after ticking a box).
     var keep = {}; $app.querySelectorAll('[data-sk]').forEach(function (el) { if (el.scrollTop) keep[el.getAttribute('data-sk')] = el.scrollTop; });
+    if (!/^<section class="block/.test(html)) closeAppPicker();   // the lock ended: no app picker without it
     $app.innerHTML = html;
     $app.querySelectorAll('[data-sk]').forEach(function (el) { var v = keep[el.getAttribute('data-sk')]; if (v) el.scrollTop = v; });
     tick(); wireTimeline(); wireMini(); wireMonth(); fitMonth();
@@ -579,10 +589,42 @@
   function lockApps(t) {
     if (PLATFORM !== 'android') return '';
     if (!appNames) { appNames = {}; listApps().forEach(function (a) { appNames[a.pkg] = a.label; }); }
+    var n = lockAppList().length;
+    return '<button class="btn wa" data-a="dialer">📞 Phone</button>' + (n ? '<button class="btn wa" data-a="appPicker">📱 Allowed apps (' + n + ')</button>' : '');
+  }
+  function lockAppList() {
     var ub = E.unblockOf(S.state, myDev()) || androidPreset();
-    return '<button class="btn wa" data-a="dialer">📞 Phone</button>' + (ub.apps || []).filter(function (p) { return appNames[p] && !/whatsapp|com\.scaffold/.test(p); }).map(function (p) {
-      return '<button class="btn wa" data-a="openApp" data-id="' + esc(p) + '">' + esc(appNames[p]) + '</button>';
-    }).join('');
+    return (ub.apps || []).filter(function (p) { return appNames[p] && !/whatsapp|com\.scaffold/.test(p); })
+      .sort(function (a, b) { return appNames[a].localeCompare(appNames[b], undefined, { numeric: true, sensitivity: 'base' }); });
+  }
+  // The allowed apps during a lock, laid out like a home screen: icons + names, a page at a time (swipe or tap the dots).
+  var iconCache = {};
+  function appIconOf(p) { if (iconCache[p] === undefined) { try { iconCache[p] = (B.appIcon && B.appIcon(p)) || ''; } catch (e) { iconCache[p] = ''; } } return iconCache[p]; }
+  function closeAppPicker() { var o = document.getElementById('app-pick'); if (o) o.remove(); }
+  function openAppPicker() {
+    closeAppPicker();
+    var list = lockAppList(); if (!list.length) return;
+    var cols = window.innerWidth >= 600 ? 6 : 4, rows = Math.max(2, Math.floor((window.innerHeight - 170) / 108)), per = cols * rows, pages = [];
+    for (var i = 0; i < list.length; i += per) pages.push(list.slice(i, i + per));
+    var o = document.createElement('div'); o.id = 'app-pick'; o.className = 'app-pick';
+    o.innerHTML = '<div class="ap-head"><b>Allowed apps</b><button class="x" data-ap="close">✕</button></div>' +
+      '<div class="ap-pages">' + pages.map(function (pg) {
+        return '<div class="ap-page" style="grid-template-columns:repeat(' + cols + ',1fr)">' + pg.map(function (p) {
+          var ic = appIconOf(p);
+          return '<button class="ap-app" data-ap="open" data-id="' + esc(p) + '">' + (ic ? '<img src="' + ic + '" alt="">' : '<span class="ap-ph">' + esc(appNames[p].charAt(0)) + '</span>') + '<span class="ap-n">' + esc(appNames[p]) + '</span></button>';
+        }).join('') + '</div>';
+      }).join('') + '</div>' +
+      (pages.length > 1 ? '<div class="ap-dots">' + pages.map(function (_, j) { return '<button data-ap="page" data-id="' + j + '"' + (j ? '' : ' class="on"') + '></button>'; }).join('') + '</div>' : '');
+    document.body.appendChild(o);
+    var box = o.querySelector('.ap-pages');
+    box.addEventListener('scroll', function () { var j = Math.round(box.scrollLeft / box.clientWidth); o.querySelectorAll('.ap-dots button').forEach(function (d, k) { d.classList.toggle('on', k === j); }); });
+    o.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-ap]'); if (!b) return; e.stopPropagation();
+      var w = b.getAttribute('data-ap');
+      if (w === 'close') closeAppPicker();
+      else if (w === 'page') box.scrollTo({ left: +b.getAttribute('data-id') * box.clientWidth, behavior: 'smooth' });
+      else if (w === 'open') { closeAppPicker(); B.openApp(b.getAttribute('data-id')); }
+    });
   }
 
   function remindView(it) {
@@ -1232,7 +1274,7 @@
     if (S.project && S.state.projects[S.project] && !S.state.projects[S.project].del) return projectView(S.state.projects[S.project]);
     var projects = live('projects').sort(function (a, b) { return (a.deadline || '9999').localeCompare(b.deadline || '9999') || a.name.localeCompare(b.name); });
     var brought = {}; projects.forEach(function (p) { if (p.vault) brought[p.vault] = 1; });
-    var vault = E.vaultProjects(S.state).filter(function (v) { return !brought[v.key]; });
+    var vault = isDev() ? E.vaultProjects(S.state).filter(function (v) { return !brought[v.key]; }) : [];   // Obsidian: the dev's devices only
     var todos = live('todos').filter(function (t) { return !t.test; });
     var today = E.dateKey(now()), groups = { now: [], later: [], repeat: [], someday: [], done: [] };
     todos.forEach(function (t) {
@@ -1279,10 +1321,12 @@
       '<span class="row-lvl">' + pushIcons(t, 'todo') + '</span></button>' + (done ? '' : periodSquare('todo', t.id, t)) + tickBox(t.id, done) + '</div>';
   }
 
+  // A project's progress: from its tasks (done / all) by default, or a percentage the user sets by hand.
+  function projPct(p, pr) { return p.manual ? Math.max(0, Math.min(100, Math.round(+p.progress || 0))) : pr.total ? Math.round(pr.done / pr.total * 100) : 0; }
   function projectCard(p) {
-    var pr = E.projectProgress(S.state, p.id, now()), frac = pr.total ? pr.done / pr.total : 0;
+    var pr = E.projectProgress(S.state, p.id, now()), frac = projPct(p, pr) / 100;
     return '<button class="proj" data-a="openProject" data-id="' + p.id + '" style="--c:' + taskColor(p) + '"><span class="proj-e">' + esc(p.emoji || '🗂️') + '</span><b>' + esc(p.name) + '</b>' +
-      '<small>' + pr.done + '/' + pr.total + ' tasks' + (p.deadline ? ' · due ' + esc(niceDay(p.deadline)) : '') + (p.vault ? ' · 🗂️ vault' : '') + '</small>' +
+      '<small>' + (p.manual ? projPct(p, pr) + '% · ' : '') + pr.done + '/' + pr.total + ' tasks' + (p.deadline ? ' · due ' + esc(niceDay(p.deadline)) : '') + (p.vault && isDev() ? ' · 🗂️ vault' : '') + '</small>' +
       '<span class="pbar"><i style="width:' + Math.round(frac * 100) + '%"></i></span></button>';
   }
 
@@ -1294,11 +1338,11 @@
     var dd = p.deadline ? Math.round((E.fromKey(p.deadline) - E.fromKey(E.dateKey(now()))) / E.DAY) : null;
     return '<div class="sec-head"><button class="btn ghost sm" data-a="backProjects">‹ Projects</button><button class="btn ghost sm" data-a="editProject" data-id="' + p.id + '">Edit</button></div>' +
       '<section class="hero proj-hero" style="--c:' + taskColor(p) + '"><span class="proj-e big">' + esc(p.emoji || '🗂️') + '</span><div class="hero-txt"><div class="big">' + esc(p.name) + '</div>' +
-      '<div class="goal">' + pr.done + ' of ' + pr.total + ' tasks done' + (p.deadline ? ' · deadline ' + esc(niceDay(p.deadline)) + (dd != null ? (dd >= 0 ? ' (' + dd + ' days left)' : ' <span class="late-t">(' + (-dd) + ' days late)</span>') : '') : '') + '</div>' +
-      '<span class="pbar"><i style="width:' + (pr.total ? Math.round(pr.done / pr.total * 100) : 0) + '%"></i></span></div></section>' +
-      '<div class="sec-head"><h3>Tasks</h3><button class="btn primary sm" data-a="editTodo" data-k="' + esc(JSON.stringify({ project: p.id, color: p.color })) + '">＋ Task</button></div>' +
+      '<div class="goal">' + (p.manual ? projPct(p, pr) + '% done (set by hand) · ' : '') + pr.done + ' of ' + pr.total + ' tasks done' + (p.deadline ? ' · deadline ' + esc(niceDay(p.deadline)) + (dd != null ? (dd >= 0 ? ' (' + dd + ' days left)' : ' <span class="late-t">(' + (-dd) + ' days late)</span>') : '') : '') + '</div>' +
+      '<span class="pbar"><i style="width:' + projPct(p, pr) + '%"></i></span></div></section>' +
+      '<div class="sec-head"><h3>Tasks</h3><span class="sp"></span><button class="btn sm" data-a="addToProject" data-id="' + p.id + '">＋ Add existing task</button><button class="btn primary sm" data-a="editTodo" data-k="' + esc(JSON.stringify({ project: p.id, color: p.color })) + '">＋ New task</button></div>' +
       (todos.length ? todos.map(todoRow).join('') : '<p class="empty">No tasks in this project yet.</p>') +
-      (p.vault ? '<h3 class="mt">🗂️ Development items in the vault</h3>' + (vp ? (vp.items.length ? '<p class="muted">Pick the ones you want to turn into tasks.' + (vp.total > vp.items.length ? ' Showing ' + vp.items.length + ' of ' + vp.total + '.' : '') + '</p>' + vp.items.map(function (it, i) {
+      (p.vault && isDev() ? '<h3 class="mt">🗂️ Development items in the vault</h3>' + (vp ? (vp.items.length ? '<p class="muted">Pick the ones you want to turn into tasks.' + (vp.total > vp.items.length ? ' Showing ' + vp.items.length + ' of ' + vp.total + '.' : '') + '</p>' + vp.items.map(function (it, i) {
         return '<div class="row vrow' + (used[it] ? ' dn' : '') + '"><span class="row-main"><span>' + esc(cleanItem(it)) + '</span></span>' + (used[it] ? '<span class="chip done">task</span>' : '<button class="btn sm" data-a="vaultTask" data-id="' + i + '">＋ Task</button>') + '</div>';
       }).join('') : '<p class="empty">No open Development items.</p>') : '<p class="muted">Waiting for a computer to read this project from the vault…</p>') : '');
   }
@@ -1543,7 +1587,7 @@
       var V = L.vault || {}, C = L.cal || {};
       h += '<section class="panel"><h3>💻 This computer</h3><label class="check"><input type="checkbox" data-change="autostart"' + (L.autostart ? ' checked' : '') + '> Start Scaffold when the computer starts</label>' +
         '<p class="muted">What gets blocked is set in 🛡️ Modes. Emergency stop shortcut: <b>Ctrl+Alt+Shift+K</b> (⌘ on Mac).</p></section>';
-      h += '<section class="panel"><h3>🗂️ Obsidian vault</h3><p>Scaffold lists your <b>active</b> vault projects in Tasks, and ticks their Development items when you finish the matching task.</p>' +
+      if (isDev()) h += '<section class="panel"><h3>🗂️ Obsidian vault</h3><p>Scaffold lists your <b>active</b> vault projects in Tasks, and ticks their Development items when you finish the matching task.</p>' +
         '<label class="field">Vault folder<input id="vault-path" value="' + esc(L.vaultPath || V.path || '') + '" placeholder="/path/to/Second Brain"></label><button class="btn ghost sm" data-a="saveVault">Save and scan</button>' +
         '<p class="muted">Status: ' + esc(V.status || 'not scanned yet') + '</p></section>';
       h += '<section class="panel"><h3>📅 Google Calendar (two-way)</h3>' + (L.calUrl
@@ -1562,7 +1606,7 @@
           '<div class="join"><input id="cal-url" placeholder="https://script.google.com/macros/s/…/exec"><button class="btn" data-a="saveCal">Connect</button></div>' +
           '<p class="muted">Do this on one computer only. The script only works with the secret key built into it.</p>') + '</section>';
     } else {
-      h += '<section class="panel"><h3>📅 Google Calendar · 🗂️ Obsidian</h3><p class="muted">These connect from a computer (Settings there). Everything they bring in shows up here too.</p></section>';
+      h += '<section class="panel"><h3>📅 Google Calendar' + (isDev() ? ' · 🗂️ Obsidian' : '') + '</h3><p class="muted">' + (isDev() ? 'These connect' : 'It connects') + ' from a computer (Settings there). Everything they bring in shows up here too.</p></section>';
     }
     if (isDev()) h += '<section class="panel"><h3>🧪 Try it</h3><p>Check that everything works before you rely on it.</p><div class="row-btns"><button class="btn" data-a="test" data-id="remind">Test reminder (all devices)</button><button class="btn" data-a="test" data-id="lock">Test lock (all devices)</button></div></section>';
     h += '<section class="panel"><h3>🧯 Removing Scaffold</h3><p class="muted">Emergency stop frees every device instantly. To remove it completely:<br>' +
@@ -1766,7 +1810,7 @@
     var apps = listApps(), projects = live('projects'), old = (t.repeat || 'none') !== 'none', dl = !!t.date && !old;
     $modal.innerHTML = modalShell(isNew ? 'New task' : 'Edit task',
       '<label class="field">What?<input name="title" required maxlength="80" value="' + esc(t.title) + '" placeholder="e.g. Buy batteries"></label>' + descField(t, 'Task') +
-      (t.vault ? '<p class="muted">🗂️ From the vault: “' + esc(cleanItem(t.vault.item)) + '”. Finishing it ticks it in Obsidian.</p>' : '') +
+      (t.vault && isDev() ? '<p class="muted">🗂️ From the vault: “' + esc(cleanItem(t.vault.item)) + '”. Finishing it ticks it in Obsidian.</p>' : '') +
       (old ? '<p class="muted">🔁 This is an old repeating task (' + esc(todoWhen(t)) + '). It is being turned into a habit.</p>' : '') +
       '<label class="field">Project<select name="project"><option value="">None</option>' + projects.map(function (p) { return '<option value="' + p.id + '"' + sel(p.id, t.project) + '>' + esc((p.emoji || '') + ' ' + p.name) + '</option>'; }).join('') + '</select></label>' +
       (old ? '' : '<div class="field dl-row"><label class="check"><input type="checkbox" name="dl"' + (dl ? ' checked' : '') + '> ⏰ Deadline</label>' +
@@ -1792,15 +1836,44 @@
     });
   }
 
+  // "＋ Add existing task": pick open tasks to move into this project (tasks in another project say where they are now).
+  function addTasksToProject(pid) {
+    var p = S.state.projects[pid]; if (!p) return;
+    var names = {}; live('projects').forEach(function (x) { names[x.id] = (x.emoji || '') + ' ' + x.name; });
+    var open = live('todos').filter(function (t) { var c = (S.state.comps || {})[E.itemKey(S.state, t.id, now())]; return !t.test && t.project !== pid && !(c && !c.undone); })
+      .sort(function (a, b) { return (a.project ? 1 : 0) - (b.project ? 1 : 0) || (a.title || '').localeCompare(b.title || ''); });
+    var el = document.createElement('div'); el.className = 'modal-bg top-layer';
+    el.innerHTML = '<form class="modal small"><h2>Add tasks to ' + esc(p.name) + '</h2>' + (open.length ? '<div class="pick-list">' + open.map(function (t) {
+      return '<label class="check"><input type="checkbox" name="t" value="' + esc(t.id) + '"> ' + esc((t.emoji ? t.emoji + ' ' : '') + t.title) + (t.project && names[t.project] ? ' <small class="muted">(now in ' + esc(names[t.project]) + ')</small>' : '') + '</label>';
+    }).join('') + '</div>' : '<p class="muted">No other open tasks.</p>') +
+      '<div class="modal-actions"><span class="sp"></span><button type="button" class="btn ghost" data-no>Cancel</button>' + (open.length ? '<button class="btn primary">Add</button>' : '') + '</div></form>';
+    document.body.appendChild(el);
+    var f = el.querySelector('form');
+    f.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var ids = [].slice.call(f.querySelectorAll('input[name=t]:checked')).map(function (x) { return x.value; }); el.remove();
+      if (!ids.length) return;
+      var patch = {}; ids.forEach(function (id) { var c = JSON.parse(JSON.stringify(S.state.todos[id])); c.project = pid; mergePatch(patch, E.opPut('todos', c, by(), now())); });
+      apply(patch); render(); toast('➕ ' + ids.length + ' task' + (ids.length > 1 ? 's' : '') + ' added to ' + p.name);
+    });
+    el.addEventListener('click', function (e) { if (e.target.closest('[data-no]') || e.target === el) el.remove(); });
+  }
   function openProjectEditor(p) {
     var isNew = !p || !p.id;
     var t = Object.assign({ name: '', emoji: '🚀', color: COLORS[4], deadline: '' }, p || {});
     $modal.innerHTML = modalShell(isNew ? 'New project' : 'Edit project',
       '<label class="field">Name<input name="name" required maxlength="60" value="' + esc(t.name) + '" placeholder="e.g. Move apartments"></label>' +
       '<label class="field">Deadline <small>(optional)</small><input type="date" name="deadline" value="' + esc(t.deadline || '') + '"></label>' +
-      (t.vault ? '<p class="muted">🗂️ Linked to the vault project at ' + esc(t.vaultPath || '') + '.</p>' : '') + emojiField(t) + colorField(t), !isNew);
+      '<div class="field">Progress bar<label class="check"><input type="radio" name="pmode" value="auto"' + (t.manual ? '' : ' checked') + '> From the tasks (done out of all)</label>' +
+        '<label class="check"><input type="radio" name="pmode" value="manual"' + (t.manual ? ' checked' : '') + '> I set it myself</label>' +
+        '<div class="f-prog"' + (t.manual ? '' : ' style="display:none"') + '><input type="range" name="progress" min="0" max="100" step="5" value="' + (+t.progress || 0) + '"> <b class="prog-v">' + (+t.progress || 0) + '%</b></div></div>' +
+      (t.vault && isDev() ? '<p class="muted">🗂️ Linked to the vault project at ' + esc(t.vaultPath || '') + '.</p>' : '') + emojiField(t) + colorField(t), !isNew);
+    var pf = $modal.querySelector('form');
+    pf.addEventListener('change', function (e) { if (e.target.name === 'pmode') pf.querySelector('.f-prog').style.display = e.target.value === 'manual' ? '' : 'none'; });
+    pf.addEventListener('input', function (e) { if (e.target.name === 'progress') pf.querySelector('.prog-v').textContent = e.target.value + '%'; });
     wire(t, function (fd) {
       t.name = fd.get('name').trim(); t.deadline = fd.get('deadline') || '';
+      t.manual = fd.get('pmode') === 'manual'; t.progress = t.manual ? +fd.get('progress') || 0 : (t.progress || 0);
       var patch = E.opPut('projects', t, by(), now());
       apply(patch); closeModal(); toast(isNew ? '✨ Project added' : 'Saved');
       if (isNew) { S.project = Object.keys(patch.projects)[0]; render(); }

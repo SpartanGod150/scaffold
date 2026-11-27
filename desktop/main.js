@@ -244,6 +244,7 @@ function closeNoteWin() { if (noteWin && !noteWin.isDestroyed()) { noteWin.allow
 // ---------- Obsidian vault ----------
 let vaultFiles = null, vaultWalking = false, vaultReading = false;
 async function scanVault() {
+  if (!Engine.devMode(state)) return;   // Obsidian is a dev-only feature (0.7)
   const vp = Vault.findVault(local.vaultPath || '');
   local.vault = { path: vp };
   if (!vp) { local.vault.status = local.vaultPath ? 'not an Obsidian vault (no .obsidian folder)' : 'vault not found: set the folder below'; notifyUI(); return; }

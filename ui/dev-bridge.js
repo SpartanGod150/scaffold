@@ -34,7 +34,9 @@
     openApp: function (p) { alert('Would open ' + p); },
     closeWindow: function () { history.replaceState(null, '', location.pathname); location.reload(); },
     openPermission: function (n) { alert('Would open settings: ' + n); },
-    listApps: function () { return JSON.stringify([{ pkg: 'com.amazon.kindle', label: 'Kindle' }, { pkg: 'com.google.android.youtube', label: 'YouTube' }, { pkg: 'md.obsidian', label: 'Obsidian' }]); },
+    appIcon: function () { return ''; },
+    listApps: function () { var l = [{ pkg: 'com.amazon.kindle', label: 'Kindle' }, { pkg: 'com.google.android.youtube', label: 'YouTube' }, { pkg: 'md.obsidian', label: 'Obsidian' }];
+      for (var i = 1; i <= 27; i++) l.push({ pkg: 'dev.app' + i, label: 'Test App ' + i }); return JSON.stringify(l); },
     getLaunch: function () { return JSON.stringify({ mode: q.get('mode') || 'main', task: q.get('task') || '' }); },
     guard: function (what, id) { console.log('guard', what, id); },
     test: function (k) { if (k === 'remind') alert('Test reminder: on devices this shows a notification and a pop-up.'); }

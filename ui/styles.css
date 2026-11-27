@@ -605,3 +605,21 @@ button.hx { cursor: pointer; color: #fff; font-weight: 700; }
 .tickbox.off { opacity: .25; border-style: dashed; cursor: default; }
 
 .dev-off { color: var(--mute); font-weight: 400; }
+
+/* Lock screen app picker (phone): a home screen of the allowed apps, one page at a time. */
+.app-pick { position: fixed; inset: 0; z-index: 30; background: var(--bg); display: flex; flex-direction: column; padding: calc(14px + env(safe-area-inset-top)) 0 calc(14px + env(safe-area-inset-bottom)); }
+.ap-head { display: flex; align-items: center; justify-content: space-between; padding: 0 18px 10px; font-size: 18px; }
+.ap-pages { flex: 1; display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
+.ap-pages::-webkit-scrollbar { display: none; }
+.ap-page { flex: 0 0 100%; scroll-snap-align: start; display: grid; align-content: start; gap: 14px 6px; padding: 8px 12px; box-sizing: border-box; }
+.ap-app { background: none; border: 0; color: var(--txt); display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 4px 2px; border-radius: 14px; cursor: pointer; }
+.ap-app:active { background: var(--line); }
+.ap-app img, .ap-ph { width: 56px; height: 56px; border-radius: 14px; }
+.ap-ph { display: grid; place-items: center; background: var(--card); font-size: 24px; font-weight: 700; }
+.ap-n { font-size: 12px; line-height: 1.2; text-align: center; max-width: 100%; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+.ap-dots { display: flex; justify-content: center; gap: 8px; padding-top: 8px; }
+.ap-dots button { width: 9px; height: 9px; border-radius: 50%; border: 0; padding: 0; background: var(--line); }
+.ap-dots button.on { background: var(--txt); }
+.pick-list { display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow-y: auto; margin: 8px 0; }
+.f-prog { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.f-prog input[type=range] { flex: 1; }
