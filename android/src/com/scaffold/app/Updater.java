@@ -77,11 +77,18 @@ public final class Updater {
         return new JSONObject(new String(get("https://api.github.com/repos/" + repo + "/releases/latest", null), "UTF-8")).optString("tag_name", "").replaceFirst("^v", "");
     }
 
+    private static String stableTag(String repo) {
+        try { String v = new String(get("https://raw.githubusercontent.com/" + repo + "/main/stable.txt", null), "UTF-8").trim().replaceFirst("^v", ""); return v.matches("\\d+\\.\\d+\\.\\d+") ? v : ""; }
+        catch (Exception e) { return String.valueOf(e.getMessage()).contains("HTTP 404") ? "none" : ""; }   // none = no tester release yet
+    }
+
     private static void run(Context c, long id) throws Exception {
         st(c, id, "checking…");
         String repo = new JSONObject(new String(read(c.getAssets().open("ui/update.json")), "UTF-8")).optString("repo", "");
         if (repo.isEmpty()) { st(c, id, "no update source set"); return; }
-        String latest = latestTag(repo);
+        // The dev's own devices get every release; testers only the version promoted in the repo's stable.txt.
+        String pick = Engine.devMode(Store.state(c)) ? "none" : stableTag(repo);
+        final String latest = pick.equals("none") ? latestTag(repo) : pick;   // the dev's devices, or no tester release yet: every release
         if (latest.isEmpty() || !newer(latest, version(c))) { st(c, id, "up to date"); return; }
         if (UpdateReceiver.confirm != null && latest.equals(Store.get(c, "updVersion", ""))) { st(c, id, "version " + latest + " ready: tap Install"); return; }   // already waiting for the user
         String dl = "https://github.com/" + repo + "/releases/download/v" + latest + "/";

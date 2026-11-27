@@ -1,7 +1,7 @@
 {
   "name": "scaffold",
   "productName": "Scaffold",
-  "version": "0.6.17",
+  "version": "0.7.0",
   "description": "ADHD scaffolding: reminders, pop-ups and locks across all your devices",
   "main": "main.js",
   "author": "Ariel",
@@ -10,6 +10,7 @@
     "prepare-ui": "rm -rf ui && cp -R ../ui ui && cp ../shared/engine.js ui/engine.js && cp ../shared/update.json ui/update.json",
     "start": "npm run prepare-ui && SCAFFOLD_DEV=1 electron . --show",
     "dist:mac": "npm run prepare-ui && electron-builder --mac dir --arm64",
+    "dist:mac-x64": "npm run prepare-ui && electron-builder --mac dir --x64",
     "dist:win": "npm run prepare-ui && electron-builder --win zip --x64"
   },
   "build": {

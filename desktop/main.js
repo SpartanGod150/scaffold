@@ -106,7 +106,7 @@ function startSync() {
     onStatus: (s) => { local.sync = { status: s }; notifyUI(); },
     onSince: (id) => { local.since = id; saveLocalSoon(); },
     relay: relayCfg,
-    firebase: () => { const f = state.cfg && state.cfg.fb; return f && !f.del && f.url ? f.url : null; },
+    firebase: () => Engine.fbUrl(state),
     fbSince: local.fbSince || 0,
     onFbSince: (t) => { local.fbSince = t; saveLocalSoon(); },
     onScriptOld: (old) => { if (!!local.scriptOld !== old && local.calUrl) { local.scriptOld = old; saveLocalSoon(); notifyUI(); } },
@@ -168,9 +168,25 @@ function evaluate() {
   // deadline lock: Scaffold's window with the task and "I did it"; the lock's mode (Full Lock by default) handles the rest
   if (r.lock) showLockWin(); else hideLockWin();
   if (guard) guard.tick();
+  keepAlive(!r.paused && (!!r.lock || !!Engine.activeMode(Object.assign({}, state, { gev }), now)));
   // reminder notes
   if (r.notes.length) showNoteWin(r.notes); else closeNoteWin();
   updateTray(r);
+}
+// Always-on (watchdog + OS job) only while a deadline lock or a restriction mode runs.
+let kaOn = false, kaChild = null;
+function keepAlive(on) {
+  if (!KEEPALIVE_ON || on === kaOn) return;
+  kaOn = on;
+  if (on) {
+    try { fs.writeFileSync(KA.guard, new Date().toISOString()); } catch (e) {}
+    safe('keepalive', () => { kaChild = KeepAlive.startWatchdog(DATA); });
+    if (app.isPackaged) safe('keepalive-os', () => KeepAlive.installOsJob(DATA));
+  } else {
+    try { fs.unlinkSync(KA.guard); } catch (e) {}
+    if (kaChild) { try { process.kill(kaChild.pid); } catch (e) {} kaChild = null; }
+    if (app.isPackaged) safe('keepalive-os', () => KeepAlive.removeOsJob());
+  }
 }
 function hm(t) { const d = new Date(t); return Engine.pad(d.getHours()) + ':' + Engine.pad(d.getMinutes()); }
 
@@ -490,7 +506,7 @@ async function runUpdate() {
   const res = await Promise.race([timeout, Updater.check(UPDATE_CFG.repo, app.getVersion(), (v, f) => {
     const pct = Math.floor(f * 100);
     if (pct >= shown + 5 || pct === 100) { shown = pct; set('downloading version ' + v + ': ' + pct + '%'); }
-  }, (v) => set('downloading version ' + v + ': 0%'))]);
+  }, (v) => set('downloading version ' + v + ': 0%'), Engine.devMode(state))]);
   if (id !== updRun) return;
   updating = 0;
   set(res.status === 'ready' ? 'version ' + res.version + ' downloaded, installs when nothing is locked' : res.status);
@@ -529,8 +545,8 @@ app.whenReady().then(() => {
   safe('shortcut', () => globalShortcut.register('CommandOrControl+Alt+Shift+K', emergencyStop));
   safe('autostart', () => setAutostart(local.autostart));
   if (KEEPALIVE_ON) {
-    safe('keepalive', () => KeepAlive.startWatchdog(DATA));
-    if (app.isPackaged) safe('keepalive-os', () => KeepAlive.installOsJob(DATA));
+    try { fs.unlinkSync(KA.guard); } catch (e) {}
+    if (app.isPackaged) safe('keepalive-os', () => KeepAlive.removeOsJob());   // comes back only while a lock or mode runs (see keepAlive)
     powerMonitor.on('shutdown', () => { try { fs.writeFileSync(KA.updating, 'shutdown'); } catch (e) {} });   // logging out / shutting down: don't reopen
   }
   safe('window', () => { if (local.firstRun) { local.firstRun = false; saveLocal(); showMain(); } else if (process.argv.includes('--show')) showMain(); });

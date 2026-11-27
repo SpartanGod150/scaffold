@@ -32,23 +32,24 @@ node tests/modes.guard.test.js >/dev/null
 
 echo "== build"
 REL=release; rm -rf "$REL" desktop/dist; mkdir -p "$REL"
-(cd desktop && npm run -s dist:mac >/dev/null && npm run -s dist:win >/dev/null)
+(cd desktop && npm run -s dist:mac >/dev/null && npm run -s dist:mac-x64 >/dev/null && npm run -s dist:win >/dev/null)
 ditto -c -k --keepParent desktop/dist/mac-arm64/Scaffold.app "$REL/Scaffold-mac-arm64.zip"
+ditto -c -k --keepParent desktop/dist/mac/Scaffold.app "$REL/Scaffold-mac-x64.zip"   # Intel Macs
 cp "desktop/dist/Scaffold-$NEW-win.zip" "$REL/Scaffold-win-x64.zip"
 android/build.sh >/dev/null
 cp android/build/Scaffold.apk "$REL/Scaffold.apk"
-(cd "$REL" && shasum -a 256 Scaffold-mac-arm64.zip Scaffold-win-x64.zip Scaffold.apk > SHA256SUMS.txt)
-rm -rf desktop/dist/win-unpacked   # disk is tight on this Mac
+(cd "$REL" && shasum -a 256 Scaffold-mac-arm64.zip Scaffold-mac-x64.zip Scaffold-win-x64.zip Scaffold.apk > SHA256SUMS.txt)
+rm -rf desktop/dist/win-unpacked desktop/dist/mac   # disk is tight on this Mac
 
 echo "== publish"
 git add -A && git commit -qm "Release $NEW: $NOTES" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git tag "v$NEW" && git push -q origin HEAD --tags
 gh release create "v$NEW" --repo "$REPO" --draft --title "Scaffold $NEW" --notes "$NOTES" "$REL/Scaffold.apk" "$REL/SHA256SUMS.txt"   # hidden until every file is up
 RID=$(gh release view "v$NEW" --repo "$REPO" --json databaseId -q .databaseId); TOKEN=$(gh auth token)
-for f in Scaffold-mac-arm64.zip Scaffold-win-x64.zip; do   # big files: gh upload times out (HTTP 408), curl with a long timeout works
+for f in Scaffold-mac-arm64.zip Scaffold-mac-x64.zip Scaffold-win-x64.zip; do   # big files: gh upload times out (HTTP 408), curl with a long timeout works
   for i in 1 2 3; do curl -sS --fail --max-time 1500 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" \
     --data-binary @"$REL/$f" "https://uploads.github.com/repos/$REPO/releases/$RID/assets?name=$f" -o /dev/null && break; echo "retry $f"; sleep 5; done
 done
-[ "$(gh release view "v$NEW" --repo "$REPO" --json assets -q '[.assets[] | select(.state=="uploaded")] | length')" = 4 ] || { echo "release is missing files (left as a draft)"; exit 1; }
+[ "$(gh release view "v$NEW" --repo "$REPO" --json assets -q '[.assets[] | select(.state=="uploaded")] | length')" = 5 ] || { echo "release is missing files (left as a draft)"; exit 1; }
 gh release edit "v$NEW" --repo "$REPO" --draft=false --latest
 
 node tools/announce.js "$NEW" || true   # devices check right away instead of within 15 min

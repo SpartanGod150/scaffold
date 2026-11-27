@@ -1,4 +1,6 @@
-/* Always on: Scaffold comes back by itself unless the user chose "Quit Scaffold".
+/* Always on during locks and modes: Scaffold comes back by itself unless the user chose "Quit Scaffold".
+   Only while a deadline lock or a restriction mode runs (guard.flag): the rest of the time nothing watches or reopens it,
+   so antivirus programs don't see "a program that restarts itself" (user's pick, 0.7).
    Three layers:
    1. A tiny watchdog process (this file, run as plain Node by the app's own binary) watches the app and reopens it
       within ~2 s after a crash, Force Quit or Task Manager "End task".
@@ -14,7 +16,7 @@ const { spawn, execFileSync } = require('child_process');
 const UPDATE_GRACE = 180e3;
 
 function flags(dir) {
-  return { quit: path.join(dir, 'quit.flag'), updating: path.join(dir, 'updating.flag'), pid: path.join(dir, 'main.pid') };
+  return { quit: path.join(dir, 'quit.flag'), updating: path.join(dir, 'updating.flag'), pid: path.join(dir, 'main.pid'), guard: path.join(dir, 'guard.flag') };
 }
 
 // ---------- watchdog process (runs with ELECTRON_RUN_AS_NODE=1) ----------
@@ -26,7 +28,7 @@ function watchdogMain() {
   const t = setInterval(() => {
     if (alive(cfg.pid)) return;
     clearInterval(t);
-    if (fs.existsSync(F.quit)) return process.exit(0);                       // the user quit
+    if (fs.existsSync(F.quit) || !fs.existsSync(F.guard)) return process.exit(0);   // the user quit, or no lock / mode any more
     try { if (Date.now() - fs.statSync(F.updating).mtimeMs < UPDATE_GRACE) return process.exit(0); } catch (e) {}   // updating: the updater reopens it
     setTimeout(() => {
       if (fs.existsSync(F.quit)) return process.exit(0);
@@ -68,6 +70,7 @@ function installOsJob(dir) {
       'D=' + q(dir), 'APP=' + q(bundle), 'PL=' + q(plist),
       '[ -d "$APP" ] || { rm -f "$PL"; launchctl bootout gui/$(id -u)/' + label + ' 2>/dev/null; exit 0; }   # app deleted: remove myself',
       '[ -f "$D/quit.flag" ] && exit 0',
+      '[ -f "$D/guard.flag" ] || exit 0   # only during locks and modes',
       'if [ -f "$D/updating.flag" ] && [ $(( $(date +%s) - $(stat -f %m "$D/updating.flag") )) -lt 180 ]; then exit 0; fi',
       'P=$(cat "$D/main.pid" 2>/dev/null)',
       '[ -n "$P" ] && ps -p "$P" -o comm= 2>/dev/null | grep -q "Scaffold$" && exit 0',
@@ -101,6 +104,7 @@ function installOsJob(dir) {
       `D = "${v(dir)}"`, `EXE = "${v(exe)}"`,
       'If Not fso.FileExists(EXE) Then WScript.Quit',
       'If fso.FileExists(D & "\\quit.flag") Then WScript.Quit',
+      'If Not fso.FileExists(D & "\\guard.flag") Then WScript.Quit',
       'If fso.FileExists(D & "\\updating.flag") Then',
       '  If DateDiff("s", fso.GetFile(D & "\\updating.flag").DateLastModified, Now) < 180 Then WScript.Quit',
       'End If',
@@ -121,6 +125,20 @@ function installOsJob(dir) {
   return 'unsupported';
 }
 
-module.exports = { flags, startWatchdog, installOsJob, UPDATE_GRACE };
+/** Removes the OS job (no lock or mode running any more). */
+function removeOsJob() {
+  try {
+    if (process.platform === 'darwin') {
+      const label = 'com.scaffold.keepalive', plist = path.join(os.homedir(), 'Library/LaunchAgents', label + '.plist');
+      if (!fs.existsSync(plist)) return 'none';
+      try { execFileSync('launchctl', ['bootout', `gui/${process.getuid()}/${label}`], { stdio: 'ignore' }); } catch (e) {}
+      fs.unlinkSync(plist); return 'removed';
+    }
+    if (process.platform === 'win32') { execFileSync('schtasks', ['/Delete', '/F', '/TN', 'ScaffoldKeepAlive'], { stdio: 'ignore', windowsHide: true }); return 'removed'; }
+  } catch (e) { return 'none'; }
+  return 'unsupported';
+}
+
+module.exports = { flags, startWatchdog, installOsJob, removeOsJob, UPDATE_GRACE };
 
 if (require.main === module) watchdogMain();

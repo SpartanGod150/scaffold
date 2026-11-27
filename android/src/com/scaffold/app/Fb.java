@@ -22,6 +22,7 @@ import java.util.List;
 /** Firebase Realtime Database channel (same layout as desktop/firebase.js): the main sync path once its address is in
  *  the shared state (cfg.fb.url). New messages are pushed over a streaming connection within about a second. */
 public final class Fb {
+    static final String DEFAULT = "https://scaffold-sync-default-rtdb.firebaseio.com";
     static volatile boolean ok = false;
     private static volatile String activeBase = "";
     private static final ArrayDeque<String> outbox = new ArrayDeque<>();
@@ -54,8 +55,8 @@ public final class Fb {
 
     static String base(Context c) {
         JSONObject cfg = Store.state(c).optJSONObject("cfg"), f = cfg == null ? null : cfg.optJSONObject("fb");
-        if (f == null || f.optBoolean("del")) return "";
-        return f.optString("url", "").replaceAll("/+$", "");
+        String u = f == null || f.optBoolean("del") ? "" : f.optString("url", "");
+        return (u.isEmpty() ? DEFAULT : u).replaceAll("/+$", "");   // built-in sync unless the shared settings name another
     }
 
     /** Starts or restarts the listener when the address or sync code changes. Called often; cheap when nothing changed. */

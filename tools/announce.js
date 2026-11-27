@@ -15,6 +15,6 @@ const ntfy = new Promise((ok) => {
 });
 const google = local.calUrl ? C.call(local.calUrl, { secret: local.calSecret, op: 'relay-post', msgs: [msg] }).then(() => 'google ok', (e) => 'google failed (' + e.message + ')') : Promise.resolve('no google script');
 const st = (() => { try { return JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')); } catch (e) { return {}; } })();
-const fbUrl = st.cfg && st.cfg.fb && !st.cfg.fb.del && st.cfg.fb.url;
+const fbUrl = E.fbUrl(st);
 const fb = fbUrl ? require('../desktop/firebase.js').req('POST', fbUrl + '/s/' + S.topicFor(local.syncCode) + '/m.json', { d: msg, t: { '.sv': 'timestamp' } }).then(() => 'firebase ok', (e) => 'firebase failed (' + e.message + ')') : Promise.resolve('no firebase');
 Promise.all([fb, ntfy, google]).then((r) => console.log('announce ' + v + ': ' + r.join(', ')));

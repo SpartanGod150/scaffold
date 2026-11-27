@@ -176,7 +176,11 @@
     whatsapp: function () { B.openWhatsApp(); },
     dialer: function () { B.openDialer(); },
     openApp: function (pkg) { B.openApp(pkg); },
-    close: function () { B.closeWindow(); },
+    close: function () {
+      // "Later" on a task / habit pop-up closes it on every device (like "Got it" on notes).
+      if (S.mode === 'remind' && S.modeTask) apply(E.opAck('pop:' + S.modeTask, by(), now()));
+      B.closeWindow();
+    },
     evGot: function () { B.closeWindow(); },
     nav: function (v) { if (v !== 'calendar') { S.calSel = {}; S.selSig = ''; } S.view = v; S.project = ''; try { localStorage.setItem('scaffold-view', v); } catch (e) {} render(); window.scrollTo(0, 0); },
     editHabit: function (id) { openHabitEditor(id && S.state.tasks[id] ? JSON.parse(JSON.stringify(S.state.tasks[id])) : null); },
@@ -366,7 +370,9 @@
     if (S.mode === 'block') { S.mode = 'main'; if (PLATFORM === 'desktop') return B.closeWindow(); }
     if (S.mode === 'evremind') { var evp = !S.r.paused && evRemindView(S.modeTask); return evp ? paint(evp) : B.closeWindow(); }
     if (S.mode === 'remind') {
-      var it = item(S.modeTask);
+      var it = item(S.modeTask), ak = (S.state.acks || {})['pop:' + S.modeTask];
+      if (!S.popAt) S.popAt = now();
+      if (ak && ak.at > S.popAt - 60000) return B.closeWindow();   // "Later" tapped on another device (this round)
       if (it && !it.done && !S.r.paused) return paint(remindView(it));
       return B.closeWindow();
     }
@@ -1329,7 +1335,8 @@
   function allModes() { return [E.FULL_LOCK].concat(live('modes').sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); })); }
   function lockModeName(t) { var m = E.modeById(S.state, t.lockMode || 'full') || E.FULL_LOCK; return m.name; }
   function androidPreset() { return { apps: ['com.whatsapp', 'com.whatsapp.w4b', 'com.scaffold.app'], sites: [] }; }
-  function presetFor(d) { return d.platform === 'android' ? androidPreset() : d.platform === 'mac' ? { apps: ['com.operasoftware.Opera', 'com.operasoftware.OperaGX', 'net.whatsapp.WhatsApp', 'desktop.WhatsApp', 'com.scaffold.desktop'], sites: ['web.whatsapp.com'] } : { apps: ['opera.exe', 'whatsapp.exe', 'scaffold.exe'], sites: ['web.whatsapp.com'] }; }
+  // Same as desktop/modes.js PRESET: the browsers Scaffold can filter, WhatsApp and Scaffold.
+  function presetFor(d) { return d.platform === 'android' ? androidPreset() : d.platform === 'mac' ? { apps: ['com.operasoftware.Opera', 'com.operasoftware.OperaGX', 'com.google.Chrome', 'com.microsoft.edgemac', 'com.brave.Browser', 'com.vivaldi.Vivaldi', 'com.apple.Safari', 'net.whatsapp.WhatsApp', 'desktop.WhatsApp', 'com.scaffold.desktop'], sites: ['web.whatsapp.com'] } : { apps: ['opera.exe', 'chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe', 'vivaldi.exe', 'whatsapp.exe', 'scaffold.exe'], sites: ['web.whatsapp.com'] }; }
   // Devices that published their apps (records may be split in parts: id#n). This device is listed even before it has.
   function devices() {
     var by = {}, d = S.state.devs || {};
@@ -1496,6 +1503,8 @@
   }
 
   // ---------- Settings ----------
+  // The dev's own devices (shared flag cfg.dev): dev-only tools show, every small update installs.
+  function isDev() { return E.devMode(S.state); }
   function settingsView() {
     var L = S.local, h = '<div class="sec-head"><h2>Settings</h2></div><div class="panels">';
     h += '<section class="panel kill">' + (S.r.paused
@@ -1506,11 +1515,11 @@
       h += '<p>Type this code on your other devices:</p><div class="code" data-a="copyCode">' + esc(L.syncCode) + '</div>' +
         '<p class="muted">Status: <span class="dot ' + (/connected/.test(L.sync && L.sync.status) ? 'ok' : '') + '"></span>' + esc(L.sync && L.sync.status || '…') + '</p>' +
         '<button class="btn ghost sm" data-a="leaveSync">Disconnect</button>' +
-        (function () {
+        (!isDev() ? '' : function () {   // dev only: everyone else uses the built-in sync
           var fb = S.state.cfg && S.state.cfg.fb, url = fb && !fb.del ? fb.url || '' : '';
           return '<label class="field" style="margin-top:12px">⚡ Instant sync (Firebase database URL) <small>' + (url ? 'set once, shared with every device' : 'not set: devices use the slower backup routes') + '</small>' +
             '<div class="join"><input id="fb-url" value="' + esc(url) + '" placeholder="https://name-default-rtdb.firebaseio.com" autocapitalize="off" autocomplete="off"><button class="btn" data-a="saveFb">Save</button></div></label>';
-        })();
+        }());
     } else {
       h += '<p>Create a code on your first device, then join with it everywhere else.</p><button class="btn primary" data-a="newCode">Create sync code</button>' +
         '<div class="join"><input id="join-code" placeholder="maple-otter-quartz-river-1234" autocapitalize="off" autocomplete="off"><button class="btn" data-a="joinCode">Join</button></div>';
@@ -1527,7 +1536,7 @@
       h += '<section class="panel"><h3>📱 Permissions</h3>' + P.map(function (p) {
         var ok = L.perms[p[0]];
         return '<div class="perm"><span class="perm-ic">' + (ok ? '✅' : '⚠️') + '</span><span class="perm-txt"><b>' + p[1] + '</b><small>' + p[2] + '</small></span>' + (ok ? '' : '<button class="btn sm" data-a="perm" data-id="' + p[0] + '">Fix</button>') + '</div>';
-      }).join('') + '<div class="perm"><span class="perm-ic">' + (L.perms.grayscale ? '✅' : '➖') + '</span><span class="perm-txt"><b>Grey screen while locked (optional)</b><small>' + (L.perms.grayscale ? 'On: the screen turns grey during locks.' : 'Needs a one-time computer command; see the setup guide.') + '</small></span></div>' +
+      }).join('') + (!isDev() ? '' : '<div class="perm"><span class="perm-ic">' + (L.perms.grayscale ? '✅' : '➖') + '</span><span class="perm-txt"><b>Grey screen while locked (optional)</b><small>' + (L.perms.grayscale ? 'On: the screen turns grey during locks.' : 'Needs a one-time computer command; see the setup guide.') + '</small></span></div>') +
         '<button class="btn ghost sm" data-a="perm" data-id="appInfo">Open app info</button></section>';
     }
     if (PLATFORM === 'desktop') {
@@ -1555,9 +1564,9 @@
     } else {
       h += '<section class="panel"><h3>📅 Google Calendar · 🗂️ Obsidian</h3><p class="muted">These connect from a computer (Settings there). Everything they bring in shows up here too.</p></section>';
     }
-    h += '<section class="panel"><h3>🧪 Try it</h3><p>Check that everything works before you rely on it.</p><div class="row-btns"><button class="btn" data-a="test" data-id="remind">Test reminder (all devices)</button><button class="btn" data-a="test" data-id="lock">Test lock (all devices)</button></div></section>';
+    if (isDev()) h += '<section class="panel"><h3>🧪 Try it</h3><p>Check that everything works before you rely on it.</p><div class="row-btns"><button class="btn" data-a="test" data-id="remind">Test reminder (all devices)</button><button class="btn" data-a="test" data-id="lock">Test lock (all devices)</button></div></section>';
     h += '<section class="panel"><h3>🧯 Removing Scaffold</h3><p class="muted">Emergency stop frees every device instantly. To remove it completely:<br>' +
-      '<b>Android:</b> Settings → Apps → Scaffold → Uninstall.<br><b>Mac:</b> menu bar icon → Quit, then delete the app.<br><b>Windows:</b> tray icon → Quit, then delete the folder.<br>If anything ever gets stuck: <b>Android</b> Settings → Apps → Scaffold → Force stop; <b>computers</b> tray / menu bar icon → Quit Scaffold (Force Quit and Task Manager reopen it within seconds).</p></section>';
+      '<b>Android:</b> Settings → Apps → Scaffold → Uninstall.<br><b>Mac:</b> menu bar icon → Quit, then delete the app.<br><b>Windows:</b> tray icon → Quit, then delete the folder.<br>If anything ever gets stuck: <b>Android</b> Settings → Apps → Scaffold → Force stop; <b>computers</b> tray / menu bar icon → Quit Scaffold (during a lock or mode, Force Quit and Task Manager reopen it within seconds).</p></section>';
     var U = L.update || {};
     h += '<section class="panel"><h3>⬆️ Updates</h3><p>Version <b>' + esc(L.version || '?') + '</b>. ' + (PLATFORM === 'android' ? 'New versions download by themselves; Android may ask you to tap Install.' : 'New versions install by themselves, never during a lock.') + '</p>' +
       (U.status ? '<p class="muted">Last check: ' + esc(U.status) + (U.checked ? ' (' + new Date(U.checked).toLocaleString() + ')' : '') + '</p>' : '') +
@@ -2577,6 +2586,6 @@
   }
   function paintUpd() { var el = document.getElementById('updBox'); if (el) el.innerHTML = updBtn(); }
   setInterval(function () { if (S.updClick || S.updShow) { if (S.updShow && now() >= S.updShow) { S.updShow = 0; S.updStale = 0; } paintUpd(); } }, 1000);
-  window.setMode = function (mode, task) { S.mode = mode || 'main'; S.modeTask = task || ''; if (!S.modalOpen) render(); };
+  window.setMode = function (mode, task) { S.mode = mode || 'main'; S.modeTask = task || ''; S.popAt = 0; if (!S.modalOpen) render(); };
   render();
 })();

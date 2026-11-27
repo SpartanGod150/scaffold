@@ -7,7 +7,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn, execFileSync } = require('child_process');
 
-const ASSET = process.platform === 'darwin' ? 'Scaffold-mac-arm64.zip' : 'Scaffold-win-x64.zip';
+// Macs with Apple chips (M1 and newer) and Intel Macs get their own package; Windows on ARM runs the x64 one.
+const ASSET = process.platform === 'darwin' ? (process.arch === 'arm64' ? 'Scaffold-mac-arm64.zip' : 'Scaffold-mac-x64.zip') : 'Scaffold-win-x64.zip';
 
 function get(url, redirects = 5, onProgress) {
   return new Promise((resolve, reject) => {
@@ -79,10 +80,19 @@ function latestTag(repo) {
   }).then(async (tag) => tag || String(JSON.parse((await get(`https://api.github.com/repos/${repo}/releases/latest`)).toString('utf8')).tag_name || '').replace(/^v/, ''));
 }
 
-/** Returns { status, version?, file? }. status: 'up to date' | 'ready' | 'error: …'. onFound(version) fires as soon as a newer one is seen. */
-async function check(repo, current, onProgress, onFound) {
+/** The version testers get: the repo's stable.txt (the dev promotes a release there). */
+async function stableTag(repo) {
+  // 'none' = no tester release yet (stable.txt doesn't exist); null = couldn't check (stay put).
+  try { const v = (await get(`https://raw.githubusercontent.com/${repo}/main/stable.txt`)).toString('utf8').trim().replace(/^v/, ''); return /^\d+\.\d+\.\d+$/.test(v) ? v : null; }
+  catch (e) { return /HTTP 404/.test(e.message) ? 'none' : null; }
+}
+
+/** Returns { status, version?, file? }. status: 'up to date' | 'ready' | 'error: …'. onFound(version) fires as soon as a newer one is seen.
+ *  dev = this is one of the dev's devices (every release); otherwise only the promoted stable version. */
+async function check(repo, current, onProgress, onFound, dev) {
   try {
-    const latest = await latestTag(repo);
+    let latest = dev ? 'none' : await stableTag(repo);
+    if (latest === 'none') latest = await latestTag(repo);   // the dev's devices, or no tester release yet: every release
     if (!latest || !newer(latest, current)) return { status: 'up to date' };
     if (onFound) onFound(latest);
     const dl = `https://github.com/${repo}/releases/download/v${latest}/`;

@@ -142,6 +142,12 @@ public final class Engine {
 
     // ---------- habits ----------
     // repeat: "weekdays" (default: picked weekdays, none = every day; each day is a period), "week", "month", "every" (every N days).
+    /** The dev's own devices (cfg.dev in the dev's sync data): every update and the dev-only tools. */
+    static boolean devMode(JSONObject state) {
+        JSONObject cfg = state == null ? null : state.optJSONObject("cfg"), d = cfg == null ? null : cfg.optJSONObject("dev");
+        return d != null && !d.optBoolean("del") && d.optBoolean("on");
+    }
+
     static boolean weekdayOk(JSONObject task, long t) {
         JSONArray days = task.optJSONArray("days");
         if (days == null || days.length() == 0) return true;

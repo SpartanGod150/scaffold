@@ -21,11 +21,15 @@ const ALWAYS = MAC
      'securityhealthsystray.exe', 'securityhealthservice.exe', 'smartscreen.exe', 'filecoauth.exe', 'useroobebroker.exe', 'widgets.exe',
      'widgetservice.exe', 'phoneexperiencehost.exe', 'crossdeviceresume.exe', 'gamebarpresencewriter.exe', 'nvcontainer.exe',
      'nvdisplay.container.exe', 'msedgewebview2.exe', 'wfs.exe', 'tabtip.exe', 'mip.exe', 'consent.exe', 'werfault.exe', 'backgroundtaskhost.exe'];
-// Unblockable until the user sets the list: the browser (websites are filtered inside it), WhatsApp and Scaffold.
+// Browsers whose page address Scaffold can read (0.7; a browser add-on replaces this in 0.9).
+// Mac: through AppleScript (Firefox has none, so it can't be read on Mac). Windows: the address bar, through UI Automation.
+const BROWSERS_MAC = { 'com.operasoftware.Opera': 'tab', 'com.operasoftware.OperaGX': 'tab', 'com.google.Chrome': 'tab', 'com.microsoft.edgemac': 'tab',
+  'com.brave.Browser': 'tab', 'com.vivaldi.Vivaldi': 'tab', 'com.apple.Safari': 'safari' };
+const BROWSERS_WIN = ['opera.exe', 'chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe', 'vivaldi.exe'];
+// Unblockable until the user sets the list: the browsers Scaffold can filter (websites are blocked inside them), WhatsApp and Scaffold.
 const PRESET = MAC
-  ? { apps: ['com.operasoftware.Opera', 'com.operasoftware.OperaGX', 'net.whatsapp.WhatsApp', 'desktop.WhatsApp', 'com.scaffold.desktop'], sites: ['web.whatsapp.com'] }
-  : { apps: ['opera.exe', 'whatsapp.exe', 'scaffold.exe'], sites: ['web.whatsapp.com'] };
-const OPERA_MAC = ['com.operasoftware.Opera', 'com.operasoftware.OperaGX'];
+  ? { apps: Object.keys(BROWSERS_MAC).concat(['net.whatsapp.WhatsApp', 'desktop.WhatsApp', 'com.scaffold.desktop']), sites: ['web.whatsapp.com'] }
+  : { apps: BROWSERS_WIN.concat(['whatsapp.exe', 'scaffold.exe']), sites: ['web.whatsapp.com'] };
 const WAIT_MS = 2 * 60000, MAX_WAITS = 3;
 
 function run(cmd, args, opts) {
@@ -104,8 +108,9 @@ async function frontBrowser() {
     const asn = (await run('lsappinfo', ['front'])).trim();
     const m = asn ? /="([^"]+)"/.exec(await run('lsappinfo', ['info', '-only', 'bundleid', asn])) : null;
     const id = m ? m[1] : '';
-    if (!OPERA_MAC.includes(id)) return null;
-    const out = await run('osascript', ['-e', 'tell application id "' + id + '" to if (count of windows) > 0 then return (URL of active tab of front window) & "\n" & ((bounds of front window) as text)'], { timeout: 4000 });
+    const kind = BROWSERS_MAC[id]; if (!kind) return null;
+    const tab = kind === 'safari' ? 'current tab' : 'active tab';
+    const out = await run('osascript', ['-e', 'tell application id "' + id + '" to if (count of windows) > 0 then return (URL of ' + tab + ' of front window) & "\n" & ((bounds of front window) as text)'], { timeout: 4000 });
     const [url, b] = out.trim().split('\n');
     const n = (b || '').split(/,\s*/).map(Number);
     if (n.length < 4 || n.some(isNaN)) return { url: url || '', rect: null };
@@ -119,7 +124,7 @@ const WIN_WATCH = "Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes;"
   "Add-Type @'\nusing System;using System.Runtime.InteropServices;public class W{[DllImport(\"user32.dll\")]public static extern IntPtr GetForegroundWindow();[DllImport(\"user32.dll\")]public static extern uint GetWindowThreadProcessId(IntPtr h,out uint p);[DllImport(\"user32.dll\")]public static extern bool GetWindowRect(IntPtr h,out RECT r);public struct RECT{public int L,T,R,B;}}\n'@;" +
   "$ec=New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::ControlTypeProperty,[Windows.Automation.ControlType]::Edit);" +
   "while($true){$o=@{proc=''};try{$h=[W]::GetForegroundWindow();$q=[uint32]0;[W]::GetWindowThreadProcessId($h,[ref]$q)|Out-Null;$p=Get-Process -Id $q -ErrorAction SilentlyContinue;" +
-  "if($p -and $p.ProcessName -match '^opera'){$r=New-Object W+RECT;[W]::GetWindowRect($h,[ref]$r)|Out-Null;$u='';$el=[Windows.Automation.AutomationElement]::FromHandle($h);$ed=$el.FindFirst([Windows.Automation.TreeScope]::Descendants,$ec);" +
+  "if($p -and $p.ProcessName -match '^(opera|chrome|msedge|firefox|brave|vivaldi)$'){$r=New-Object W+RECT;[W]::GetWindowRect($h,[ref]$r)|Out-Null;$u='';$el=[Windows.Automation.AutomationElement]::FromHandle($h);$ed=$el.FindFirst([Windows.Automation.TreeScope]::Descendants,$ec);" +
   "if($ed){try{$u=$ed.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value}catch{}};$o=@{proc=$p.ProcessName;url=$u;x=$r.L;y=$r.T;w=$r.R-$r.L;h=$r.B-$r.T}}}catch{};" +
   "[Console]::Out.WriteLine(($o|ConvertTo-Json -Compress));[Console]::Out.Flush();Start-Sleep -Milliseconds 1000}";
 function startWinWatch(toDip) {

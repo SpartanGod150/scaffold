@@ -34,7 +34,7 @@ function send(patch) {
   const fb = state.cfg && state.cfg.fb, rl = state.cfg && state.cfg.relay;
   const relay = local.calUrl ? { url: local.calUrl, secret: local.calSecret } : rl && !rl.del && rl.url ? { url: rl.url, secret: rl.secret } : null;
   const s = new Sync({ code: local.syncCode, deviceId: BY + '-' + (local.deviceId || 'x'), since: '', onPatch() {}, onStatus() {}, onSince() {},
-    firebase: () => (fb && !fb.del && fb.url ? fb.url : null), fbSince: Date.now(), onFbSince() {}, relay: () => relay });
+    firebase: () => E.fbUrl(state), fbSince: Date.now(), onFbSince() {}, relay: () => relay });
   try { s._fbStart(); } catch (e) {}
   s.publish(E.chunks(patch), false);
   const t0 = Date.now();

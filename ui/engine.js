@@ -21,6 +21,13 @@
   var NAG_STOP = '23:30';
   var MAX_SNOOZES = 2;
   var SNOOZE_MIN = 10;
+  // Built-in instant sync (Firebase), used unless the shared settings name another one (cfg.fb). Every user's messages are
+  // encrypted with their own sync code, under a topic made from it, so users never see each other's data.
+  var FB_DEFAULT = 'https://scaffold-sync-default-rtdb.firebaseio.com';
+  function fbUrl(state) { var f = state && state.cfg && state.cfg.fb; return f && !f.del && f.url ? f.url : FB_DEFAULT; }
+  // The dev's own devices (cfg.dev, set only in the dev's sync data) get every small update and the dev-only tools.
+  // Everyone else (testers) only gets the versions promoted in the repo's stable.txt, and never sees the dev tools.
+  function devMode(state) { var d = state && state.cfg && state.cfg.dev; return !!(d && !d.del && d.on); }
   var MAPS = ['tasks', 'todos', 'projects', 'events', 'notes', 'acks', 'vault', 'comps', 'snoozes', 'log', 'cfg', 'marks', 'sess', 'modes', 'devs'];   // cfg.relay = Google backup mailbox {url, secret}; marks = "Show in monthly" per event (key: event id, or 'gid:'+gid for repeating Google events)
 
   function pad(n) { return (n < 10 ? '0' : '') + n; }
@@ -805,7 +812,7 @@
 
   return {
     MIN: MIN, DAY: DAY, MAPS: MAPS, MAX_SNOOZES: MAX_SNOOZES, SNOOZE_MIN: SNOOZE_MIN,
-    pad: pad, dateKey: dateKey, fromKey: fromKey, addDays: addDays, daysBetween: daysBetween, at: at, hhmm: hhmm, compKey: compKey, uid: uid, emptyState: emptyState,
+    fbUrl: fbUrl, FB_DEFAULT: FB_DEFAULT, devMode: devMode, pad: pad, dateKey: dateKey, fromKey: fromKey, addDays: addDays, daysBetween: daysBetween, at: at, hhmm: hhmm, compKey: compKey, uid: uid, emptyState: emptyState,
     newer: newer, merge: merge, eventsFor: eventsFor, parseRule: parseRule, buildRule: buildRule, expandRule: expandRule, dropPulledCopies: dropPulledCopies, isPulledCopy: isPulledCopy, scheduledOn: scheduledOn, habitPeriod: habitPeriod, pushOf: pushOf, lockOf: lockOf, hasDue: hasDue, timing: timing, reminderTimes: reminderTimes, periodOf: periodOf,
     compute: compute, habitHistory: habitHistory, opSetDone: opSetDone, dueReminders: dueReminders, eventReminders: eventReminders, nextEventReminder: nextEventReminder, remOf: remOf, remIndex: remIndex, remLead: remLead, remWhen: remWhen, notePops: notePops, pendingNotes: pendingNotes, plainNote: plainNote, stats: stats,
     projectProgress: projectProgress, dayAgenda: dayAgenda, linkIndex: linkIndex, linkOf: linkOf, sessKey: sessKey, linkDone: linkDone, blocksFor: blocksFor, linkedBlocks: linkedBlocks, FULL_LOCK: FULL_LOCK, modeById: modeById, modeEvents: modeEvents, activeMode: activeMode, unblockOf: unblockOf, modeList: modeList, appBlocked: appBlocked, siteBlocked: siteBlocked, parseUrl: parseUrl, vaultProjects: vaultProjects, itemKey: itemKey,
