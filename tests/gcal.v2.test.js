@@ -1,5 +1,7 @@
 // Runs the real bridge script (ui/gcal-script.js, v2) against a fake Google Calendar API, through desktop/calendar.js.
-// Run: node tests/gcal.v2.test.js
+// Run: node tests/gcal.v2.test.js        (Apps Script bridge)
+//      node tests/gcal.v2.test.js api    (Sign in with Google: shared/gbridge.js talking REST to the same fake)
+const API_MODE = process.argv[2] === 'api';
 const http = require('http'), assert = require('assert'), crypto = require('crypto');
 const E = require('../shared/engine.js'), Cal = require('../desktop/calendar.js');
 global.window = {}; require('../ui/gcal-script.js');
@@ -97,6 +99,49 @@ const LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} })
 const ContentService = { MimeType: { JSON: 'json' }, createTextOutput: (s) => ({ s, setMimeType() { return this; } }) };
 const doPost = new Function('Calendar', 'Utilities', 'LockService', 'ContentService', 'CacheService', SRC + '\nreturn doPost;')(Calendar, Utilities, LockService, ContentService, {});
 
+
+// ---------- REST adapter: the same fake, reached the way shared/gbridge.js calls Google ----------
+function rest(method, url, headers, body) {
+  const u = new URL(url), p = u.pathname.replace('/calendar/v3', '').split('/').map(decodeURIComponent), q = {};
+  u.searchParams.forEach((v, k) => { q[k] = v === 'true' ? true : v === 'false' ? false : v; });
+  const b = body ? JSON.parse(body) : null;
+  let out;
+  try {
+    if (headers.Authorization !== 'Bearer tok') { const e = new Error('401'); e.code = 401; throw e; }
+    if (p[1] === 'users') {   // /users/me/calendarList[/id]
+      const id = p[4];
+      if (method === 'GET' && !id) out = Calendar.CalendarList.list();
+      else if (method === 'GET' && id === 'primary') out = { id: 'me@x' };
+      else if (method === 'POST') out = Calendar.CalendarList.insert(b);
+      else if (method === 'DELETE') out = (Calendar.CalendarList.remove(id), null);
+      else if (method === 'PATCH') out = Calendar.CalendarList.patch(b, id);
+    } else if (p[1] === 'colors') out = Calendar.Colors.get();
+    else if (p[1] === 'calendars' && !p[3]) {   // /calendars[/id]
+      if (method === 'POST') out = Calendar.Calendars.insert(b);
+      else if (method === 'PATCH') out = Calendar.Calendars.patch(b, p[2]);
+      else if (method === 'DELETE') out = (Calendar.Calendars.remove(p[2]), null);
+    } else {   // /calendars/c/events[/id[/instances|/move]]
+      const c = p[2], id = p[4], sub = p[5];
+      if (!id && method === 'GET') out = Calendar.Events.list(c, q);
+      else if (!id && method === 'POST') out = Calendar.Events.insert(b, c);
+      else if (sub === 'instances') out = Calendar.Events.instances(c, id, q);
+      else if (sub === 'move') out = Calendar.Events.move(c, id, q.destination);
+      else if (method === 'GET') out = Calendar.Events.get(c, id);
+      else if (method === 'PATCH') out = Calendar.Events.patch(b, c, id);
+      else if (method === 'DELETE') out = (Calendar.Events.remove(c, id), null);
+    }
+  } catch (e) {
+    const st = e.code || (/404|Not Found/.test(e.message) ? 404 : /410/.test(e.message) ? 410 : /Forbidden/.test(e.message) ? 403 : 400);
+    return Promise.resolve({ status: st, text: JSON.stringify({ error: { message: e.message } }) });
+  }
+  return Promise.resolve(out == null ? { status: 204, text: '' } : { status: 200, text: JSON.stringify(out) });
+}
+if (API_MODE) {
+  const GBridge = require('../shared/gbridge.js');
+  let expired = true;   // the first call has no token yet: checks the 401 -> fresh token -> retry path
+  Cal.setGoogle(GBridge.create({ http: rest, token: async () => (expired ? 'old' : 'tok'), expire: () => { expired = false; } }));
+}
+
 // ---------- HTTP wrapper (same redirect dance as Apps Script) ----------
 const results = {}; let rid = 1;
 const srv = http.createServer((req, res) => {
@@ -114,7 +159,7 @@ if (process.env.SERVE) {   // manual mode: serve the fake Google with a few even
   store['me@x'].s1 = { id: 's1', summary: 'Gym', recurrence: ['RRULE:FREQ=DAILY;COUNT=4'], start: { dateTime: new Date(at(0, '18:00')).toISOString() }, end: { dateTime: new Date(at(0, '19:00')).toISOString() }, updated: new Date(tick()).toISOString() };
   srv.listen(+process.env.SERVE, () => console.log('fake Google on', process.env.SERVE));
 } else srv.listen(0, async () => {
-  const url = 'http://127.0.0.1:' + srv.address().port + '/exec';
+  const url = API_MODE ? 'google' : 'http://127.0.0.1:' + srv.address().port + '/exec';
   const state = E.emptyState(), local = {};
   const run = async () => { const r = await Cal.syncOnce({ url, secret: SECRET, state, local, Engine: E, by: 'mac', apply: (p) => E.merge(state, p) }); state.gev = r.gev; return r; };
   const evs = () => Object.values(E.eventsFor(state));
@@ -213,7 +258,7 @@ if (process.env.SERVE) {   // manual mode: serve the fake Google with a few even
     assert.ok(ops().some((o) => o.op === 'delete' && o.cal === 'me@x' && o.err), 'the main calendar can\'t be deleted: reported, not retried forever'); ok();
     await run(); assert.strictEqual(Object.values(state.events).filter((e) => e.cal === study && !e.del).length, 0, 'its Scaffold copies are not sent back'); ok();
 
-    console.log(pass + ' bridge v2 checks passed');
+    console.log(pass + ' bridge v2 checks passed' + (API_MODE ? ' (Google API)' : ''));
   } catch (e) { console.error('FAIL', e); process.exitCode = 1; }
   srv.close();
 });

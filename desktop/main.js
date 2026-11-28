@@ -8,6 +8,8 @@ const { Sync } = require('./sync.js');
 const Modes = require('./modes.js');
 const Vault = require('./vault.js');
 const Calendar = require('./calendar.js');
+const Gauth = require('./gauth.js');
+let GBridge; try { GBridge = require('../shared/gbridge.js'); } catch (e) { GBridge = require('./ui/gbridge.js'); }   // packaged app: copied into ui/
 const Updater = require('./updater.js');
 const KeepAlive = require('./keepalive.js');
 const UPDATE_CFG = (() => { try { return require('./ui/update.json'); } catch (e) { return {}; } })();
@@ -105,7 +107,7 @@ function startSync() {
     onPatch: (p, isSnap) => { if (isSnap) local.lastSnapSeen = Date.now(); applyPatch(p, false); },
     onStatus: (s) => { local.sync = { status: s }; notifyUI(); },
     onSince: (id) => { local.since = id; saveLocalSoon(); },
-    relay: relayCfg,
+    relay: () => { const r = relayCfg(); return r && r.url !== 'google' ? r : null; },   // the backup mailbox is the script's only
     firebase: () => Engine.fbUrl(state),
     fbSince: local.fbSince || 0,
     onFbSince: (t) => { local.fbSince = t; saveLocalSoon(); },
@@ -117,6 +119,7 @@ function startSync() {
 }
 // Google backup mailbox (the calendar script): this computer's own link, else the one another device shared.
 function relayCfg() {
+  if (Engine.google(state)) return { url: 'google', secret: '' };   // "Sign in with Google" wins over the old script
   if (local.calUrl) return { url: local.calUrl, secret: local.calSecret };
   const r = state.cfg && state.cfg.relay;
   return r && !r.del && r.url ? { url: r.url, secret: r.secret } : null;
@@ -289,12 +292,14 @@ function calSoon() { if (!relayCfg()) return; clearTimeout(calT); calT = setTime
 let lastPull = 0;
 async function runCal() {
   if (calBusy) return;
-  const cfg = relayCfg();
-  if (!cfg) return;
+  const cfg = relayCfg(), g = Engine.google(state);
+  if (!cfg) { if (gev && gev._meta) { gev = {}; writeJSON(GEV_F, gev); notifyUI(); } return; }   // disconnected: Google's events go too
+  // One device sends Scaffold's edits to Google: with the sign-in, the one Engine.gPusher picks; with the script, its computer.
+  const pusher = g ? Engine.gPusher(state, Date.now()) === local.deviceId : !!local.calUrl;
   calBusy = true;
   try {
-    if (local.calUrl) {   // this computer owns the Google link: pull and push
-      const r = await Calendar.syncOnce({ url: local.calUrl, secret: local.calSecret, state, gev, local, Engine, by: local.deviceId, apply: (p) => applyPatch(p, true) });
+    if (pusher) {
+      const r = await Calendar.syncOnce({ url: g ? 'google' : local.calUrl, secret: local.calSecret, state, gev, local, Engine, by: local.deviceId, apply: (p) => applyPatch(p, true) });
       gev = r.gev; local.cal = { status: r.status }; local.scriptV = r.v;
     } else if (Date.now() - lastPull > 2.5 * 60000) {   // others only read Google (a cheap "anything new?" check, every 3 minutes)
       lastPull = Date.now();
@@ -302,9 +307,10 @@ async function runCal() {
       gev = Calendar.toGev(res, state.todos || {}, gev); local.cal = { status: 'read ' + new Date().toTimeString().slice(0, 5) + ' · ' + Calendar.evCount(gev) + ' Google events' };
     }
     writeJSON(GEV_F, gev);
+    if (g) fillGoogleEmail();
   } catch (e) {
     local.cal = { status: 'error: ' + e.message };
-    if (!local.calUrl) { lastPull = 0; clearTimeout(calT); calT = setTimeout(runCal, 30000 + Math.random() * 30000); }   // e.g. the script was busy: try again soon
+    if (!pusher) { lastPull = 0; clearTimeout(calT); calT = setTimeout(runCal, 30000 + Math.random() * 30000); }   // e.g. the script was busy: try again soon
   }
   calBusy = false; saveLocal(); notifyUI();
 }
@@ -461,6 +467,47 @@ ipcMain.on('set-local', (e, k, v) => {
   if (k === 'syncCode') { local.since = ''; startSync(); }
   if (k === 'deviceId') { local.catSig = ''; startSync(); setTimeout(publishCatalog, 5000); setTimeout(heartbeat, 6000); }
   if (k === 'autostart') setAutostart(local.autostart);
+  notifyUI();
+});
+// "Sign in with Google": signin / cancel / signout. The result is shared with every device (cfg.google).
+Calendar.setGoogle(GBridge.create({
+  http: Gauth.http,
+  token: async () => {
+    const g = Engine.google(state); if (!g) throw new Error('not signed in to Google');
+    try { const t = await Gauth.accessToken(g.rt); if (local.gsign && local.gsign.dead) { local.gsign = {}; notifyUI(); } return t; }
+    catch (e) { if (e.dead) { local.gsign = { dead: true }; notifyUI(); throw new Error('Google sign-in expired: sign in again in Settings'); } throw e; }
+  },
+  expire: () => { const g = Engine.google(state); if (g) Gauth.expire(g.rt); }
+}));
+let googleH = null, emailTry = 0;
+// The signed-in address, shown in Settings. Filled in by the device that signed in (again later if Google was slow).
+async function fillGoogleEmail() {
+  const g = Engine.google(state);
+  if (!g || g.email || g.by !== local.deviceId || Date.now() - emailTry < 60000) return;
+  emailTry = Date.now();
+  try { const email = await googleEmail(); const cur = Engine.google(state); if (email && cur && cur.rt === g.rt) applyPatch(Engine.opPut('cfg', Object.assign({}, cur, { email }), local.deviceId, Date.now()), true); }
+  catch (err) { console.error('google email', err.message); }
+}
+function googleEmail() { if (!googleH) googleH = GBridge.create({ http: Gauth.http, token: () => Gauth.accessToken(Engine.google(state).rt) }); return googleH.email(); }
+ipcMain.on('google', async (e, what) => {
+  if (what === 'cancel') return Gauth.cancel();
+  if (what === 'signout') {
+    const g = Engine.google(state);
+    if (g) { applyPatch(Engine.opDel('cfg', g, local.deviceId, Date.now()), true); Gauth.revoke(g.rt); }
+    local.gsign = {}; local.cal = { status: '' }; runCal(); notifyUI(); return;
+  }
+  if (what !== 'signin' || (local.gsign && local.gsign.busy)) return;
+  local.gsign = { busy: true }; notifyUI();
+  try {
+    const r = await Gauth.signIn((u) => shell.openExternal(u));
+    Gauth.seed(r.rt, r.at, r.exp);
+    const rec = { id: 'google', rt: r.rt, email: '', at: Date.now() };
+    applyPatch(Engine.opPut('cfg', rec, local.deviceId, Date.now()), true);
+    fillGoogleEmail();
+    local.gsign = {}; local.cal = { status: 'connecting…' }; lastPull = 0;
+    if (mainWin && !mainWin.isDestroyed()) { mainWin.show(); mainWin.focus(); }
+    runCal();
+  } catch (err) { local.gsign = { err: err.message === 'cancelled' ? '' : err.message }; }
   notifyUI();
 });
 ipcMain.on('open-whatsapp', openWhatsApp);

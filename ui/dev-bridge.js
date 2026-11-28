@@ -39,6 +39,7 @@
       for (var i = 1; i <= 27; i++) l.push({ pkg: 'dev.app' + i, label: 'Test App ' + i }); return JSON.stringify(l); },
     getLaunch: function () { return JSON.stringify({ mode: q.get('mode') || 'main', task: q.get('task') || '' }); },
     guard: function (what, id) { console.log('guard', what, id); },
+    google: function (what) { console.log('google', what); },
     test: function (k) { if (k === 'remind') alert('Test reminder: on devices this shows a notification and a pop-up.'); }
   };
 })();

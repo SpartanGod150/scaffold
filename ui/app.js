@@ -48,7 +48,7 @@
   function clock(ms) { ms = Math.max(0, ms); var s = Math.ceil(ms / 1000); return Math.floor(s / 60) + ':' + E.pad(s % 60); }
   function now() { return Date.now(); }
   function by() { return S.local.deviceId; }
-  function apply(patch) { if (!patch) return; if (!S.undoing) recordUndo(patch); B.apply(JSON.stringify(patch)); try { E.merge(S.state, JSON.parse(JSON.stringify(patch))); } catch (e) {} }
+  function apply(patch) { if (!patch) return; if (!S.undoing) recordUndo(patch); B.apply(JSON.stringify(patch)); try { E.merge(S.state, JSON.parse(JSON.stringify(patch))); } catch (e) {} if (patch.events || patch.cfg) gSoon(); }
 
   // ---- Undo / redo (Ctrl/⌘+Z, Ctrl+Y / ⌘⇧Z) for everything you change: events (made, edited, moved, deleted), tasks, habits,
   // notes, modes, completions… Each step remembers how the changed records were before; undoing writes them back as a
@@ -335,6 +335,11 @@
     },
     autostart: function (el) { B.setLocal('autostart', JSON.stringify(el.checked)); },
     saveVault: function () { B.setLocal('vaultPath', JSON.stringify(document.getElementById('vault-path').value.trim())); toast('Looking for your projects…'); },
+    gSignIn: function () { if (!B.google) return toast('Update Scaffold to sign in with Google'); B.google('signin'); S.local.gsign = { busy: true }; render(); },
+    gCancel: function () { B.google('cancel'); S.local.gsign = {}; render(); },
+    gSignOut: function () {
+      confirmBox('Disconnect Google Calendar?', 'On every device: Google events leave Scaffold, and Scaffold stops sending events to Google. Nothing is deleted from Google.', 'Disconnect', function () { B.google('signout'); toast('Disconnected'); });
+    },
     copyScript: function () { copy(window.GCAL_SCRIPT.replace('__SECRET__', S.local.calSecret || '')); },
     saveFb: function () {
       var v = document.getElementById('fb-url').value.trim().replace(/\/+$/, '');
@@ -1590,7 +1595,8 @@
       if (isDev()) h += '<section class="panel"><h3>🗂️ Obsidian vault</h3><p>Scaffold lists your <b>active</b> vault projects in Tasks, and ticks their Development items when you finish the matching task.</p>' +
         '<label class="field">Vault folder<input id="vault-path" value="' + esc(L.vaultPath || V.path || '') + '" placeholder="/path/to/Second Brain"></label><button class="btn ghost sm" data-a="saveVault">Save and scan</button>' +
         '<p class="muted">Status: ' + esc(V.status || 'not scanned yet') + '</p></section>';
-      h += '<section class="panel"><h3>📅 Google Calendar (two-way)</h3>' + (L.calUrl
+      h += googlePanel();
+      if (isDev() && !E.google(S.state)) h += '<section class="panel"><h3>📜 Apps Script bridge (dev)</h3>' + (L.calUrl
         ? (L.scriptOld || (L.scriptV && L.scriptV < 3) || calOpErr() || /Calendar API/.test(C.status || '') ? '<div class="callout"><p>⚠️ <b>Your Google script needs an update</b> (editing calendars: rename, colors, new, delete, subscribe). About 2 minutes:</p><ol class="steps">' +
             '<li><button class="btn sm" data-a="copyScript">Copy new script</button></li>' +
             '<li>Open <b>script.google.com</b> → your Scaffold project. Select all the code, delete it, paste.</li>' +
@@ -1605,9 +1611,7 @@
           '<li>Copy the <b>Web app URL</b> and paste it here:</li></ol>' +
           '<div class="join"><input id="cal-url" placeholder="https://script.google.com/macros/s/…/exec"><button class="btn" data-a="saveCal">Connect</button></div>' +
           '<p class="muted">Do this on one computer only. The script only works with the secret key built into it.</p>') + '</section>';
-    } else {
-      h += '<section class="panel"><h3>📅 Google Calendar' + (isDev() ? ' · 🗂️ Obsidian' : '') + '</h3><p class="muted">' + (isDev() ? 'These connect' : 'It connects') + ' from a computer (Settings there). Everything they bring in shows up here too.</p></section>';
-    }
+    } else h += googlePanel();
     if (isDev()) h += '<section class="panel"><h3>🧪 Try it</h3><p>Check that everything works before you rely on it.</p><div class="row-btns"><button class="btn" data-a="test" data-id="remind">Test reminder (all devices)</button><button class="btn" data-a="test" data-id="lock">Test lock (all devices)</button></div></section>';
     h += '<section class="panel"><h3>🧯 Removing Scaffold</h3><p class="muted">Emergency stop frees every device instantly. To remove it completely:<br>' +
       '<b>Android:</b> Settings → Apps → Scaffold → Uninstall.<br><b>Mac:</b> menu bar icon → Quit, then delete the app.<br><b>Windows:</b> tray icon → Quit, then delete the folder.<br>If anything ever gets stuck: <b>Android</b> Settings → Apps → Scaffold → Force stop; <b>computers</b> tray / menu bar icon → Quit Scaffold (during a lock or mode, Force Quit and Task Manager reopen it within seconds).</p></section>';
@@ -1617,6 +1621,23 @@
       '<div class="row-btns" id="updBox">' + updBtn() + '</div></section>';
     h += '</div><p class="muted center">Scaffold ' + esc(L.version || '') + ' · ' + esc(PLATFORM) + ' · ' + esc(L.deviceId) + '</p>';
     return h;
+  }
+
+  /* "Sign in with Google": one sign-in covers every device (shared through the encrypted sync). */
+  function googlePanel() {
+    var L = S.local, g = E.google(S.state), G = L.gsign || {}, C = L.cal || {};
+    var h = '<section class="panel"><h3>📅 Google Calendar</h3>';
+    if (g) {
+      h += '<p>✅ Connected' + (g.email ? ' as <b>' + esc(g.email) + '</b>' : '') + '. Covers all your devices.</p>';
+      if (G.dead) h += '<div class="callout"><p>⚠️ <b>Google ended the sign-in.</b> Sign in again to keep your calendar in sync.</p><button class="btn" data-a="gSignIn">Sign in again</button></div>';
+      if (C.status) h += '<p class="muted">Status: <span class="dot ' + (/synced|read/.test(C.status) ? 'ok' : '') + '"></span>' + esc(C.status) + '</p>';
+      return h + '<button class="btn ghost sm" data-a="gSignOut">Disconnect</button></section>';
+    }
+    h += '<p>Your Google Calendar events show up in Scaffold, and events you make in Scaffold go to Google. Sign in once, on any device.</p>';
+    if (G.busy) return h + '<p>⏳ <b>Finish signing in on Google\u2019s page</b> in your browser.</p><button class="btn ghost sm" data-a="gCancel">Cancel</button></section>';
+    if (G.err) h += '<p class="muted">⚠️ ' + esc(G.err) + '</p>';
+    return h + '<button class="btn" data-a="gSignIn">Sign in with Google</button>' +
+      '<p class="muted">Google may say it hasn\u2019t verified Scaffold yet. Tap <b>Advanced → Go to Scaffold</b> to continue.</p></section>';
   }
 
   // ---------- editors ----------
@@ -2627,6 +2648,34 @@
     if (notesNow !== lastNotes) { lastNotes = notesNow; if (!busy) render(); }
     if (m !== lastMinute) { lastMinute = m; if (!busy) render(); }
   }, 1000);
+
+  /* Phone as the device that sends Scaffold's calendar edits to Google ("Sign in with Google", no computer around: see
+     Engine.gPusher). Runs the same sync round as the computers (shared/calsync.js + shared/gbridge.js) while the app is
+     open, with the phone's network calls going through the bridge (B.gnet). Computers do this in their main process. */
+  var gNet = { n: 0, wait: {}, expire: false }, gRun = null, gBusy = false, gT = null;
+  window.__gdone = function (id, st, text) { var w = gNet.wait[id]; if (w) { delete gNet.wait[id]; w({ status: st, text: text }); } };
+  function gnet(kind, method, url, body) { var id = 'g' + (++gNet.n); return new Promise(function (res) { gNet.wait[id] = res; B.gnet(id, kind, method || '', url || '', body || ''); }); }
+  function gSync() {
+    if (PLATFORM !== 'android' || !B.gnet || !window.GBridge || !window.CalSync || S.mode !== 'main' || gBusy) return;
+    if (!E.google(S.state) || E.gPusher(S.state, now()) !== myDev()) return;
+    if (!gRun) {
+      var gb = GBridge.create({
+        http: function (m, u, h, b) { return gnet('http', m, u, b); },
+        token: function () { var ex = gNet.expire; gNet.expire = false; return gnet('token', ex ? 'expire' : '').then(function (r) { if (r.status !== 200) throw new Error(r.text); return r.text; }); },
+        expire: function () { gNet.expire = true; }
+      });
+      gRun = CalSync.make(function (url, body) { return gb.handle(body); });
+    }
+    var local = {}; try { local = JSON.parse(localStorage.getItem('scaffold-calmap') || '{}'); } catch (e) {}
+    gBusy = true;
+    gRun.syncOnce({ url: 'google', secret: '', state: S.state, gev: S.state.gev, local: local, Engine: E, by: myDev(),
+      apply: function (p) { B.apply(JSON.stringify(p)); try { E.merge(S.state, JSON.parse(JSON.stringify(p))); } catch (e) {} } })
+      .then(function (r) { S.state.gev = r.gev; B.setGev(JSON.stringify(r.gev)); try { localStorage.setItem('scaffold-calmap', JSON.stringify(local)); } catch (e) {} if (!S.modalOpen && !S.dragging) render(); })
+      .catch(function (e) { console.error('calendar', e); })
+      .then(function () { gBusy = false; });
+  }
+  function gSoon() { if (PLATFORM !== 'android') return; clearTimeout(gT); gT = setTimeout(gSync, 10000); }
+  setTimeout(gSync, 8000); setInterval(gSync, 3 * 60000);
 
   window.onNative = function () { if (S.dragging || S.noteEdit) { load(); return; } if (!S.modalOpen) render(); else load(); paintUpd(); };
   if (B.onNative) B.onNative(function () { window.onNative(); });   // desktop: the main process says something changed

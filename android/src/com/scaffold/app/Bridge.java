@@ -59,9 +59,40 @@ public class Bridge {
             p.put("installs", Build.VERSION.SDK_INT < 26 || a.getPackageManager().canRequestPackageInstalls());
             o.put("perms", p);
             o.put("version", Updater.version(a));
+            String gs = Store.get(a, "gsign", "");
+            JSONObject g = new JSONObject();
+            if ("busy".equals(gs)) g.put("busy", true); else if ("dead".equals(gs)) g.put("dead", true); else if (!gs.isEmpty()) g.put("err", gs);
+            o.put("gsign", g);
+            String cs = Store.get(a, "calStatus", "");
+            if (!cs.isEmpty() && GAuth.rec(a) != null) o.put("cal", new JSONObject().put("status", cs));
             JSONObject up = new JSONObject(); up.put("status", Store.get(a, "updStatus", "")); up.put("checked", Math.max(Store.getLong(a, "updChecked", 0), Store.getLong(a, "updAt", 0))); up.put("running", Updater.running()); o.put("update", up);
             return o.toString();
         } catch (Exception e) { return "{}"; }
+    }
+
+    /** "Sign in with Google": signin / cancel / signout (see GAuth). */
+    @JavascriptInterface public void google(String what) {
+        if ("signin".equals(what)) GAuth.signIn(a.getApplicationContext());
+        else if ("cancel".equals(what)) { GAuth.cancel(); GAuth.status(a, ""); }
+        else if ("signout".equals(what)) GAuth.signOut(a);
+    }
+    /** Network for the WebView's shared/gbridge.js (when the phone sends Scaffold's edits to Google). Answers through
+     *  window.__gdone(id, status, text). kind "token" = a Google access key (text), "http" = a request. */
+    @JavascriptInterface public void gnet(final String id, final String kind, final String method, final String url, final String body) {
+        new Thread(() -> {
+            int st; String text;
+            try {
+                if ("token".equals(kind)) { if ("expire".equals(method)) GAuth.expire(); st = 200; text = GAuth.token(a); }
+                else if (!url.startsWith("https://www.googleapis.com/calendar/v3/")) { st = 403; text = ""; }
+                else { Object[] r = GAuth.http(method, url, "application/json", "Bearer " + GAuth.token(a), body == null || body.isEmpty() ? null : body); st = (int) r[0]; text = (String) r[1]; }
+            } catch (Exception e) { st = 599; text = String.valueOf(e.getMessage()); }
+            final String js = "window.__gdone && window.__gdone(" + JSONObject.quote(id) + "," + st + "," + JSONObject.quote(text) + ")";
+            a.runOnUiThread(() -> { if (a.web != null) a.web.evaluateJavascript(js, null); });
+        }).start();
+    }
+    /** This device's copy of Google Calendar, after the WebView synced it. */
+    @JavascriptInterface public void setGev(String json) {
+        try { new JSONObject(json); Store.prefs(a).edit().putString("gev", json).apply(); Store.put(a, "calStatus", "synced " + new java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(new java.util.Date())); MainActivity.notifyState(); } catch (Exception ignored) {}
     }
 
     @JavascriptInterface public void apply(String patch) {

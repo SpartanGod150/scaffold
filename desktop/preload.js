@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('ScaffoldBridge', {
   listApps: () => '[]',
   test: (k) => ipcRenderer.send('test', k),
   guard: (what, id) => ipcRenderer.send('guard', what, id),
+  google: (what) => ipcRenderer.send('google', what),   // "Sign in with Google": signin / cancel / signout
   // The page registers its refresh here: with context isolation, this script can't see the page's own window.onNative.
   onNative: (fn) => { ipcRenderer.on('native', () => fn()); }
 });

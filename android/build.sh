@@ -11,7 +11,8 @@ OUT=build
 
 rm -rf "$OUT"; mkdir -p "$OUT/gen" "$OUT/classes" "$OUT/assets/ui"
 cp -R ../ui/. "$OUT/assets/ui/"
-cp ../shared/engine.js "$OUT/assets/ui/engine.js"
+cp ../shared/engine.js ../shared/gbridge.js ../shared/calsync.js "$OUT/assets/ui/"
+cp ../.secrets/google-oauth.json "$OUT/assets/google-client.json" 2>/dev/null || true   # the app's Google client (kept out of the public code)
 cp ../tests/fixture-out.json "$OUT/assets/" 2>/dev/null || true
 cp ../shared/update.json "$OUT/assets/ui/update.json"
 VER=$(tr -d ' \n' < ../VERSION); IFS=. read -r MA MI PA <<< "$VER"; CODE=$((MA*10000 + MI*100 + PA))

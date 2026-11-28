@@ -158,6 +158,7 @@ public final class Sync {
     static void handleFromFb(Context c, String code, String b64) { handleMsg(c, code, b64); }
 
     private static String[] relayCfg(Context c) {
+        if (GAuth.rec(c) != null) return new String[]{"google", ""};   // "Sign in with Google" wins over the old script
         JSONObject cfg = Store.state(c).optJSONObject("cfg"), r = cfg == null ? null : cfg.optJSONObject("relay");
         if (r == null || r.optBoolean("del") || r.optString("url").isEmpty()) return null;
         return new String[]{r.optString("url"), r.optString("secret")};
@@ -172,7 +173,8 @@ public final class Sync {
             if (cfg == null) continue;
             long now = System.currentTimeMillis();
             boolean active = backupActive();
-            if (now - lastPoll >= (active ? 9000 : 30000)) {
+            boolean google = "google".equals(cfg[0]);   // no backup mailbox with the sign-in (Firebase covers it)
+            if (!google && now - lastPoll >= (active ? 9000 : 30000)) {
                 lastPoll = now;
                 try {
                     JSONObject req = new JSONObject().put("secret", cfg[1]).put("op", "relay-poll").put("since", since).put("from", Store.deviceId(c)).put("listen", blocked() && !Fb.ok);
@@ -188,7 +190,7 @@ public final class Sync {
                 if (nowActive && !wasActive) snapshot(c, true);
                 wasActive = nowActive;
             }
-            gFlush(cfg);
+            if (!google) gFlush(cfg);
             if (pullSoon || now - lastPull > 5 * 60_000L) { pullSoon = false; lastPull = now; if (!pullCalendar(c, cfg)) lastPull = now - 4 * 60_000L; }   // failed: again in ~1 min   // a cheap "anything new?" check with bridge v2
         }
     }
@@ -205,7 +207,8 @@ public final class Sync {
             JSONObject req = new JSONObject().put("secret", cfg[1]).put("op", "pull").put("from", now - 45 * DAYMS).put("to", now + 300 * DAYMS);
             if (meta != null && meta.optInt("v") >= 2 && !meta.optString("sig").isEmpty() && now - meta.optLong("full") < 6 * 3600_000L)
                 req.put("since", meta.optLong("at")).put("sig", meta.optString("sig")).put("from", meta.optLong("full") - 45 * DAYMS).put("to", meta.optLong("full") + 300 * DAYMS);
-            JSONObject r = gcall(cfg[0], req);
+            JSONObject r = "google".equals(cfg[0]) ? GApi.pull(c, req) : gcall(cfg[0], req);
+            Store.put(c, "calStatus", "read " + new java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(new java.util.Date()));
             if (r.optBoolean("same") && meta != null) {
                 meta.put("at", r.optLong("now", now));
                 Store.prefs(c).edit().putString("gev", prev.toString()).apply();
@@ -248,7 +251,7 @@ public final class Sync {
             Store.prefs(c).edit().putString("gev", gev.toString()).apply();
             MainActivity.notifyState();
             return true;
-        } catch (Exception ignored) { return false; }
+        } catch (Exception e) { Store.put(c, "calStatus", "error: " + e.getMessage()); return false; }
     }
 
     static String hashId(String s) { int h = 0; for (int i = 0; i < s.length(); i++) h = h * 31 + s.charAt(i); return Long.toString(h & 0xffffffffL, 36); }

@@ -27,6 +27,7 @@ echo "== tests"
 node tests/engine.test.js >/dev/null
 node tests/gcal.mock.test.js >/dev/null
 node tests/gcal.v2.test.js >/dev/null
+node tests/gcal.v2.test.js api >/dev/null
 node tests/relay.mock.test.js >/dev/null
 node tests/modes.guard.test.js >/dev/null
 

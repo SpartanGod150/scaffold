@@ -28,6 +28,25 @@
   // The dev's own devices (cfg.dev, set only in the dev's sync data) get every small update and the dev-only tools.
   // Everyone else (testers) only gets the versions promoted in the repo's stable.txt, and never sees the dev tools.
   function devMode(state) { var d = state && state.cfg && state.cfg.dev; return !!(d && !d.del && d.on); }
+  // "Sign in with Google": cfg.google = { rt (refresh key), email, by (the device that signed in) }, shared by all devices.
+  function google(state) { var g = state && state.cfg && state.cfg.google; return g && !g.del && g.rt ? g : null; }
+  /* The one device that sends Scaffold's calendar edits to Google (every device reads Google itself). A computer that
+     checked in within 3 days if there is one (they run all the time; the lowest id, so all devices agree), else the
+     device that signed in, else any recently seen device. */
+  function gPusher(state, now) {
+    var g = google(state); if (!g) return '';
+    var d = (state && state.devs) || {}, seen = {}, plat = {}, IDLE = 3 * 864e5;
+    Object.keys(d).forEach(function (k) {
+      var r = d[k]; if (!r || r.del) return;
+      var base = k.split('#')[0]; seen[base] = Math.max(seen[base] || 0, r.ts || 0);
+      if (r.platform) plat[base] = r.platform;
+    });
+    var live = Object.keys(seen).filter(function (id) { return now - seen[id] < IDLE; }).sort();
+    var pcs = live.filter(function (id) { return plat[id] === 'mac' || plat[id] === 'win'; });
+    if (pcs.length) return pcs[0];
+    if (g.by && (live.indexOf(g.by) >= 0 || !live.length)) return g.by;
+    return live[0] || g.by || '';
+  }
   var MAPS = ['tasks', 'todos', 'projects', 'events', 'notes', 'acks', 'vault', 'comps', 'snoozes', 'log', 'cfg', 'marks', 'sess', 'modes', 'devs'];   // cfg.relay = Google backup mailbox {url, secret}; marks = "Show in monthly" per event (key: event id, or 'gid:'+gid for repeating Google events)
 
   function pad(n) { return (n < 10 ? '0' : '') + n; }
@@ -812,7 +831,7 @@
 
   return {
     MIN: MIN, DAY: DAY, MAPS: MAPS, MAX_SNOOZES: MAX_SNOOZES, SNOOZE_MIN: SNOOZE_MIN,
-    fbUrl: fbUrl, FB_DEFAULT: FB_DEFAULT, devMode: devMode, pad: pad, dateKey: dateKey, fromKey: fromKey, addDays: addDays, daysBetween: daysBetween, at: at, hhmm: hhmm, compKey: compKey, uid: uid, emptyState: emptyState,
+    fbUrl: fbUrl, FB_DEFAULT: FB_DEFAULT, devMode: devMode, google: google, gPusher: gPusher, pad: pad, dateKey: dateKey, fromKey: fromKey, addDays: addDays, daysBetween: daysBetween, at: at, hhmm: hhmm, compKey: compKey, uid: uid, emptyState: emptyState,
     newer: newer, merge: merge, eventsFor: eventsFor, parseRule: parseRule, buildRule: buildRule, expandRule: expandRule, dropPulledCopies: dropPulledCopies, isPulledCopy: isPulledCopy, scheduledOn: scheduledOn, habitPeriod: habitPeriod, pushOf: pushOf, lockOf: lockOf, hasDue: hasDue, timing: timing, reminderTimes: reminderTimes, periodOf: periodOf,
     compute: compute, habitHistory: habitHistory, opSetDone: opSetDone, dueReminders: dueReminders, eventReminders: eventReminders, nextEventReminder: nextEventReminder, remOf: remOf, remIndex: remIndex, remLead: remLead, remWhen: remWhen, notePops: notePops, pendingNotes: pendingNotes, plainNote: plainNote, stats: stats,
     projectProgress: projectProgress, dayAgenda: dayAgenda, linkIndex: linkIndex, linkOf: linkOf, sessKey: sessKey, linkDone: linkDone, blocksFor: blocksFor, linkedBlocks: linkedBlocks, FULL_LOCK: FULL_LOCK, modeById: modeById, modeEvents: modeEvents, activeMode: activeMode, unblockOf: unblockOf, modeList: modeList, appBlocked: appBlocked, siteBlocked: siteBlocked, parseUrl: parseUrl, vaultProjects: vaultProjects, itemKey: itemKey,
